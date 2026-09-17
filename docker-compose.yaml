@@ -1,0 +1,26 @@
+# PostgreSQL cho du an ngan hang gia lap.
+# Chay: docker compose up -d
+# Dat file .env cung thu muc voi file nay.
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?Thieu POSTGRES_DB trong .env}
+      POSTGRES_USER: ${POSTGRES_USER:?Thieu POSTGRES_USER trong .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Thieu POSTGRES_PASSWORD trong .env}
+      TZ: ${TZ:?Thieu TZ trong .env}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:?Thieu POSTGRES_PORT trong .env}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    stop_grace_period: 30s
+
+volumes:
+  postgres_data:
