@@ -1,7 +1,7 @@
 # Thiết lập môi trường
 
-Cài Python và mở terminal tại thư mục gốc dự án.
-
+Cài Python và mở terminal tại thư mục gốc dự án *(ko phải cài vì diện đã tạo sẵn)* .
+ 
 ## 1. Tạo file `.env`
 
 Sao chép `.env.example` thành `.env` trong cùng thư mục với `docker-compose.yml`.
