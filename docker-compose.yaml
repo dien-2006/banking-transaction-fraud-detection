@@ -1,25 +1,277 @@
+name: bank-fraud-detection
+
+x-airflow-common: &airflow-common
+  image: apache/airflow:${AIRFLOW_VERSION:-2.10.5}
+  restart: unless-stopped
+  env_file:
+    - .env
+  environment: &airflow-common-env
+    TZ: ${TZ:-Asia/Ho_Chi_Minh}
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__DEFAULT_TIMEZONE: ${TZ:-Asia/Ho_Chi_Minh}
+    AIRFLOW__WEBSERVER__DEFAULT_UI_TIMEZONE: ${TZ:-Asia/Ho_Chi_Minh}
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${AIRFLOW_DB_USER}:${AIRFLOW_DB_PASSWORD}@postgres-airflow:5432/${AIRFLOW_DB_NAME}
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+    PYTHONPATH: /opt/airflow
+  volumes:
+    - ./airflow/dags:/opt/airflow/dags
+    - ./airflow/logs:/opt/airflow/logs
+    - ./airflow/plugins:/opt/airflow/plugins
+    - ./src:/opt/airflow/src
+  networks:
+    - bank-network
+  depends_on:
+    postgres-airflow:
+      condition: service_healthy
 
 services:
-  postgres:
-    image: postgres:16
-    container_name: fraud_detection_postgres
+  # ============================================================
+  # 1. BANK OPERATIONAL DATABASE
+  # ============================================================
+  postgres-bank:
+    image: postgres:${POSTGRES_VERSION:-17}
+    container_name: bank-postgres
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:?Thieu POSTGRES_DB trong .env}
-      POSTGRES_USER: ${POSTGRES_USER:?Thieu POSTGRES_USER trong .env}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Thieu POSTGRES_PASSWORD trong .env}
-      TZ: ${TZ:?Thieu TZ trong .env}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      TZ: ${TZ:-Asia/Ho_Chi_Minh}
+      PGTZ: ${TZ:-Asia/Ho_Chi_Minh}
+    command:
+      - postgres
+      - -c
+      - timezone=${TZ:-Asia/Ho_Chi_Minh}
     ports:
-      - "127.0.0.1:${POSTGRES_PORT:?Thieu POSTGRES_PORT trong .env}:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_bank_data:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
       start_period: 10s
-    stop_grace_period: 30s
+    networks:
+      - bank-network
+
+  # ============================================================
+  # 2. KAFKA - 3 BROKERS, KRaft
+  # ============================================================
+  kafka1:
+    image: confluentinc/cp-kafka:${KAFKA_VERSION:-7.9.0}
+    container_name: bank-kafka1
+    hostname: kafka1
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "${KAFKA1_PORT:-9092}:9092"
+    environment:
+      TZ: ${TZ:-Asia/Ho_Chi_Minh}
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka1:29093,2@kafka2:29093,3@kafka3:29093
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9092,CONTROLLER://0.0.0.0:29093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka1:29092,EXTERNAL://localhost:${KAFKA1_PORT:-9092}
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
+      KAFKA_MIN_INSYNC_REPLICAS: 2
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      CLUSTER_ID: ${KAFKA_CLUSTER_ID}
+    volumes:
+      - kafka1_data:/var/lib/kafka/data
+    networks:
+      - bank-network
+
+  kafka2:
+    image: confluentinc/cp-kafka:${KAFKA_VERSION:-7.9.0}
+    container_name: bank-kafka2
+    hostname: kafka2
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "${KAFKA2_PORT:-9093}:9093"
+    environment:
+      TZ: ${TZ:-Asia/Ho_Chi_Minh}
+      KAFKA_NODE_ID: 2
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka1:29093,2@kafka2:29093,3@kafka3:29093
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9093,CONTROLLER://0.0.0.0:29093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka2:29092,EXTERNAL://localhost:${KAFKA2_PORT:-9093}
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
+      KAFKA_MIN_INSYNC_REPLICAS: 2
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      CLUSTER_ID: ${KAFKA_CLUSTER_ID}
+    volumes:
+      - kafka2_data:/var/lib/kafka/data
+    networks:
+      - bank-network
+
+  kafka3:
+    image: confluentinc/cp-kafka:${KAFKA_VERSION:-7.9.0}
+    container_name: bank-kafka3
+    hostname: kafka3
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "${KAFKA3_PORT:-9094}:9094"
+    environment:
+      TZ: ${TZ:-Asia/Ho_Chi_Minh}
+      KAFKA_NODE_ID: 3
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka1:29093,2@kafka2:29093,3@kafka3:29093
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9094,CONTROLLER://0.0.0.0:29093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka3:29092,EXTERNAL://localhost:${KAFKA3_PORT:-9094}
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
+      KAFKA_MIN_INSYNC_REPLICAS: 2
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      CLUSTER_ID: ${KAFKA_CLUSTER_ID}
+    volumes:
+      - kafka3_data:/var/lib/kafka/data
+    networks:
+      - bank-network
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:${KAFKA_UI_VERSION:-latest}
+    container_name: bank-kafka-ui
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Asia/Ho_Chi_Minh}
+      KAFKA_CLUSTERS_0_NAME: bank-fraud-cluster
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka1:29092,kafka2:29092,kafka3:29092
+    ports:
+      - "${KAFKA_UI_PORT:-8080}:8080"
+    depends_on:
+      - kafka1
+      - kafka2
+      - kafka3
+    networks:
+      - bank-network
+
+  # ============================================================
+  # 3. DATA LAKE - MINIO
+  # ============================================================
+  minio:
+    image: minio/minio:${MINIO_VERSION:-latest}
+    container_name: bank-minio
+    restart: unless-stopped
+    env_file:
+      - .env
+    command: server /data --console-address ":9001"
+    environment:
+      TZ: ${TZ:-Asia/Ho_Chi_Minh}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - bank-network
+
+  # ============================================================
+  # 4. AIRFLOW METADATA DATABASE
+  # ============================================================
+  postgres-airflow:
+    image: postgres:${POSTGRES_VERSION:-17}
+    container_name: airflow-postgres
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: ${AIRFLOW_DB_NAME}
+      POSTGRES_USER: ${AIRFLOW_DB_USER}
+      POSTGRES_PASSWORD: ${AIRFLOW_DB_PASSWORD}
+      TZ: ${TZ:-Asia/Ho_Chi_Minh}
+      PGTZ: ${TZ:-Asia/Ho_Chi_Minh}
+    command:
+      - postgres
+      - -c
+      - timezone=${TZ:-Asia/Ho_Chi_Minh}
+    volumes:
+      - postgres_airflow_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${AIRFLOW_DB_USER} -d ${AIRFLOW_DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - bank-network
+
+  # ============================================================
+  # 5. AIRFLOW INITIALIZATION
+  # ============================================================
+  airflow-init:
+    <<: *airflow-common
+    container_name: airflow-init
+    restart: "no"
+    command:
+      - bash
+      - -c
+      - |
+        airflow db migrate
+        airflow users create           --username "${AIRFLOW_ADMIN_USERNAME}"           --password "${AIRFLOW_ADMIN_PASSWORD}"           --firstname Admin           --lastname User           --role Admin           --email "${AIRFLOW_ADMIN_EMAIL}" || true
+
+  # ============================================================
+  # 6. AIRFLOW WEBSERVER
+  # ============================================================
+  airflow-webserver:
+    <<: *airflow-common
+    container_name: airflow-webserver
+    command: webserver
+    ports:
+      - "${AIRFLOW_PORT:-8081}:8080"
+    depends_on:
+      postgres-airflow:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+
+  # ============================================================
+  # 7. AIRFLOW SCHEDULER
+  # ============================================================
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: airflow-scheduler
+    command: scheduler
+    depends_on:
+      postgres-airflow:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+
+networks:
+  bank-network:
+    name: bank-fraud-network
+    driver: bridge
 
 volumes:
-  postgres_data:
+  postgres_bank_data:
+  postgres_airflow_data:
+  kafka1_data:
+  kafka2_data:
+  kafka3_data:
+  minio_data:
