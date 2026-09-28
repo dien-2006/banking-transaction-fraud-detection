@@ -11,3 +11,4 @@ venv/
 # IDE
 .vscode/
 .idea/
+airflow/logs/
