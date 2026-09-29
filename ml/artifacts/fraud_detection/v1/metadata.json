@@ -1,0 +1,7 @@
+{
+  "version": "v1",
+  "status": "bootstrap",
+  "model_type": "logistic_regression",
+  "description": "Versioned bootstrap artifact; replace through the curated Silver training pipeline.",
+  "probability_range": [0, 1]
+}

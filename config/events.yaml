@@ -1,0 +1,11 @@
+event_version: "1.0"
+topics:
+  transaction: banking.transaction-events.v1
+consumer_groups:
+  transaction: bronze-transaction-writer-v1
+routing:
+  TransactionCompleted: banking.transaction-events.v1
+default_topic: banking.transaction-events.v1
+partitions: 3
+replication_factor: 3
+retention_ms: 604800000

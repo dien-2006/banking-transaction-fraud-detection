@@ -1,0 +1,7 @@
+FROM python:3.11.16-slim
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONPATH=/workspace
+WORKDIR /workspace
+COPY docker/requirements-banking.txt /tmp/requirements-banking.txt
+RUN python -m pip install --timeout 300 --retries 10 -r /tmp/requirements-banking.txt
+RUN useradd --create-home --uid 10001 banking
+USER banking

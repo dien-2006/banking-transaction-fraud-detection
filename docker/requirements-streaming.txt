@@ -1,0 +1,6 @@
+psycopg[binary]==3.2.13
+minio==7.2.10
+confluent-kafka==2.12.2
+pyarrow==17.0.0
+PyYAML==6.0.2
+python-dotenv==1.2.3

@@ -1,0 +1,13 @@
+{
+  "version": "v1",
+  "model_type": "logistic_regression",
+  "intercept": -3.5,
+  "weights": {
+    "log_amount": 0.9,
+    "new_device": 0.9,
+    "unusual_time": 0.5,
+    "velocity": 1.0,
+    "failed_logins": 0.8,
+    "amount_ratio": 0.8
+  }
+}

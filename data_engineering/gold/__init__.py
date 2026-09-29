@@ -1,0 +1,1 @@
+"""Star-schema Gold transformations."""

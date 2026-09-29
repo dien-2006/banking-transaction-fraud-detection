@@ -1,0 +1,19 @@
+severity:
+  primary_key_null: ERROR
+  primary_key_duplicate: ERROR
+  allowed_values: ERROR
+  referential_integrity: ERROR
+  balanced_posting: ERROR
+  non_success_posting: ERROR
+  missing_dimension: WARNING
+allowed_values:
+  bank_transaction:
+    status: [Pending, Success, Failed, Cancelled]
+    channel: [Counter, ATM, POS, MobileBanking, InternetBanking, System]
+  transaction_posting:
+    posting_type: [DEBIT, CREDIT]
+  risk_assessment:
+    decision: [ALLOW, REVIEW, BLOCK]
+    risk_level: [LOW, MEDIUM, HIGH, CRITICAL]
+  login_event:
+    status: [Success, Failed, Blocked]

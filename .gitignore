@@ -1,4 +1,5 @@
-# Giữ file mẫu để chia sẻ cấu hình
+# Chỉ chia sẻ template; credentials thật phải ở file local hoặc secret manager.
+.env
 !.env.example
 
 # Python

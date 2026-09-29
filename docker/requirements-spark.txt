@@ -1,0 +1,4 @@
+psycopg[binary]==3.2.13
+minio==7.2.10
+PyYAML==6.0.2
+python-dotenv==1.2.3

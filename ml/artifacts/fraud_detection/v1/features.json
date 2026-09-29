@@ -1,0 +1,5 @@
+{
+  "features": ["log_amount", "new_device", "unusual_time", "velocity", "failed_logins", "amount_ratio"],
+  "label": "fraud_label_event.label",
+  "source": "curated Silver feature mart"
+}

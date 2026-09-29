@@ -1,0 +1,26 @@
+source_system: banking_postgresql
+source_schema: banking
+source_timezone: Asia/Ho_Chi_Minh
+datasets:
+  bank_transaction: {pk: transactionid, strategy: SNAPSHOT, watermark: [transactiondate, transactionid]}
+  transfer_request: {pk: transferrequestid, strategy: SNAPSHOT, watermark: [requestedat, transferrequestid]}
+  transaction_posting: {pk: postingid, strategy: INCREMENTAL, watermark: [postingdate, postingid]}
+  transaction_type: {pk: transactiontypeid, strategy: SNAPSHOT}
+  customer: {pk: customerid, strategy: SNAPSHOT, watermark: [createddate, customerid]}
+  customer_device: {pk: deviceid, strategy: SNAPSHOT}
+  login_event: {pk: logineventid, strategy: INCREMENTAL, watermark: [logintime, logineventid]}
+  bank_account: {pk: accountid, strategy: SNAPSHOT}
+  account_holder: {pk: accountholderid, strategy: SNAPSHOT}
+  account_type: {pk: accounttypeid, strategy: SNAPSHOT}
+  account_status_history: {pk: historyid, strategy: INCREMENTAL, watermark: [changeddate, historyid]}
+  branch: {pk: branchid, strategy: SNAPSHOT}
+  terminal: {pk: terminalid, strategy: SNAPSHOT}
+  risk_assessment: {pk: riskassessmentid, strategy: INCREMENTAL, watermark: [assessedat, riskassessmentid]}
+  review_case: {pk: reviewcaseid, strategy: SNAPSHOT}
+  fraud_label_event: {pk: fraudlabeleventid, strategy: INCREMENTAL, watermark: [labeledat, fraudlabeleventid]}
+  model_version: {pk: modelversionid, strategy: SNAPSHOT}
+  loan: {pk: loanid, strategy: SNAPSHOT}
+  loan_type: {pk: loantypeid, strategy: SNAPSHOT}
+  repayment_schedule: {pk: scheduleid, strategy: SNAPSHOT}
+  loan_payment: {pk: loanpaymentid, strategy: INCREMENTAL, watermark: [paymentdate, loanpaymentid]}
+  event_outbox: {pk: eventoutboxid, strategy: SNAPSHOT, watermark: [createdat, eventoutboxid]}
