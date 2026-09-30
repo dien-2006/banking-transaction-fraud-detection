@@ -1,7 +1,6 @@
-FROM python:3.11.16-slim
-ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONPATH=/workspace
+FROM python:3.11-slim
 WORKDIR /workspace
-COPY docker/requirements-streaming.txt /tmp/requirements-streaming.txt
-RUN python -m pip install --timeout 300 --retries 10 -r /tmp/requirements-streaming.txt
-RUN useradd --create-home --uid 10001 pipeline
-USER pipeline
+COPY docker/requirements-streaming.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
+COPY . /workspace
+ENV PYTHONPATH=/workspace

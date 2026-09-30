@@ -1,58 +1,49 @@
 from __future__ import annotations
 
-import json
+import logging
 import os
-import signal
+import tempfile
 import time
 from pathlib import Path
 
-from data_engineering.common.config import Settings
-from data_engineering.common.storage import ObjectStore
+from minio import Minio
+from minio.error import S3Error
 
-
-RUNNING = True
-
-
-def _stop(_signum, _frame) -> None:
-    global RUNNING
-    RUNNING = False
-
-
-def sync_once(settings: Settings, target: Path) -> str:
-    store = ObjectStore(settings)
-    store.ensure_buckets()
-    pointer = store.get_json(settings.ml_bucket, "fraud_detection/current.json")
-    if not pointer:
-        bundled = Path(__file__).resolve().parent / "artifacts" / "fraud_detection" / "v1"
-        for name in ("model.json", "metadata.json", "features.json"):
-            store.put_bytes(settings.ml_bucket, f"fraud_detection/v1/{name}", (bundled / name).read_bytes(), "application/json")
-        store.put_json(settings.ml_bucket, "fraud_detection/current.json", {"version": "v1"})
-        pointer = {"version": "v1"}
-    version = str(pointer["version"])
-    response = store.client.get_object(settings.ml_bucket, f"fraud_detection/{version}/model.json")
-    try:
-        body = response.read()
-    finally:
-        response.close()
-        response.release_conn()
-    json.loads(body)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    temporary = target.with_suffix(".tmp")
-    temporary.write_bytes(body)
-    temporary.replace(target)
-    return version
+LOG = logging.getLogger("model-sync")
 
 
 def main() -> None:
-    signal.signal(signal.SIGTERM, _stop)
-    signal.signal(signal.SIGINT, _stop)
-    settings = Settings.from_env()
+    logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
+    endpoint = os.environ["MINIO_ENDPOINT"].removeprefix("http://").removeprefix("https://")
+    client = Minio(endpoint, access_key=os.environ["MINIO_ACCESS_KEY"], secret_key=os.environ["MINIO_SECRET_KEY"], secure=os.environ["MINIO_ENDPOINT"].startswith("https://"))
+    bucket = os.getenv("MINIO_BUCKET_ML", "ml-models")
+    object_name = os.getenv("MODEL_OBJECT_NAME", "fraud_detection/v1/model.json")
+    bundled = Path("/workspace/ml/artifacts/fraud_detection/v1/model.json")
     target = Path(os.getenv("MODEL_CACHE_PATH", "/models/current/model.json"))
-    interval = float(os.getenv("MODEL_SYNC_INTERVAL_SECONDS", "60"))
-    while RUNNING:
-        sync_once(settings, target)
-        if os.getenv("RUN_ONCE", "false").lower() == "true":
-            break
+    target.parent.mkdir(parents=True, exist_ok=True)
+    interval = max(1, int(os.getenv("MODEL_SYNC_INTERVAL_SECONDS", "60")))
+    while True:
+        temporary: Path | None = None
+        try:
+            try:
+                client.stat_object(bucket, object_name)
+            except S3Error as exc:
+                if exc.code != "NoSuchKey":
+                    raise
+                client.fput_object(
+                    bucket, object_name, str(bundled), content_type="application/json"
+                )
+            with tempfile.NamedTemporaryFile(dir=target.parent, delete=False) as handle:
+                temporary = Path(handle.name)
+            client.fget_object(bucket, object_name, str(temporary))
+            temporary.replace(target)
+            temporary = None
+            LOG.info("model_cache_updated object=%s target=%s", object_name, target)
+        except Exception:
+            LOG.exception("model_sync_failed object=%s; keeping existing cache", object_name)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
         time.sleep(interval)
 
 

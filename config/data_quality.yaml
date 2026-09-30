@@ -1,19 +1,60 @@
-severity:
-  primary_key_null: ERROR
-  primary_key_duplicate: ERROR
-  allowed_values: ERROR
-  referential_integrity: ERROR
-  balanced_posting: ERROR
-  non_success_posting: ERROR
-  missing_dimension: WARNING
-allowed_values:
-  bank_transaction:
-    status: [Pending, Success, Failed, Cancelled]
-    channel: [Counter, ATM, POS, MobileBanking, InternetBanking, System]
-  transaction_posting:
-    posting_type: [DEBIT, CREDIT]
-  risk_assessment:
-    decision: [ALLOW, REVIEW, BLOCK]
-    risk_level: [LOW, MEDIUM, HIGH, CRITICAL]
+rules:
+  branch:
+    - "status IN ('Active','Inactive')"
+  customer:
+    - "status IN ('Active','Inactive','Blocked')"
+  customer_device:
+    - "device_type IN ('Mobile','Tablet','Desktop','Other')"
+    - "status IN ('Active','Blocked','Removed')"
+    - "last_seen_at IS NULL OR last_seen_at >= first_seen_at"
   login_event:
-    status: [Success, Failed, Blocked]
+    - "status IN ('Success','Failed','Blocked')"
+  account_type:
+    - "minimum_balance >= 0"
+    - "interest_rate >= 0"
+    - "status IN ('Active','Inactive')"
+  bank_account:
+    - "currency = 'VND'"
+    - "status IN ('Active','Frozen','Closed')"
+    - "account_category IN ('CUSTOMER','INTERNAL')"
+  account_holder:
+    - "holder_type IN ('PRIMARY_OWNER','JOINT_OWNER','AUTHORIZED_USER')"
+    - "status IN ('Active','Inactive')"
+    - "end_date IS NULL OR end_date >= start_date"
+  transaction_type:
+    - "status IN ('Active','Inactive')"
+  bank_transaction:
+    - "amount > 0"
+    - "fee >= 0"
+    - "currency = 'VND'"
+    - "status IN ('Pending','Success','Failed','Cancelled')"
+    - "channel IN ('Counter','ATM','POS','MobileBanking','InternetBanking','System')"
+  transaction_posting:
+    - "posting_type IN ('DEBIT','CREDIT')"
+    - "amount > 0"
+  risk_assessment:
+    - "rule_score BETWEEN 0 AND 100"
+    - "model_probability BETWEEN 0 AND 1"
+    - "decision IN ('ALLOW','REVIEW','BLOCK')"
+    - "risk_level IN ('LOW','MEDIUM','HIGH','CRITICAL')"
+  transfer_request:
+    - "source_account_id <> destination_account_id"
+    - "amount > 0"
+    - "currency = 'VND'"
+    - "status IN ('Pending','Approved','Rejected','Completed','Failed','Cancelled')"
+  review_case:
+    - "status IN ('OPEN','IN_REVIEW','APPROVED','REJECTED','CLOSED')"
+    - "reviewed_at IS NULL OR reviewed_at >= created_at"
+  fraud_label_event:
+    - "label IN ('FRAUD','LEGITIMATE','UNKNOWN')"
+  loan_payment:
+    - "amount_paid > 0"
+    - "principal_paid >= 0"
+    - "interest_paid >= 0"
+    - "penalty_fee >= 0"
+    - "amount_paid = principal_paid + interest_paid + penalty_fee"
+    - "payment_channel IN ('Counter','Account','Online')"
+    - "(payment_channel = 'Counter' AND employee_id IS NOT NULL) OR (payment_channel IN ('Account','Online') AND employee_id IS NULL)"
+  event_outbox:
+    - "status IN ('PENDING','PUBLISHED','FAILED')"
+    - "published_at IS NULL OR published_at >= created_at"

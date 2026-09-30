@@ -1,1 +1,1 @@
-"""Fraud model lifecycle and realtime inference."""
+"""Machine-learning lifecycle and inference."""

@@ -1,124 +1,288 @@
+"""Non-destructive proof of the complete transaction and data-platform path."""
+
 from __future__ import annotations
 
+import base64
 import json
-import io
 import os
+import shutil
 import subprocess
 import time
+import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
+from decimal import Decimal
+from typing import Any, Callable
 
+import psycopg
 from dotenv import load_dotenv
 from minio import Minio
-import pyarrow.parquet as pq
+from psycopg.rows import dict_row
 
-from scripts.register_trino import execute as trino_execute
-
-
-def _command(*arguments: str) -> str:
-    result = subprocess.run(arguments, capture_output=True, text=True, timeout=180, check=False)
-    if result.returncode:
-        raise RuntimeError((result.stderr or result.stdout).strip())
-    return result.stdout.strip()
+from banking.config import POSTGRES_SCHEMA, postgres_dsn
+from scripts.bootstrap_demo import main as bootstrap_demo
 
 
-def _request(url: str, method: str = "GET", body: dict | None = None) -> dict:
-    data = json.dumps(body).encode() if body is not None else None
-    request = urllib.request.Request(url, data=data, method=method, headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(request, timeout=30) as response:
-        return json.loads(response.read())
+load_dotenv()
 
 
-def _wait(predicate, description: str, timeout: int = 180):
+def _wait(name: str, probe: Callable[[], Any], timeout: int) -> Any:
     deadline = time.monotonic() + timeout
-    last = None
+    last_error: Exception | None = None
     while time.monotonic() < deadline:
-        last = predicate()
-        if last:
-            return last
+        try:
+            value = probe()
+            if value:
+                return value
+        except Exception as exc:  # transient dependencies are expected during polling
+            last_error = exc
         time.sleep(2)
-    raise TimeoutError(f"timeout waiting for {description}; last={last!r}")
+    detail = f": {last_error}" if last_error else ""
+    raise TimeoutError(f"timed out waiting for {name}{detail}")
 
 
-def _minio_client() -> Minio:
-    endpoint = os.getenv("MINIO_ENDPOINT_HOST", "http://localhost:9000")
-    secure = endpoint.startswith("https://")
-    endpoint = endpoint.removeprefix("http://").removeprefix("https://")
-    return Minio(endpoint, access_key=os.environ["MINIO_ROOT_USER"], secret_key=os.environ["MINIO_ROOT_PASSWORD"], secure=secure)
+def _json_request(
+    url: str,
+    *,
+    method: str = "GET",
+    payload: dict[str, Any] | None = None,
+    username: str | None = None,
+    password: str | None = None,
+) -> Any:
+    headers = {"Content-Type": "application/json"}
+    if username is not None and password is not None:
+        token = base64.b64encode(f"{username}:{password}".encode()).decode()
+        headers["Authorization"] = f"Basic {token}"
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode() if payload is not None else None,
+        headers=headers,
+        method=method,
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        body = response.read()
+    return json.loads(body) if body else None
+
+
+def _database_evidence(transaction_id: int) -> dict[str, Any] | None:
+    with psycopg.connect(
+        postgres_dsn(), row_factory=dict_row, options=f"-c search_path={POSTGRES_SCHEMA}"
+    ) as connection:
+        row = connection.execute(
+            """
+            SELECT bt.status, ra.rulescore, ra.risklevel, ra.modelprobability,
+                   ra.decision, count(DISTINCT tp.postingid) AS posting_count,
+                   count(DISTINCT eo.eventoutboxid) AS outbox_count,
+                   max(eo.status) AS outbox_status,
+                   max(eo.eventkey) AS event_key
+            FROM bank_transaction bt
+            JOIN risk_assessment ra USING (transactionid)
+            LEFT JOIN transaction_posting tp USING (transactionid)
+            LEFT JOIN event_outbox eo
+              ON eo.aggregateid=bt.transactionid::text
+             AND eo.eventtype='TransactionCompleted'
+            WHERE bt.transactionid=%s
+            GROUP BY bt.status, ra.riskassessmentid
+            ORDER BY ra.riskassessmentid DESC LIMIT 1
+            """,
+            (transaction_id,),
+        ).fetchone()
+    if not row or row["status"] != "Success" or row["posting_count"] != 2:
+        return None
+    return dict(row)
+
+
+def _bronze_evidence(event_key: str) -> dict[str, Any] | None:
+    endpoint_url = os.getenv("MINIO_ENDPOINT_HOST", "http://localhost:9000")
+    client = Minio(
+        endpoint_url.removeprefix("http://").removeprefix("https://"),
+        access_key=os.environ["MINIO_ROOT_USER"],
+        secret_key=os.environ["MINIO_ROOT_PASSWORD"],
+        secure=endpoint_url.startswith("https://"),
+    )
+    bucket = os.getenv("MINIO_BUCKET_BRONZE", "bronze")
+    for item in client.list_objects(bucket, prefix="kafka/events/", recursive=True):
+        response = client.get_object(bucket, item.object_name)
+        try:
+            record = json.loads(response.read())
+        finally:
+            response.close()
+            response.release_conn()
+        if record.get("envelope", {}).get("event_id") == event_key:
+            return {
+                "object": item.object_name,
+                "partition": record.get("partition"),
+                "offset": record.get("offset"),
+            }
+    return None
+
+
+def _trigger_airflow(run_id: str) -> None:
+    base = f"http://localhost:{os.getenv('AIRFLOW_PORT', '8081')}"
+    username = os.environ["AIRFLOW_ADMIN_USERNAME"]
+    password = os.environ["AIRFLOW_ADMIN_PASSWORD"]
+    _json_request(
+        f"{base}/api/v1/dags/banking_bronze_silver_gold/dagRuns",
+        method="POST",
+        payload={"dag_run_id": run_id, "conf": {"requested_by": "e2e_test"}},
+        username=username,
+        password=password,
+    )
+
+
+def _airflow_state(run_id: str) -> str | None:
+    base = f"http://localhost:{os.getenv('AIRFLOW_PORT', '8081')}"
+    encoded = urllib.parse.quote(run_id, safe="")
+    result = _json_request(
+        f"{base}/api/v1/dags/banking_bronze_silver_gold/dagRuns/{encoded}",
+        username=os.environ["AIRFLOW_ADMIN_USERNAME"],
+        password=os.environ["AIRFLOW_ADMIN_PASSWORD"],
+    )
+    state = result.get("state")
+    if state == "failed":
+        raise RuntimeError(f"Airflow DAG failed: {run_id}")
+    return state if state == "success" else None
+
+
+def _trino_execute(sql: str) -> list[list[Any]]:
+    request = urllib.request.Request(
+        f"http://localhost:{os.getenv('TRINO_PORT', '8084')}/v1/statement",
+        data=sql.encode(),
+        headers={"X-Trino-User": "e2e", "Content-Type": "text/plain"},
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        result = json.loads(response.read())
+    rows: list[list[Any]] = []
+    while True:
+        if result.get("error"):
+            raise RuntimeError(json.dumps(result["error"], sort_keys=True))
+        rows.extend(result.get("data", []))
+        next_uri = result.get("nextUri")
+        if not next_uri:
+            return rows
+        with urllib.request.urlopen(next_uri, timeout=30) as response:
+            result = json.loads(response.read())
+
+
+def _gold_evidence(transaction_id: int) -> dict[str, Any] | None:
+    rows = _trino_execute(
+        "SELECT t.transaction_id, t.status, r.decision, r.rule_score, "
+        "r.model_probability FROM hive.gold.fact_transaction t "
+        "JOIN hive.gold.fact_risk_assessment r USING (transaction_id) "
+        f"WHERE t.transaction_id={int(transaction_id)}"
+    )
+    if not rows:
+        return None
+    row = rows[0]
+    return {
+        "transaction_id": row[0],
+        "status": row[1],
+        "decision": row[2],
+        "rule_score": row[3],
+        "model_probability": row[4],
+    }
+
+
+def _assert_docker_compose() -> None:
+    if shutil.which("docker") is None:
+        raise RuntimeError("Docker CLI is not installed or not on PATH")
+    result = subprocess.run(
+        ["docker", "compose", "ps", "--status", "running"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode:
+        raise RuntimeError(f"Docker Compose is unavailable: {result.stderr.strip()}")
 
 
 def main() -> None:
-    load_dotenv(override=False)
+    _assert_docker_compose()
+    bootstrap_demo()
+    with psycopg.connect(
+        postgres_dsn(), row_factory=dict_row, options=f"-c search_path={POSTGRES_SCHEMA}"
+    ) as connection:
+        demo = connection.execute(
+            """
+            SELECT c.customerid, d.deviceid, source.accountid AS sourceid,
+                   destination.accountid AS destinationid
+            FROM customer c
+            JOIN customer_device d ON d.customerid=c.customerid
+            CROSS JOIN bank_account source
+            CROSS JOIN bank_account destination
+            WHERE c.customercode='DEMO-CUSTOMER'
+              AND d.devicecode='DEMO-DEVICE'
+              AND source.accountnumber='DEMO-0001'
+              AND destination.accountnumber='DEMO-0002'
+            """
+        ).fetchone()
+    if not demo:
+        raise RuntimeError("demo bootstrap did not create the expected identities")
+
     api = f"http://localhost:{os.getenv('BANKING_API_PORT', '8000')}"
-    _request(f"{api}/health")
-    raw = _command("docker", "compose", "run", "--rm", "demo-bootstrap")
-    seed = json.loads(raw.splitlines()[-1])
-    idempotency_key = f"e2e-{uuid.uuid4()}"
-    transaction = _request(
+    transfer = _json_request(
         f"{api}/transactions/transfers",
-        "POST",
-        {
-            "customer_id": seed["customer_id"],
-            "source_account_id": seed["source_account_id"],
-            "destination_account_id": seed["destination_account_id"],
-            "device_id": seed["device_id"],
-            "amount": "100000",
-            "idempotency_key": idempotency_key,
+        method="POST",
+        payload={
+            "customer_id": demo["customerid"],
+            "source_account_id": demo["sourceid"],
+            "destination_account_id": demo["destinationid"],
+            "device_id": demo["deviceid"],
+            "amount": str(Decimal(os.getenv("E2E_TRANSFER_AMOUNT", "100000"))),
+            "idempotency_key": f"e2e-{uuid.uuid4().hex}",
             "channel": "MobileBanking",
-            "description": "Automated end-to-end verification",
         },
     )
-    transaction_id = int(transaction["transactionid"])
-    if transaction["decision"] != "ALLOW" or transaction["status"] != "Success" or transaction["posting_count"] != 2:
-        raise AssertionError(f"banking path failed: {transaction}")
-    published = _wait(
-        lambda: (value if (value := _request(f"{api}/transactions/{transaction_id}"))["outbox_status"] == "PUBLISHED" else None),
-        "outbox publish",
+    if transfer.get("decision") != "ALLOW" or transfer.get("status") != "Success":
+        raise RuntimeError(f"expected ALLOW + Success, received: {transfer}")
+    transaction_id = int(transfer["transactionid"])
+    database = _wait(
+        "committed banking evidence",
+        lambda: _database_evidence(transaction_id),
+        int(os.getenv("E2E_BANKING_TIMEOUT_SECONDS", "60")),
     )
-    minio = _minio_client()
-    bronze_bucket = os.getenv("MINIO_BUCKET_BRONZE", "bronze")
-    event_key = f"transaction-completed-{transaction_id}"
+    published = _wait(
+        "published outbox event",
+        lambda: (
+            evidence
+            if (evidence := _database_evidence(transaction_id))["outbox_status"] == "PUBLISHED"
+            else None
+        ),
+        int(os.getenv("E2E_REALTIME_TIMEOUT_SECONDS", "180")),
+    )
+    bronze = _wait(
+        "durable realtime Bronze object",
+        lambda: _bronze_evidence(published["event_key"]),
+        int(os.getenv("E2E_REALTIME_TIMEOUT_SECONDS", "180")),
+    )
 
-    def bronze_contains_event():
-        for item in minio.list_objects(bronze_bucket, prefix="kafka/transaction_events/", recursive=True):
-            response = minio.get_object(bronze_bucket, item.object_name)
-            try:
-                table = pq.read_table(io.BytesIO(response.read()), columns=["event_id"])
-                if event_key in table.column("event_id").to_pylist():
-                    return item.object_name
-            finally:
-                response.close()
-                response.release_conn()
-        return None
-
-    bronze_object = _wait(bronze_contains_event, "durable Kafka Bronze event")
-    run_id = f"e2e__{uuid.uuid4().hex}"
-    _command("docker", "compose", "exec", "-T", "airflow-webserver", "airflow", "dags", "unpause", "banking_bronze_silver_gold")
-    _command("docker", "compose", "exec", "-T", "airflow-webserver", "airflow", "dags", "trigger", "--run-id", run_id, "banking_bronze_silver_gold")
-
-    def dag_success():
-        output = _command("docker", "compose", "exec", "-T", "airflow-webserver", "airflow", "dags", "list-runs", "-d", "banking_bronze_silver_gold", "--output", "json")
-        runs = json.loads(output)
-        matching = [run for run in runs if run.get("run_id") == run_id]
-        if matching and matching[0]["state"] == "failed":
-            raise RuntimeError(f"Airflow DAG failed: {matching[0]}")
-        return matching[0] if matching and matching[0]["state"] == "success" else None
-
-    dag_run = _wait(dag_success, "Airflow DAG success", timeout=1800)
-    trino_url = f"http://localhost:{os.getenv('TRINO_PORT', '8084')}"
-    trino_rows = trino_execute(trino_url, f"SELECT transaction_id FROM hive.gold.fact_transaction WHERE transaction_id={transaction_id}")
-    if [transaction_id] not in trino_rows:
-        raise AssertionError(f"transaction {transaction_id} was not queryable in Trino Gold: {trino_rows}")
-    summary = {
-        "input": {"idempotency_key": idempotency_key, "amount": "100000"},
-        "risk": {"rule_score": transaction["rulescore"], "risk_level": transaction["risklevel"], "model_probability": str(transaction["modelprobability"]), "decision": transaction["decision"]},
-        "banking": {"transaction_id": transaction_id, "status": transaction["status"], "posting_count": transaction["posting_count"]},
-        "outbox": {"status": published["outbox_status"]},
-        "bronze": {"object": bronze_object},
-        "airflow": dag_run,
-        "trino": {"query": "PASS", "transaction_id": transaction_id},
-    }
-    print(json.dumps(summary, ensure_ascii=False, indent=2, default=str))
+    dag_run_id = f"e2e_{uuid.uuid4().hex}"
+    _trigger_airflow(dag_run_id)
+    _wait(
+        "Airflow DAG success",
+        lambda: _airflow_state(dag_run_id),
+        int(os.getenv("E2E_DAG_TIMEOUT_SECONDS", "1800")),
+    )
+    gold = _wait(
+        "Gold transaction visible through Trino",
+        lambda: _gold_evidence(transaction_id),
+        int(os.getenv("E2E_GOLD_TIMEOUT_SECONDS", "180")),
+    )
+    print(
+        json.dumps(
+            {
+                "status": "SUCCESS",
+                "transaction_id": transaction_id,
+                "database": database,
+                "bronze": bronze,
+                "airflow_run_id": dag_run_id,
+                "gold": gold,
+            },
+            indent=2,
+            default=str,
+        )
+    )
 
 
 if __name__ == "__main__":

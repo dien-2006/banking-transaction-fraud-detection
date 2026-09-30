@@ -1291,6 +1291,8 @@ Transaction được tạo
 
 # 30. Chạy project end-to-end
 
+> Hướng dẫn chi tiết cho người mới clone, Batch, Realtime, MinIO/Trino và xử lý lỗi: [`docs/run/README.md`](docs/run/README.md).
+
 ## 30.1 Chuẩn bị
 
 Yêu cầu: Docker Engine/Compose, tối thiểu khoảng 8 GB RAM trống. Không xóa volume nếu đang có dữ liệu.
@@ -1301,31 +1303,34 @@ Chỉ tạo `.env` khi file local chưa tồn tại:
 test -f .env || cp .env.example .env
 ```
 
-Đổi toàn bộ giá trị `change_me_*` và tạo `KAFKA_CLUSTER_ID` theo hướng dẫn trong `.env.example`. Không commit `.env`.
+Đổi toàn bộ giá trị `change_me_*`; không commit `.env`. `KAFKA_CLUSTER_ID` chỉ cần tạo khi bật profile `realtime`, không phải điều kiện để Batch chạy.
 
 ## 30.2 Start tự động
 
 ```bash
 docker compose up -d --build
-python -m scripts.healthcheck
+docker compose ps -a
 ```
 
 Compose tự thực hiện:
 
 - khởi tạo schema trên PostgreSQL volume mới từ `sql/create_table.sql` (volume hiện hữu không bị reinitialize);
-- tạo Kafka topic và các MinIO bucket;
+- tạo các MinIO bucket;
 - seed bộ demo idempotent;
-- chạy Banking/Risk API, Outbox Publisher, Kafka Consumer và model sync liên tục;
+- chạy Banking/Risk API;
 - chạy Spark master/worker, Airflow scheduler/webserver và Trino;
+- tự unpause và trigger run `bootstrap_first_run` của DAG Batch đúng một lần trên Airflow metadata mới;
 - đăng ký 10 dimensions + 7 facts dưới `hive.gold`.
 
-Airflow DAG `banking_bronze_silver_gold` có schedule `01:00 Asia/Ho_Chi_Minh`. Với metadata Airflow cũ từng lưu trạng thái paused, enable một lần:
+Airflow DAG `banking_bronze_silver_gold` chạy tự động lần đầu khi stack sẵn sàng, sau đó chạy theo schedule `01:00 Asia/Ho_Chi_Minh`. Không cần chạy từng ETL file bằng tay. Chuỗi Batch mặc định là:
 
-```bash
-docker compose exec airflow-webserver airflow dags unpause banking_bronze_silver_gold
+```text
+PostgreSQL -> Bronze -> Bronze DQ -> Silver -> Silver DQ -> commit watermark -> Gold -> Gold DQ
 ```
 
-Không cần chạy từng ETL file bằng tay. Realtime services xử lý liên tục; Airflow chạy Batch → Bronze → Silver → DQ → Gold → DQ → ML theo dependency.
+Kafka/realtime và model sync không nằm trong luồng Batch mặc định. Khi cần phát triển realtime sau này, khởi động riêng bằng `docker compose --profile realtime up -d`; model sync dùng profile `ml`. DAG Batch không tự training model.
+
+Sau khi bật Realtime, chạy `conda run -n bank-fraud python -m scripts.healthcheck` để kiểm tra cả Kafka và các service còn lại.
 
 ## 30.3 Endpoints
 
@@ -1367,7 +1372,7 @@ Response phân biệt rõ `decision=ALLOW` với `status=Success`; chỉ `Succes
 ## 30.5 Theo dõi pipeline
 
 ```bash
-docker compose logs -f banking-api outbox-publisher bronze-consumer
+docker compose logs -f airflow-scheduler spark-master spark-worker
 docker compose exec airflow-webserver airflow dags list-runs -d banking_bronze_silver_gold
 python -m scripts.healthcheck
 ```
@@ -1386,16 +1391,16 @@ docker compose exec trino trino --execute \
 Unit/contract tests không cần stack:
 
 ```bash
-python -m pytest -q
+conda run -n bank-fraud python -m pytest -q
 ```
 
 Banking integration tests khi PostgreSQL đã start:
 
 ```bash
-RUN_BANKING_INTEGRATION=1 python -m pytest -q tests/integration/test_banking_postgres.py
+RUN_BANKING_INTEGRATION=1 conda run -n bank-fraud python -m pytest -q tests/integration/test_banking_postgres.py
 ```
 
-Full automated proof (transaction → risk → posting → outbox → Kafka → Bronze → Airflow/Spark → Silver/Gold → Trino):
+Full automated proof có cả realtime/Kafka chỉ chạy khi profile `realtime` đã được bật:
 
 ```bash
 python -m scripts.e2e_test

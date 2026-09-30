@@ -1,140 +1,124 @@
 from __future__ import annotations
 
 import hashlib
-import io
 import json
+import logging
 import os
 import signal
-from collections import defaultdict
 from datetime import datetime, timezone
+from io import BytesIO
 
-import pyarrow as pa
-import pyarrow.parquet as pq
-from confluent_kafka import Consumer, KafkaError, TopicPartition
+from confluent_kafka import Consumer, KafkaError, KafkaException
+from minio import Minio
 
-from data_engineering.common.config import Settings
-from data_engineering.common.logging import event, get_logger
-from data_engineering.common.storage import ObjectStore
-
-
-LOG = get_logger(__name__)
+LOG = logging.getLogger("bronze-consumer")
 RUNNING = True
 
 
-def _stop(_signum, _frame) -> None:
+def _stop(*_: object) -> None:
     global RUNNING
     RUNNING = False
 
 
-def _record(message, envelope: dict, raw_value: str) -> dict:
-    return {
-        "event_id": envelope.get("event_id"), "event_type": envelope.get("event_type"),
-        "event_version": envelope.get("event_version"), "occurred_at": envelope.get("occurred_at"),
-        "aggregate_type": envelope.get("aggregate_type"), "aggregate_id": envelope.get("aggregate_id"),
-        "payload_json": json.dumps(envelope.get("payload"), ensure_ascii=False, default=str),
-        "source_system": envelope.get("source_system"), "correlation_id": envelope.get("correlation_id"),
-        "outbox_id": envelope.get("outbox_id"), "_raw_event": raw_value,
-        "_ingested_at": datetime.now(timezone.utc), "_source": "kafka",
-        "_ingestion_mode": "STREAM", "_event_id": envelope.get("event_id"),
-        "_kafka_topic": message.topic(), "_kafka_partition": message.partition(), "_kafka_offset": message.offset(),
-        "_payload_hash": hashlib.sha256(raw_value.encode()).hexdigest(),
-    }
-
-
-def _validate(envelope: dict) -> list[str]:
-    required = ("event_id", "event_type", "event_version", "occurred_at", "aggregate_type", "aggregate_id", "payload", "source_system")
-    return [field for field in required if envelope.get(field) is None]
-
-
-def _write_records(store: ObjectStore, settings: Settings, records: list[dict], quarantine: bool = False) -> str:
-    table = pa.Table.from_pylist(records)
-    output = io.BytesIO()
-    pq.write_table(table, output, compression="snappy")
-    body = output.getvalue()
-    first, last = records[0], records[-1]
-    now = datetime.now(timezone.utc)
-    digest = hashlib.sha256(body).hexdigest()[:16]
-    prefix = "kafka/transaction_events" if not quarantine else "kafka/transaction_events/rejected"
-    key = (
-        f"{prefix}/ingest_date={now.date().isoformat()}/hour={now:%H}/topic={first['_kafka_topic']}/"
-        f"partition={first['_kafka_partition']}/offsets={first['_kafka_offset']}-{last['_kafka_offset']}-{digest}.parquet"
+def durable_object_name(message, prefix: str = "kafka/events") -> str:
+    digest = hashlib.sha256(message.value()).hexdigest()[:16]
+    return (
+        f"{prefix}/date={datetime.now(timezone.utc):%Y-%m-%d}/"
+        f"topic={message.topic()}/partition={message.partition()}/"
+        f"offset={message.offset()}-{digest}.json"
     )
-    bucket = settings.bronze_bucket if not quarantine else settings.quarantine_bucket
-    store.client.put_object(bucket, key, io.BytesIO(body), len(body), content_type="application/octet-stream")
-    store.client.stat_object(bucket, key)
-    return f"s3://{bucket}/{key}"
 
 
-def _persist_partitioned(store: ObjectStore, settings: Settings, records: list[dict], quarantine: bool = False) -> list[str]:
-    grouped: dict[tuple[str, int], list[dict]] = defaultdict(list)
-    for record in records:
-        grouped[(record["_kafka_topic"], record["_kafka_partition"])].append(record)
-    paths: list[str] = []
-    for partition_records in grouped.values():
-        partition_records.sort(key=lambda item: item["_kafka_offset"])
-        paths.append(_write_records(store, settings, partition_records, quarantine=quarantine))
-    return paths
+def _validate_envelope(envelope: dict) -> None:
+    required = (
+        "event_id", "event_type", "event_version", "occurred_at",
+        "aggregate_type", "aggregate_id", "payload", "source_system",
+    )
+    missing = [field for field in required if envelope.get(field) is None]
+    if missing:
+        raise ValueError(f"missing envelope fields: {missing}")
+
+
+def persist_message(client: Minio, bucket: str, message) -> str:
+    raw = json.loads(message.value())
+    if not isinstance(raw, dict):
+        raise ValueError("event envelope must be a JSON object")
+    _validate_envelope(raw)
+    record = {
+        "topic": message.topic(),
+        "partition": message.partition(),
+        "offset": message.offset(),
+        "kafka_timestamp": message.timestamp()[1],
+        "ingested_at": datetime.now(timezone.utc).isoformat(),
+        "envelope": raw,
+    }
+    body = json.dumps(record, separators=(",", ":"), default=str).encode()
+    name = durable_object_name(message)
+    client.put_object(bucket, name, BytesIO(body), len(body), content_type="application/json")
+    client.stat_object(bucket, name)
+    return name
+
+
+def persist_rejected(client: Minio, bucket: str, message, error: Exception) -> str:
+    record = {
+        "topic": message.topic(), "partition": message.partition(),
+        "offset": message.offset(), "kafka_timestamp": message.timestamp()[1],
+        "ingested_at": datetime.now(timezone.utc).isoformat(),
+        "raw_value": message.value().decode("utf-8", errors="replace"),
+        "error_code": type(error).__name__, "error_reason": str(error),
+    }
+    body = json.dumps(record, separators=(",", ":"), default=str).encode()
+    name = durable_object_name(message, "kafka/events/rejected")
+    client.put_object(bucket, name, BytesIO(body), len(body), content_type="application/json")
+    client.stat_object(bucket, name)
+    return name
 
 
 def main() -> None:
+    logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
     signal.signal(signal.SIGTERM, _stop)
-    signal.signal(signal.SIGINT, _stop)
-    settings = Settings.from_env()
-    store = ObjectStore(settings)
-    store.ensure_buckets()
-    consumer = Consumer({
-        "bootstrap.servers": settings.kafka_bootstrap_servers,
-        "group.id": settings.kafka_consumer_group,
-        "enable.auto.commit": False,
-        "auto.offset.reset": os.getenv("KAFKA_AUTO_OFFSET_RESET", "earliest"),
-        "client.id": os.getenv("KAFKA_CONSUMER_CLIENT_ID", "bank-bronze-consumer"),
-    })
-    consumer.subscribe([settings.kafka_topic])
-    batch_size = int(os.getenv("KAFKA_CONSUMER_BATCH_SIZE", "100"))
-    once = os.getenv("RUN_ONCE", "false").lower() == "true"
+    endpoint = os.environ["MINIO_ENDPOINT"].removeprefix("http://").removeprefix("https://")
+    minio = Minio(
+        endpoint,
+        access_key=os.environ["MINIO_ACCESS_KEY"],
+        secret_key=os.environ["MINIO_SECRET_KEY"],
+        secure=os.environ["MINIO_ENDPOINT"].startswith("https://"),
+    )
+    bucket = os.getenv("MINIO_BUCKET_BRONZE", "bronze")
+    quarantine_bucket = os.getenv("MINIO_BUCKET_QUARANTINE", "quarantine")
+    consumer = Consumer(
+        {
+            "bootstrap.servers": os.environ["KAFKA_BOOTSTRAP_SERVERS"],
+            "group.id": os.getenv("KAFKA_CONSUMER_GROUP", "bronze-transaction-writer-v1"),
+            "enable.auto.commit": False,
+            "auto.offset.reset": "earliest",
+        }
+    )
+    consumer.subscribe([os.getenv("KAFKA_TRANSACTION_TOPIC", "banking.transaction-events.v1")])
     try:
         while RUNNING:
-            messages = consumer.consume(num_messages=batch_size, timeout=5)
-            if not messages:
-                if once:
-                    break
+            message = consumer.poll(1)
+            if message is None:
                 continue
-            valid: list[dict] = []
-            invalid: list[dict] = []
-            successful_messages = []
-            for message in messages:
-                if message.error():
-                    if message.error().code() == KafkaError._PARTITION_EOF:
-                        continue
-                    raise RuntimeError(str(message.error()))
-                raw_value = message.value().decode("utf-8")
+            if message.error():
+                if message.error().code() != KafkaError._PARTITION_EOF:
+                    raise KafkaException(message.error())
+                continue
+            try:
+                object_name = persist_message(minio, bucket, message)
+                consumer.commit(message=message, asynchronous=False)
+                LOG.info("bronze_event_written object=%s", object_name)
+            except (json.JSONDecodeError, ValueError) as exc:
                 try:
-                    envelope = json.loads(raw_value)
-                    missing = _validate(envelope)
-                    record = _record(message, envelope, raw_value)
-                    if missing:
-                        record["_rejection_reason"] = f"MISSING_FIELDS:{','.join(missing)}"
-                        invalid.append(record)
-                    else:
-                        valid.append(record)
-                except Exception as exc:
-                    record = _record(message, {}, raw_value)
-                    record["_rejection_reason"] = f"INVALID_JSON:{type(exc).__name__}"
-                    invalid.append(record)
-                successful_messages.append(message)
-            paths = []
-            if valid:
-                paths.extend(_persist_partitioned(store, settings, valid))
-            if invalid:
-                paths.extend(_persist_partitioned(store, settings, invalid, quarantine=True))
-            if successful_messages:
-                offsets = {}
-                for message in successful_messages:
-                    offsets[(message.topic(), message.partition())] = max(offsets.get((message.topic(), message.partition()), -1), message.offset())
-                consumer.commit(offsets=[TopicPartition(topic, partition, offset + 1) for (topic, partition), offset in offsets.items()], asynchronous=False)
-            event(LOG, "kafka_batch_persisted", consumed=len(successful_messages), valid=len(valid), rejected=len(invalid), paths=paths)
-            if once:
-                break
+                    object_name = persist_rejected(
+                        minio, quarantine_bucket, message, exc
+                    )
+                    consumer.commit(message=message, asynchronous=False)
+                    LOG.warning("event_quarantined object=%s", object_name)
+                except Exception:
+                    LOG.exception("quarantine_write_failed offset=%s", message.offset())
+            except Exception:
+                LOG.exception("bronze_write_failed offset=%s", message.offset())
     finally:
         consumer.close()
 

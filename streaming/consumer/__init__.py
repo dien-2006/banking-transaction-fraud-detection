@@ -1,1 +1,0 @@
-"""Kafka-to-Bronze consumer."""

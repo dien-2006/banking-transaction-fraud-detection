@@ -1,107 +1,71 @@
 from __future__ import annotations
 
 import argparse
-import socket
-from datetime import datetime, timezone
-from time import monotonic
+import json
+import logging
+import uuid
 
-import psycopg
-
-from data_engineering.bronze.validation import validate_all
-from data_engineering.common.config import Settings, source_catalog
-from data_engineering.common.context import RunContext
-from data_engineering.common.logging import event, get_logger
-from data_engineering.common.spark import create_spark
-from data_engineering.common.storage import ObjectStore
-from data_engineering.gold.build import build_dimensions, build_facts
-from data_engineering.ingestion.batch.extract import extract_all
-from data_engineering.quality.checks import gold_quality, silver_quality
-from data_engineering.silver.transform import transform_all
+from data_engineering.bronze.validate import run as validate_bronze
+from data_engineering.common.config import load_yaml
+from data_engineering.common.spark import session
+from data_engineering.common.state import PipelineState
+from data_engineering.gold.build import run as build_gold
+from data_engineering.ingestion.batch.extract import run as extract
+from data_engineering.quality.checks import run as quality
+from data_engineering.silver.transform import run as transform
 
 
-LOG = get_logger(__name__)
+def commit_state(batch_id: str) -> dict[str, bool]:
+    sources = load_yaml("config/sources.yaml")["sources"]
+    state = PipelineState()
+    committed = {
+        dataset: state.commit_candidate(batch_id, dataset)
+        for dataset, source in sources.items()
+        if source["strategy"] == "INCREMENTAL"
+    }
+    state.record_stage(batch_id, "commit_state", committed)
+    return committed
 
 
-def commit_state(settings: Settings, context: RunContext) -> None:
-    store = ObjectStore(settings)
-    for dataset, spec in source_catalog()["datasets"].items():
-        candidate = store.get_json(settings.control_bucket, f"watermark-candidates/{context.run_id}/{dataset}.json")
-        if spec["strategy"] == "INCREMENTAL" and candidate:
-            store.save_watermark(dataset, {
-                "dataset": dataset, "timestamp": candidate["timestamp"], "pk": candidate["pk"],
-                "run_id": context.run_id, "batch_id": context.batch_id,
-                "updated_at": datetime.now(timezone.utc).isoformat(),
-            })
-    store.put_json(settings.control_bucket, "state/last-successful-silver.json", context.as_dict())
-    event(LOG, "watermarks_committed", run_id=context.run_id)
-
-
-def dependency_check(spark, settings: Settings) -> None:
-    with psycopg.connect(settings.postgres_dsn, connect_timeout=10) as connection:
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT 1")
-            assert cursor.fetchone() == (1,)
-    store = ObjectStore(settings)
-    store.ensure_buckets()
-    store.put_json(settings.control_bucket, "health/last-check.json", {"checked_at": datetime.now(timezone.utc).isoformat(), "host": socket.gethostname()})
-    assert spark.range(1).count() == 1
-    event(LOG, "dependency_check_passed")
-
-
-def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Banking Bronze/Silver/Gold Spark pipeline")
-    parser.add_argument("stage", choices=["check", "extract", "validate-bronze", "silver", "silver-dq", "commit-state", "gold-dimensions", "gold-dimension-dq", "gold-facts", "gold-fact-dq", "all"])
-    parser.add_argument("--run-id")
-    parser.add_argument("--batch-id")
-    parser.add_argument("--datasets", help="Comma-separated allowlisted datasets")
-    parser.add_argument("--master", help="Spark master override; use local[*] for local tests")
-    return parser
+def dependency_check(batch_id: str) -> dict[str, object]:
+    spark = session("pipeline-dependency-check")
+    spark_ok = spark.range(1).count() == 1
+    state = PipelineState()
+    state.ensure_bucket()
+    metrics = {"spark": spark_ok, "control_bucket": state.bucket}
+    state.record_stage(batch_id, "dependency_check", metrics)
+    return metrics
 
 
 def main() -> None:
-    args = _parser().parse_args()
-    settings = Settings.from_env()
-    context = RunContext.create(args.run_id, args.batch_id)
-    selected = args.datasets.split(",") if args.datasets else None
-    store = ObjectStore(settings)
-    store.ensure_buckets()
-    spark = None
-    timer = monotonic()
-    try:
-        store.record_run(context.run_id, "RUNNING", batch_id=context.batch_id, stage=args.stage)
-        if args.stage == "commit-state":
-            commit_state(settings, context)
-            store.record_run(context.run_id, "SUCCESS", batch_id=context.batch_id, stage=args.stage, duration_seconds=round(monotonic() - timer, 3))
-            return
-        spark = create_spark(f"bank-{args.stage}-{context.run_id}", settings, args.master)
-        if args.stage == "check": dependency_check(spark, settings)
-        elif args.stage == "extract": extract_all(spark, settings, context, selected)
-        elif args.stage == "validate-bronze": validate_all(spark, settings, context, selected)
-        elif args.stage == "silver": transform_all(spark, settings, context, selected)
-        elif args.stage == "silver-dq": silver_quality(spark, settings, context)
-        elif args.stage == "gold-dimensions": build_dimensions(spark, settings, context)
-        elif args.stage == "gold-dimension-dq": gold_quality(spark, settings, context, "dimensions")
-        elif args.stage == "gold-facts": build_facts(spark, settings, context)
-        elif args.stage == "gold-fact-dq": gold_quality(spark, settings, context, "facts")
-        elif args.stage == "all":
-            dependency_check(spark, settings)
-            extract_all(spark, settings, context, selected)
-            validate_all(spark, settings, context, selected)
-            transform_all(spark, settings, context, selected)
-            silver_quality(spark, settings, context)
-            commit_state(settings, context)
-            build_dimensions(spark, settings, context)
-            gold_quality(spark, settings, context, "dimensions")
-            build_facts(spark, settings, context)
-            gold_quality(spark, settings, context, "facts")
-        store.record_run(context.run_id, "SUCCESS", batch_id=context.batch_id, stage=args.stage, duration_seconds=round(monotonic() - timer, 3))
-    except Exception as exc:
-        store.record_run(context.run_id, "FAILED", batch_id=context.batch_id, stage=args.stage, duration_seconds=round(monotonic() - timer, 3), error=str(exc))
-        event(LOG, "pipeline_failed", run_id=context.run_id, stage=args.stage, error=str(exc))
-        raise
-    finally:
-        if spark is not None:
-            spark.stop()
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "stage",
+        choices=[
+            "check", "extract", "bronze-dq", "silver", "silver-dq",
+            "commit-state", "gold", "gold-dq",
+        ],
+    )
+    parser.add_argument("--batch-id", default=uuid.uuid4().hex)
+    args = parser.parse_args()
+    logging.basicConfig(level=logging.INFO)
+    if args.stage == "check":
+        metrics = dependency_check(args.batch_id)
+    elif args.stage == "extract":
+        metrics = extract(args.batch_id)
+    elif args.stage == "bronze-dq":
+        metrics = validate_bronze(args.batch_id)
+    elif args.stage == "silver":
+        metrics = transform(args.batch_id)
+    elif args.stage == "silver-dq":
+        metrics = quality("silver", args.batch_id)
+    elif args.stage == "commit-state":
+        metrics = commit_state(args.batch_id)
+    elif args.stage == "gold":
+        metrics = build_gold(args.batch_id)
+    else:
+        metrics = quality("gold", args.batch_id)
+    logging.info("pipeline_stage_success stage=%s batch_id=%s metrics=%s", args.stage, args.batch_id, json.dumps(metrics))
 
 
 if __name__ == "__main__":

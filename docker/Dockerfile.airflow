@@ -1,9 +1,18 @@
-FROM apache/spark:3.5.5 AS spark_runtime
-FROM apache/airflow:2.10.5
+# Keep the driver Python minor version aligned with the official Spark image.
+# PySpark rejects Python workers when driver and executor use different minors.
+FROM apache/airflow:2.10.5-python3.10
 USER root
-RUN apt-get update && apt-get install -y --no-install-recommends openjdk-17-jre-headless && rm -rf /var/lib/apt/lists/*
-COPY --from=spark_runtime /opt/spark /opt/spark
-COPY docker/requirements-spark.txt /tmp/requirements-spark.txt
+RUN apt-get update && apt-get install -y --no-install-recommends openjdk-17-jre-headless curl && rm -rf /var/lib/apt/lists/*
 USER airflow
-RUN python -m pip install --timeout 300 --retries 10 -r /tmp/requirements-spark.txt
-ENV SPARK_HOME=/opt/spark PATH=/opt/spark/bin:/opt/spark/sbin:${PATH} PYTHONPATH=/workspace
+COPY docker/requirements-spark.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt pyspark==3.5.5 psycopg[binary]==3.2.13
+RUN PYSPARK_JARS="$(python -c 'from pathlib import Path; import pyspark; print(Path(pyspark.__file__).parent / "jars")')" && \
+    curl --retry 5 --retry-all-errors -fsSL -o "$PYSPARK_JARS/postgresql-42.7.5.jar" \
+    https://repo1.maven.org/maven2/org/postgresql/postgresql/42.7.5/postgresql-42.7.5.jar
+RUN PYSPARK_JARS="$(python -c 'from pathlib import Path; import pyspark; print(Path(pyspark.__file__).parent / "jars")')" && \
+    curl --retry 5 --retry-all-errors -fsSL -o "$PYSPARK_JARS/hadoop-aws-3.3.4.jar" \
+    https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/3.3.4/hadoop-aws-3.3.4.jar
+RUN PYSPARK_JARS="$(python -c 'from pathlib import Path; import pyspark; print(Path(pyspark.__file__).parent / "jars")')" && \
+    curl --retry 5 --retry-all-errors -fsSL -o "$PYSPARK_JARS/aws-java-sdk-bundle-1.12.262.jar" \
+    https://repo1.maven.org/maven2/com/amazonaws/aws-java-sdk-bundle/1.12.262/aws-java-sdk-bundle-1.12.262.jar
+ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 PYTHONPATH=/workspace

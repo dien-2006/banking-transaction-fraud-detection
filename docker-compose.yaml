@@ -18,15 +18,18 @@ x-airflow-common: &airflow-common
     SPARK_MASTER_URL: spark://spark-master:7077
     SOURCE_TIMEZONE: Asia/Ho_Chi_Minh
     PYTHONPATH: /workspace
+    ENABLE_REALTIME_SILVER_MERGE: "false"
+    SPARK_LOG_LEVEL: WARN
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
     AIRFLOW__CORE__DEFAULT_TIMEZONE: ${TZ:-Asia/Ho_Chi_Minh}
     AIRFLOW__WEBSERVER__DEFAULT_UI_TIMEZONE: ${TZ:-Asia/Ho_Chi_Minh}
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${AIRFLOW_DB_USER}:${AIRFLOW_DB_PASSWORD}@postgres-airflow:5432/${AIRFLOW_DB_NAME}
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: ${AIRFLOW_DAGS_PAUSED_AT_CREATION:-false}
+    AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session
   volumes:
     - ./airflow/dags:/opt/airflow/dags:ro
-    - ./airflow/logs:/opt/airflow/logs
+    - airflow_logs:/opt/airflow/logs
     - ./:/workspace:ro
   networks: [bank-network]
   depends_on:
@@ -48,8 +51,7 @@ services:
     ports: ["${POSTGRES_PORT:-5432}:5432"]
     volumes:
       - postgres_bank_data:/var/lib/postgresql/data
-      - ./sql/create_table.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
-      - ./database/init:/docker-entrypoint-initdb.d:ro
+      - ./sql:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: [CMD-SHELL, "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
@@ -85,6 +87,7 @@ services:
       timeout: 5s
       retries: 20
       start_period: 30s
+    profiles: [realtime]
     networks: [bank-network]
 
   kafka2:
@@ -100,6 +103,7 @@ services:
     volumes: [kafka2_data:/var/lib/kafka/data]
     healthcheck:
       test: [CMD-SHELL, "kafka-broker-api-versions --bootstrap-server kafka2:29092 >/dev/null 2>&1"]
+    profiles: [realtime]
 
   kafka3:
     <<: *kafka
@@ -118,6 +122,7 @@ services:
   kafka-init:
     image: confluentinc/cp-kafka:${KAFKA_VERSION:-7.9.0}
     restart: "no"
+    profiles: [realtime]
     depends_on:
       kafka1: {condition: service_healthy}
       kafka2: {condition: service_healthy}
@@ -129,6 +134,7 @@ services:
     image: provectuslabs/kafka-ui:${KAFKA_UI_VERSION:-latest}
     container_name: bank-kafka-ui
     restart: unless-stopped
+    profiles: [realtime]
     environment:
       KAFKA_CLUSTERS_0_NAME: bank-fraud-cluster
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka1:29092,kafka2:29092,kafka3:29092
@@ -246,6 +252,23 @@ services:
       timeout: 10s
       retries: 6
 
+  airflow-batch-bootstrap:
+    <<: *airflow-common
+    restart: "no"
+    command:
+      - bash
+      - -ec
+      - |
+        until airflow dags list --output plain | grep -q banking_bronze_silver_gold; do sleep 5; done
+        airflow dags unpause banking_bronze_silver_gold
+        if airflow dags list-runs -d banking_bronze_silver_gold --output json | grep -q bootstrap_first_run; then
+          echo "Initial Batch run already exists"
+        else
+          airflow dags trigger banking_bronze_silver_gold --run-id bootstrap_first_run
+        fi
+    depends_on:
+      airflow-scheduler: {condition: service_healthy}
+
   banking-api:
     build: {context: ., dockerfile: docker/Dockerfile.banking}
     image: bank-fraud-banking:3.11
@@ -296,10 +319,11 @@ services:
     restart: unless-stopped
     env_file: [.env]
     environment: {<<: *pipeline-environment}
+    profiles: [realtime]
     command: [python, -m, streaming.publisher.service]
     volumes: [./:/workspace:ro]
     healthcheck:
-      test: [CMD-SHELL, "kill -0 1"]
+      test: [CMD, python, -m, streaming.healthcheck, publisher]
       interval: 15s
       timeout: 5s
       retries: 3
@@ -313,12 +337,13 @@ services:
     image: bank-fraud-streaming:3.11
     container_name: bank-bronze-consumer
     restart: unless-stopped
+    profiles: [realtime]
     env_file: [.env]
     environment: {<<: *pipeline-environment}
     command: [python, -m, streaming.consumer.service]
     volumes: [./:/workspace:ro]
     healthcheck:
-      test: [CMD-SHELL, "kill -0 1"]
+      test: [CMD, python, -m, streaming.healthcheck, consumer]
       interval: 15s
       timeout: 5s
       retries: 3
@@ -333,6 +358,7 @@ services:
     container_name: bank-model-sync
     restart: unless-stopped
     env_file: [.env]
+    profiles: [ml]
     environment:
       <<: *pipeline-environment
       MODEL_CACHE_PATH: /models/current/model.json
@@ -351,8 +377,12 @@ services:
     restart: unless-stopped
     environment:
       SERVICE_NAME: metastore
+      HADOOP_OPTIONAL_TOOLS: hadoop-aws
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
     volumes:
       - hive_metastore_data:/opt/hive/data
+      - ./docker/hive/conf/core-site.xml:/opt/hive/conf/core-site.xml:ro
     healthcheck:
       test: [CMD-SHELL, "timeout 3 bash -c '</dev/tcp/localhost/9083'"]
       interval: 10s
@@ -405,3 +435,4 @@ volumes:
   minio_data:
   model_cache:
   hive_metastore_data:
+  airflow_logs:

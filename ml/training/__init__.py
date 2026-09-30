@@ -1,1 +1,1 @@
-"""Curated Silver model training."""
+"""Curated fraud-model training."""

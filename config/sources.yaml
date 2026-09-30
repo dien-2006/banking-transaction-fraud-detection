@@ -1,26 +1,21 @@
-source_system: banking_postgresql
-source_schema: banking
-source_timezone: Asia/Ho_Chi_Minh
-datasets:
-  bank_transaction: {pk: transactionid, strategy: SNAPSHOT, watermark: [transactiondate, transactionid]}
-  transfer_request: {pk: transferrequestid, strategy: SNAPSHOT, watermark: [requestedat, transferrequestid]}
-  transaction_posting: {pk: postingid, strategy: INCREMENTAL, watermark: [postingdate, postingid]}
-  transaction_type: {pk: transactiontypeid, strategy: SNAPSHOT}
-  customer: {pk: customerid, strategy: SNAPSHOT, watermark: [createddate, customerid]}
-  customer_device: {pk: deviceid, strategy: SNAPSHOT}
-  login_event: {pk: logineventid, strategy: INCREMENTAL, watermark: [logintime, logineventid]}
-  bank_account: {pk: accountid, strategy: SNAPSHOT}
-  account_holder: {pk: accountholderid, strategy: SNAPSHOT}
-  account_type: {pk: accounttypeid, strategy: SNAPSHOT}
-  account_status_history: {pk: historyid, strategy: INCREMENTAL, watermark: [changeddate, historyid]}
-  branch: {pk: branchid, strategy: SNAPSHOT}
-  terminal: {pk: terminalid, strategy: SNAPSHOT}
-  risk_assessment: {pk: riskassessmentid, strategy: INCREMENTAL, watermark: [assessedat, riskassessmentid]}
-  review_case: {pk: reviewcaseid, strategy: SNAPSHOT}
-  fraud_label_event: {pk: fraudlabeleventid, strategy: INCREMENTAL, watermark: [labeledat, fraudlabeleventid]}
-  model_version: {pk: modelversionid, strategy: SNAPSHOT}
-  loan: {pk: loanid, strategy: SNAPSHOT}
-  loan_type: {pk: loantypeid, strategy: SNAPSHOT}
-  repayment_schedule: {pk: scheduleid, strategy: SNAPSHOT}
-  loan_payment: {pk: loanpaymentid, strategy: INCREMENTAL, watermark: [paymentdate, loanpaymentid]}
-  event_outbox: {pk: eventoutboxid, strategy: SNAPSHOT, watermark: [createdat, eventoutboxid]}
+sources:
+  branch: {primary_key: branchid, strategy: SNAPSHOT}
+  customer: {primary_key: customerid, strategy: SNAPSHOT}
+  customer_device: {primary_key: deviceid, strategy: SNAPSHOT}
+  login_event: {primary_key: logineventid, strategy: INCREMENTAL, watermark: [logintime, logineventid]}
+  account_type: {primary_key: accounttypeid, strategy: SNAPSHOT}
+  bank_account: {primary_key: accountid, strategy: SNAPSHOT}
+  account_holder: {primary_key: accountholderid, strategy: SNAPSHOT}
+  transaction_type: {primary_key: transactiontypeid, strategy: SNAPSHOT}
+  bank_transaction: {primary_key: transactionid, strategy: SNAPSHOT}
+  transfer_request: {primary_key: transferrequestid, strategy: SNAPSHOT}
+  transaction_posting: {primary_key: postingid, strategy: INCREMENTAL, watermark: [postingdate, postingid]}
+  loan_type: {primary_key: loantypeid, strategy: SNAPSHOT}
+  loan: {primary_key: loanid, strategy: SNAPSHOT}
+  repayment_schedule: {primary_key: scheduleid, strategy: SNAPSHOT}
+  loan_payment: {primary_key: loanpaymentid, strategy: INCREMENTAL, watermark: [paymentdate, loanpaymentid]}
+  model_version: {primary_key: modelversionid, strategy: SNAPSHOT}
+  risk_assessment: {primary_key: riskassessmentid, strategy: INCREMENTAL, watermark: [assessedat, riskassessmentid]}
+  review_case: {primary_key: reviewcaseid, strategy: SNAPSHOT}
+  fraud_label_event: {primary_key: fraudlabeleventid, strategy: INCREMENTAL, watermark: [labeledat, fraudlabeleventid]}
+  event_outbox: {primary_key: eventoutboxid, strategy: SNAPSHOT}

@@ -1,7 +1,8 @@
 {
   "version": "v1",
-  "status": "bootstrap",
+  "status": "ACTIVE",
   "model_type": "logistic_regression",
-  "description": "Versioned bootstrap artifact; replace through the curated Silver training pipeline.",
-  "probability_range": [0, 1]
+  "description": "Bootstrap artifact compatible with the current Risk V1 feature contract.",
+  "probability_range": [0, 1],
+  "source": "bundled bootstrap"
 }

@@ -1,1 +1,1 @@
-"""Banking data platform implementation through the Gold layer."""
+"""Spark-based lakehouse pipeline."""

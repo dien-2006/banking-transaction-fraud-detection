@@ -1,1 +1,1 @@
-"""Banking core transaction processing."""
+"""Banking core application."""

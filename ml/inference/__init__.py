@@ -1,3 +1,3 @@
-from ml.inference.predictor import ArtifactPredictor
+from .predictor import FraudPredictor
 
-__all__ = ["ArtifactPredictor"]
+__all__ = ["FraudPredictor"]

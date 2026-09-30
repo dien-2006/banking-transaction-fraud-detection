@@ -1,123 +1,126 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import signal
 import time
-from datetime import timezone
 from typing import Any
 
 import psycopg
 from confluent_kafka import Producer
+from psycopg.rows import dict_row
 
-from data_engineering.common.config import Settings, event_catalog
-from data_engineering.common.logging import event, get_logger
+from banking.config import POSTGRES_SCHEMA, postgres_dsn
 
-
-LOG = get_logger(__name__)
+LOG = logging.getLogger("outbox-publisher")
 RUNNING = True
 
 
-def _stop(_signum, _frame) -> None:
+def _stop(*_: object) -> None:
     global RUNNING
     RUNNING = False
 
 
-def build_envelope(row: dict[str, Any]) -> dict[str, Any]:
-    created_at = row["createdat"]
-    if created_at.tzinfo is None:
-        created_at = created_at.replace(tzinfo=timezone.utc)
-        
+def build_envelope(event: dict[str, Any]) -> dict[str, Any]:
     return {
-        "event_id": row["eventkey"],
-        "event_type": row["eventtype"],
-        "event_version": event_catalog()["event_version"],
-        "occurred_at": created_at.isoformat(),
-        "occurred_at_source": "event_outbox.createdat",
-        "aggregate_type": row["aggregatetype"],
-        "aggregate_id": row["aggregateid"],
-        "payload": row["payloadjson"],
+        "event_id": event["eventkey"],
+        "event_type": event["eventtype"],
+        "event_version": os.getenv("EVENT_VERSION", "1.0"),
+        "occurred_at": event["createdat"].isoformat(),
+        "aggregate_type": event["aggregatetype"],
+        "aggregate_id": event["aggregateid"],
+        "payload": event["payloadjson"],
         "source_system": "banking_postgresql",
-        "correlation_id": None,
-        "outbox_id": row["eventoutboxid"],
+        "outbox_id": event["eventoutboxid"],
     }
 
 
 def validate_envelope(envelope: dict[str, Any]) -> None:
-    required = ("event_id", "event_type", "event_version", "occurred_at", "aggregate_type", "aggregate_id", "payload", "source_system")
+    required = (
+        "event_id", "event_type", "event_version", "occurred_at",
+        "aggregate_type", "aggregate_id", "payload", "source_system",
+    )
     missing = [field for field in required if envelope.get(field) is None]
     if missing:
-        raise ValueError(f"Invalid event envelope; missing {missing}")
+        raise ValueError(f"invalid event envelope; missing fields: {missing}")
 
 
-def run_once(settings: Settings, producer: Producer, limit: int) -> int:
-    sql = f"""
-        SELECT eventoutboxid, eventkey, aggregatetype, aggregateid, eventtype,
-               payloadjson, createdat, publishedat, status
-        FROM {settings.postgres_schema}.event_outbox
-        WHERE status IN ('PENDING','FAILED')
-        ORDER BY createdat, eventoutboxid
-        LIMIT %s
-        FOR UPDATE SKIP LOCKED
-    """
-    published = 0
-    with psycopg.connect(settings.postgres_dsn, row_factory=psycopg.rows.dict_row) as connection:
-        with connection.cursor() as cursor:
-            cursor.execute(sql, (limit,))
-            rows = cursor.fetchall()
-            for row in rows:
-                try:
-                    envelope = build_envelope(row)
-                    validate_envelope(envelope)
-                    delivery_error: list[Exception] = []
-                    producer.produce(
-                        settings.kafka_topic,
-                        key=envelope["aggregate_id"].encode(),
-                        value=json.dumps(envelope, ensure_ascii=False, default=str).encode(),
-                        headers={"event_id": envelope["event_id"], "event_version": envelope["event_version"]},
-                        on_delivery=lambda error, _message: delivery_error.append(error) if error else None,
-                    )
-                    remaining = producer.flush(30)
-                    if remaining or delivery_error:
-                        raise RuntimeError(f"Kafka acknowledgement failed: remaining={remaining}, error={delivery_error}")
-                    cursor.execute(
-                        f"UPDATE {settings.postgres_schema}.event_outbox SET status='PUBLISHED', publishedat=CURRENT_TIMESTAMP WHERE eventoutboxid=%s",
-                        (row["eventoutboxid"],),
-                    )
-                    connection.commit()
-                    published += 1
-                    event(LOG, "outbox_event_published", event_id=row["eventkey"], outbox_id=row["eventoutboxid"], topic=settings.kafka_topic)
-                except Exception as exc:
-                    connection.rollback()
-                    with connection.cursor() as failed_cursor:
-                        failed_cursor.execute(
-                            f"UPDATE {settings.postgres_schema}.event_outbox SET status='FAILED', publishedat=NULL WHERE eventoutboxid=%s",
-                            (row["eventoutboxid"],),
-                        )
-                    connection.commit()
-                    event(LOG, "outbox_publish_failed", event_id=row["eventkey"], outbox_id=row["eventoutboxid"], error=str(exc))
+def publish_once(connection, producer: Producer, topic: str, limit: int = 100) -> int:
+    with connection.transaction():
+        events = connection.execute(
+            """
+            SELECT eventoutboxid, eventkey, aggregatetype, aggregateid, eventtype,
+                   payloadjson, createdat
+            FROM event_outbox
+            WHERE status IN ('PENDING','FAILED')
+            ORDER BY createdat
+            LIMIT %s FOR UPDATE SKIP LOCKED
+            """,
+            (limit,),
+        ).fetchall()
+        published = 0
+        for event in events:
+            envelope = build_envelope(event)
+            validate_envelope(envelope)
+            delivery_error: list[Exception] = []
+
+            def delivered(error, _message) -> None:
+                if error:
+                    delivery_error.append(RuntimeError(str(error)))
+
+            producer.produce(
+                topic,
+                key=event["eventkey"].encode(),
+                value=json.dumps(envelope, default=str).encode(),
+                on_delivery=delivered,
+            )
+            undelivered = producer.flush(15)
+            if delivery_error:
+                connection.execute(
+                    "UPDATE event_outbox SET status='FAILED', publishedat=NULL WHERE eventoutboxid=%s",
+                    (event["eventoutboxid"],),
+                )
+                LOG.error("outbox_delivery_failed event_id=%s error=%s", event["eventkey"], delivery_error[0])
+                continue
+            if undelivered:
+                connection.execute(
+                    "UPDATE event_outbox SET status='FAILED', publishedat=NULL WHERE eventoutboxid=%s",
+                    (event["eventoutboxid"],),
+                )
+                LOG.error("outbox_delivery_timeout event_id=%s pending=%s", event["eventkey"], undelivered)
+                continue
+            connection.execute(
+                "UPDATE event_outbox SET status='PUBLISHED', publishedat=clock_timestamp() WHERE eventoutboxid=%s",
+                (event["eventoutboxid"],),
+            )
+            published += 1
     return published
 
 
 def main() -> None:
+    logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
     signal.signal(signal.SIGTERM, _stop)
-    signal.signal(signal.SIGINT, _stop)
-    settings = Settings.from_env()
-    producer = Producer({
-        "bootstrap.servers": settings.kafka_bootstrap_servers,
-        "acks": "all", "enable.idempotence": True,
-        "client.id": os.getenv("KAFKA_PRODUCER_CLIENT_ID", "bank-outbox-publisher"),
-    })
-    interval = float(os.getenv("OUTBOX_POLL_INTERVAL_SECONDS", "5"))
-    limit = int(os.getenv("OUTBOX_BATCH_SIZE", "100"))
-    once = os.getenv("RUN_ONCE", "false").lower() == "true"
-    while RUNNING:
-        count = run_once(settings, producer, limit)
-        if once:
-            break
-        if count == 0:
-            time.sleep(interval)
-    producer.flush(30)
+    producer = Producer(
+        {
+            "bootstrap.servers": os.environ["KAFKA_BOOTSTRAP_SERVERS"],
+            "enable.idempotence": True,
+            "acks": "all",
+        }
+    )
+    topic = os.getenv("KAFKA_TRANSACTION_TOPIC", "banking.transaction-events.v1")
+    with psycopg.connect(
+        postgres_dsn(), row_factory=dict_row, options=f"-c search_path={POSTGRES_SCHEMA}"
+    ) as connection:
+        while RUNNING:
+            try:
+                count = publish_once(connection, producer, topic)
+                if not count:
+                    time.sleep(1)
+            except Exception:
+                connection.rollback()
+                LOG.exception("outbox_publish_failed")
+                time.sleep(3)
 
 
 if __name__ == "__main__":

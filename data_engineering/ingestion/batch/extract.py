@@ -1,100 +1,95 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from time import monotonic
+import os
 from typing import Any
 
 from pyspark.sql import functions as F
 
-from data_engineering.common.catalog import contract_for
-from data_engineering.common.config import Settings, source_catalog
-from data_engineering.common.context import RunContext
-from data_engineering.common.logging import event, get_logger
-from data_engineering.common.paths import LakePaths
-from data_engineering.common.spark import read_postgres, write_parquet
-from data_engineering.common.storage import ObjectStore
+from data_engineering.common.config import load_yaml, s3a
+from data_engineering.common.contracts import contract_for
+from data_engineering.common.spark import session
+from data_engineering.common.state import PipelineState
 
 
-LOG = get_logger(__name__)
-
-
-def _incremental_query(settings: Settings, dataset: str, spec: dict[str, Any], state: dict[str, Any] | None) -> str:
-    table = f'"{settings.postgres_schema}"."{dataset}"'
-    projection = ", ".join(f'"{column}"' for column in contract_for(dataset).columns)
-    if spec["strategy"] != "INCREMENTAL" or not state or not spec.get("watermark"):
-        return f"SELECT {projection} FROM {table}"
-    timestamp_column, pk_column = spec["watermark"]
-    timestamp_value = str(state["timestamp"]).replace("'", "''")
-    pk_value = int(state["pk"])
+def _source_query(
+    schema: str,
+    table: str,
+    source: dict[str, Any],
+    previous: dict[str, Any] | None,
+) -> str:
+    contract = contract_for(table)
+    projection = ", ".join(f'"{column}"' for column in contract.columns)
+    qualified = f'"{schema}"."{table}"'
+    if source["strategy"] != "INCREMENTAL" or not previous:
+        return f"SELECT {projection} FROM {qualified}"
+    timestamp_column, key_column = source["watermark"]
+    timestamp = str(previous["timestamp"]).replace("'", "''")
+    primary_key = int(previous["primary_key"])
     return (
-        f"SELECT {projection} FROM {table} WHERE ({timestamp_column} > TIMESTAMP '{timestamp_value}') "
-        f"OR ({timestamp_column} = TIMESTAMP '{timestamp_value}' AND {pk_column} > {pk_value})"
+        f"SELECT {projection} FROM {qualified} "
+        f"WHERE (\"{timestamp_column}\" > TIMESTAMP '{timestamp}') "
+        f"OR (\"{timestamp_column}\" = TIMESTAMP '{timestamp}' "
+        f"AND \"{key_column}\" > {primary_key})"
     )
 
 
-def extract_dataset(spark, settings: Settings, context: RunContext, dataset: str) -> dict[str, Any]:
-    catalog = source_catalog()["datasets"]
-    if dataset not in catalog:
-        raise ValueError(f"Dataset is not allowlisted: {dataset}")
-    spec = catalog[dataset]
-    store = ObjectStore(settings)
-    store.ensure_buckets()
-    previous = store.watermark(dataset)
-    query = _incremental_query(settings, dataset, spec, previous)
-    started_at = datetime.now(timezone.utc)
-    timer = monotonic()
-    frame = read_postgres(spark, settings, query)
-    rows_read = frame.count()
-    ingest_date = started_at.date().isoformat()
-    enriched = (
-        frame.withColumn("_ingested_at", F.current_timestamp())
-        .withColumn("_source_system", F.lit("banking_postgresql"))
-        .withColumn("_source_table", F.lit(dataset))
-        .withColumn("_ingestion_mode", F.lit("BATCH"))
-        .withColumn("_batch_id", F.lit(context.batch_id))
-        .withColumn("_run_id", F.lit(context.run_id))
-        .withColumn("_source_timezone", F.lit(settings.source_timezone))
-        .withColumn("_source_pk", F.col(spec["pk"]).cast("string"))
+def run(batch_id: str) -> dict[str, dict[str, Any]]:
+    spark = session("postgres-to-bronze")
+    sources = load_yaml("config/sources.yaml")["sources"]
+    schema = os.getenv("POSTGRES_SCHEMA", "banking")
+    jdbc_url = (
+        f"jdbc:postgresql://{os.getenv('POSTGRES_HOST', 'postgres-bank')}:"
+        f"{os.getenv('POSTGRES_INTERNAL_PORT', '5432')}/{os.getenv('POSTGRES_DB', 'bank_fraud')}"
     )
-    path = LakePaths(settings).bronze_postgres(dataset, ingest_date, context.batch_id)
-    write_parquet(enriched, path, mode="overwrite")
-    rows_written = spark.read.parquet(path).count()
-    if rows_written != rows_read:
-        raise RuntimeError(f"Bronze count mismatch for {dataset}: read={rows_read}, written={rows_written}")
-
-    candidate = None
-    if rows_read and spec.get("watermark"):
-        ts_col, pk_col = spec["watermark"]
-        row = frame.orderBy(F.col(ts_col).desc(), F.col(pk_col).desc()).select(ts_col, pk_col).first()
-        candidate = {"timestamp": str(row[ts_col]), "pk": int(row[pk_col])}
-        store.put_json(
-            settings.control_bucket,
-            f"watermark-candidates/{context.run_id}/{dataset}.json",
-            {"dataset": dataset, "run_id": context.run_id, "batch_id": context.batch_id, **candidate},
+    state = PipelineState()
+    metrics: dict[str, dict[str, Any]] = {}
+    for table, source in sources.items():
+        previous = state.watermark(table) if source["strategy"] == "INCREMENTAL" else None
+        query = _source_query(schema, table, source, previous)
+        frame = (
+            spark.read.format("jdbc")
+            .option("url", jdbc_url)
+            .option("dbtable", f"({query}) AS source_data")
+            .option("user", os.environ["POSTGRES_USER"])
+            .option("password", os.environ["POSTGRES_PASSWORD"])
+            .option("driver", "org.postgresql.Driver")
+            .load()
         )
-
-    result = {
-        "run_id": context.run_id,
-        "batch_id": context.batch_id,
-        "dataset": dataset,
-        "source": f"postgresql:{settings.postgres_schema}.{dataset}",
-        "target": path,
-        "load_type": "FULL" if previous is None else spec["strategy"],
-        "watermark_start": previous,
-        "watermark_end": candidate,
-        "start_time": started_at.isoformat(),
-        "end_time": datetime.now(timezone.utc).isoformat(),
-        "rows_read": rows_read,
-        "rows_written": rows_written,
-        "rows_rejected": 0,
-        "duration_seconds": round(monotonic() - timer, 3),
-        "status": "SUCCESS",
-    }
-    store.put_json(settings.control_bucket, f"batches/{context.run_id}/{dataset}.json", result)
-    event(LOG, "batch_extract_complete", **result)
-    return result
-
-
-def extract_all(spark, settings: Settings, context: RunContext, datasets: list[str] | None = None) -> list[dict[str, Any]]:
-    selected = datasets or list(source_catalog()["datasets"])
-    return [extract_dataset(spark, settings, context, dataset) for dataset in selected]
+        input_count = frame.count()
+        enriched = (
+            frame
+            .withColumn("_ingested_at", F.current_timestamp())
+            .withColumn("_source_system", F.lit("postgresql"))
+            .withColumn("_source_table", F.lit(table))
+            .withColumn("_batch_id", F.lit(batch_id))
+            .withColumn("_ingestion_mode", F.lit("BATCH"))
+            .withColumn("_source_pk", F.col(source["primary_key"]).cast("string"))
+        )
+        target = s3a("MINIO_BUCKET_BRONZE", f"postgres/{table}/batch_id={batch_id}")
+        enriched.write.mode("overwrite").parquet(target)
+        output_count = spark.read.parquet(target).count()
+        if output_count != input_count:
+            raise RuntimeError(
+                f"Bronze count mismatch table={table} input={input_count} output={output_count}"
+            )
+        candidate = None
+        if input_count and source.get("watermark"):
+            timestamp_column, key_column = source["watermark"]
+            last = frame.orderBy(
+                F.col(timestamp_column).desc(), F.col(key_column).desc()
+            ).select(timestamp_column, key_column).first()
+            candidate = {
+                "timestamp": str(last[timestamp_column]),
+                "primary_key": int(last[key_column]),
+            }
+            state.save_candidate(batch_id, table, **candidate)
+        metrics[table] = {
+            "strategy": source["strategy"],
+            "input": input_count,
+            "output": output_count,
+            "watermark_start": previous,
+            "watermark_candidate": candidate,
+            "target": target,
+        }
+    state.record_stage(batch_id, "postgres_to_bronze", metrics)
+    return metrics

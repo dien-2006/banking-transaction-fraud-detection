@@ -1,1 +1,1 @@
-"""Outbox streaming services."""
+"""Continuous realtime services."""
