@@ -1,0 +1,2 @@
+import Link from "next/link";
+export default function NotFound() { return <main className="grid min-h-screen place-items-center bg-canvas p-5 text-center"><div><p className="text-7xl font-black text-coral">404</p><h1 className="mt-3 text-2xl font-black">Không tìm thấy trang</h1><p className="mt-2 text-slate-500">Đường dẫn không tồn tại hoặc bạn không có quyền truy cập.</p><Link className="btn-primary mt-6" href="/login">Về trang đăng nhập</Link></div></main>; }

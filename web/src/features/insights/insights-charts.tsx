@@ -1,0 +1,12 @@
+"use client";
+
+import dynamic from "next/dynamic";
+
+const ReactECharts=dynamic(()=>import("echarts-for-react"),{ssr:false,loading:()=> <div className="h-full animate-pulse rounded-lg bg-slate-50"/>});
+const grid={left:42,right:24,top:25,bottom:24};
+
+export function TransactionTrend(){const days=["01/09","03/09","05/09","07/09","09/09","11/09","13/09","15/09","17/09","19/09","21/09","23/09","25/09","27/09","29/09","30/09"];return <ReactECharts style={{height:"100%"}} option={{animation:false,tooltip:{trigger:"axis"},legend:{right:8,textStyle:{fontSize:9}},grid,xAxis:{type:"category",data:days,axisLabel:{fontSize:9,interval:3}},yAxis:{type:"value",splitLine:{lineStyle:{color:"#eef1f6"}},axisLabel:{fontSize:9}},series:[{name:"Số lượng giao dịch",type:"bar",data:[12,19,16,22,25,23,31,28,20,17,19,25,27,30,32,29],itemStyle:{color:"#ffd2d7"}},{name:"Giá trị giao dịch (tỷ VNĐ)",type:"line",data:[16,21,19,27,33,25,26,35,40,37,29,25,19,31,24,33],smooth:true,itemStyle:{color:"#f5223e"},lineStyle:{width:2,color:"#f5223e"}}]}}/>}
+
+export function ProductGrowth(){return <ReactECharts style={{height:"100%"}} option={{animation:false,tooltip:{trigger:"axis"},legend:{right:8,textStyle:{fontSize:9}},grid,xAxis:{type:"category",data:["T1","T2","T3","T4","T5","T6","T7","T9","T10","T11","T12"],axisLabel:{fontSize:9}},yAxis:{type:"value",splitLine:{lineStyle:{color:"#eef1f6"}},axisLabel:{fontSize:9}},series:[[15,18,21,22,25,27,28,30,31,32,33],[10,12,15,14,18,19,21,22,23,24,25],[6,8,11,10,13,14,16,17,18,19,20]].map((data,index)=>({name:["Tài khoản","Thẻ","Khoản vay"][index],type:"bar",data,itemStyle:{color:["#ff314b","#ff9eaa","#ffbf55"][index]}}))}}/>}
+
+export function Forecast(){return <ReactECharts style={{height:"100%"}} option={{animation:false,tooltip:{trigger:"axis"},legend:{right:5,textStyle:{fontSize:9}},grid:{left:38,right:15,top:25,bottom:20},xAxis:{type:"category",data:["T9","","T10","","T11","","T12","","T1","","T2"],axisLabel:{fontSize:9}},yAxis:{type:"value",splitLine:{lineStyle:{color:"#eef1f6"}},axisLabel:{fontSize:9}},series:[{name:"Thực tế",type:"line",data:[13,16,15,21,18,25,29,null,null,null,null],itemStyle:{color:"#f5223e"},lineStyle:{color:"#f5223e",width:2}},{name:"Dự báo",type:"line",data:[null,null,null,null,null,null,29,29,34,37,41],itemStyle:{color:"#ff6c7d"},lineStyle:{color:"#ff6c7d",type:"dashed",width:2},areaStyle:{color:"rgba(245,34,62,.08)"}}]}}/>}

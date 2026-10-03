@@ -1,0 +1,2 @@
+import { AuthSimple } from "@/components/auth-simple";
+export default function ForgotPage() { return <AuthSimple title="Khôi phục mật khẩu" description="Nhập email hoặc số điện thoại đã đăng ký để nhận mã xác thực."><form className="space-y-4"><input className="field" placeholder="Email / Số điện thoại" /><button className="btn-primary w-full" type="button">Gửi mã xác thực</button></form></AuthSimple>; }
