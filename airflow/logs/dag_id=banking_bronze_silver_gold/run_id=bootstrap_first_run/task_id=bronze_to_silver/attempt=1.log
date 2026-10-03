@@ -1,0 +1,65 @@
+[2026-09-30T01:22:28.702+0700] {local_task_job_runner.py:123} INFO - ::group::Pre task execution logs
+[2026-09-30T01:22:28.750+0700] {taskinstance.py:2614} INFO - Dependencies all met for dep_context=non-requeueable deps ti=<TaskInstance: banking_bronze_silver_gold.bronze_to_silver bootstrap_first_run [queued]>
+[2026-09-30T01:22:28.760+0700] {taskinstance.py:2614} INFO - Dependencies all met for dep_context=requeueable deps ti=<TaskInstance: banking_bronze_silver_gold.bronze_to_silver bootstrap_first_run [queued]>
+[2026-09-30T01:22:28.761+0700] {taskinstance.py:2867} INFO - Starting attempt 1 of 3
+[2026-09-30T01:22:28.779+0700] {taskinstance.py:2890} INFO - Executing <Task(BashOperator): bronze_to_silver> on 2026-09-29 18:20:55+00:00
+[2026-09-30T01:22:28.787+0700] {standard_task_runner.py:72} INFO - Started process 1628 to run task
+[2026-09-30T01:22:28.790+0700] {standard_task_runner.py:104} INFO - Running: ['airflow', 'tasks', 'run', 'banking_bronze_silver_gold', 'bronze_to_silver', 'bootstrap_first_run', '--job-id', '17', '--raw', '--subdir', 'DAGS_FOLDER/banking_data_pipeline.py', '--cfg-path', '/tmp/tmp19thuzdt']
+[2026-09-30T01:22:28.792+0700] {standard_task_runner.py:105} INFO - Job 17: Subtask bronze_to_silver
+[2026-09-30T01:22:28.841+0700] {task_command.py:467} INFO - Running <TaskInstance: banking_bronze_silver_gold.bronze_to_silver bootstrap_first_run [running]> on host 9b9f40ad5c30
+[2026-09-30T01:22:28.951+0700] {taskinstance.py:3134} INFO - Exporting env vars: AIRFLOW_CTX_DAG_OWNER='data-platform' AIRFLOW_CTX_DAG_ID='banking_bronze_silver_gold' AIRFLOW_CTX_TASK_ID='bronze_to_silver' AIRFLOW_CTX_EXECUTION_DATE='2026-09-29T18:20:55+00:00' AIRFLOW_CTX_TRY_NUMBER='1' AIRFLOW_CTX_DAG_RUN_ID='bootstrap_first_run'
+[2026-09-30T01:22:28.952+0700] {taskinstance.py:732} INFO - ::endgroup::
+[2026-09-30T01:22:28.978+0700] {subprocess.py:78} INFO - Tmp dir root location: /tmp
+[2026-09-30T01:22:28.979+0700] {subprocess.py:88} INFO - Running command: ['/usr/bin/bash', '-c', "spark-submit --master $SPARK_MASTER_URL /workspace/data_engineering/jobs/pipeline.py silver --batch-id 'bootstrap_first_run'"]
+[2026-09-30T01:22:28.988+0700] {subprocess.py:99} INFO - Output:
+[2026-09-30T01:22:29.045+0700] {subprocess.py:106} INFO - /home/airflow/.local/lib/python3.11/site-packages/pyspark/bin/load-spark-env.sh: line 68: ps: command not found
+[2026-09-30T01:22:31.880+0700] {subprocess.py:106} INFO - 26/09/30 01:22:31 INFO SparkContext: Running Spark version 3.5.5
+[2026-09-30T01:22:31.883+0700] {subprocess.py:106} INFO - 26/09/30 01:22:31 INFO SparkContext: OS info Linux, 6.18.33.2-microsoft-standard-WSL2, amd64
+[2026-09-30T01:22:31.883+0700] {subprocess.py:106} INFO - 26/09/30 01:22:31 INFO SparkContext: Java version 17.0.20.1
+[2026-09-30T01:22:31.940+0700] {subprocess.py:106} INFO - 26/09/30 01:22:31 WARN NativeCodeLoader: Unable to load native-hadoop library for your platform... using builtin-java classes where applicable
+[2026-09-30T01:22:32.040+0700] {subprocess.py:106} INFO - 26/09/30 01:22:32 INFO ResourceUtils: ==============================================================
+[2026-09-30T01:22:32.040+0700] {subprocess.py:106} INFO - 26/09/30 01:22:32 INFO ResourceUtils: No custom resources configured for spark.driver.
+[2026-09-30T01:22:32.040+0700] {subprocess.py:106} INFO - 26/09/30 01:22:32 INFO ResourceUtils: ==============================================================
+[2026-09-30T01:22:32.041+0700] {subprocess.py:106} INFO - 26/09/30 01:22:32 INFO SparkContext: Submitted application: bronze-to-silver
+[2026-09-30T01:22:32.057+0700] {subprocess.py:106} INFO - 26/09/30 01:22:32 INFO ResourceProfile: Default ResourceProfile created, executor resources: Map(memory -> name: memory, amount: 1024, script: , vendor: , offHeap -> name: offHeap, amount: 0, script: , vendor: ), task resources: Map(cpus -> name: cpus, amount: 1.0)
+[2026-09-30T01:22:32.063+0700] {subprocess.py:106} INFO - 26/09/30 01:22:32 INFO ResourceProfile: Limiting resource is cpu
+[2026-09-30T01:22:32.064+0700] {subprocess.py:106} INFO - 26/09/30 01:22:32 INFO ResourceProfileManager: Added ResourceProfile id: 0
+[2026-09-30T01:22:32.108+0700] {subprocess.py:106} INFO - 26/09/30 01:22:32 INFO SecurityManager: Changing view acls to: airflow
+[2026-09-30T01:22:32.109+0700] {subprocess.py:106} INFO - 26/09/30 01:22:32 INFO SecurityManager: Changing modify acls to: airflow
+[2026-09-30T01:22:32.109+0700] {subprocess.py:106} INFO - 26/09/30 01:22:32 INFO SecurityManager: Changing view acls groups to:
+[2026-09-30T01:22:32.110+0700] {subprocess.py:106} INFO - 26/09/30 01:22:32 INFO SecurityManager: Changing modify acls groups to:
+[2026-09-30T01:22:32.110+0700] {subprocess.py:106} INFO - 26/09/30 01:22:32 INFO SecurityManager: SecurityManager: authentication disabled; ui acls disabled; users with view permissions: airflow; groups with view permissions: EMPTY; users with modify permissions: airflow; groups with modify permissions: EMPTY
+[2026-09-30T01:22:32.310+0700] {subprocess.py:106} INFO - 26/09/30 01:22:32 INFO Utils: Successfully started service 'sparkDriver' on port 39745.
+[2026-09-30T01:22:32.356+0700] {subprocess.py:106} INFO - 26/09/30 01:22:32 INFO SparkEnv: Registering MapOutputTracker
+[2026-09-30T01:22:32.393+0700] {subprocess.py:106} INFO - 26/09/30 01:22:32 INFO SparkEnv: Registering BlockManagerMaster
+[2026-09-30T01:22:32.416+0700] {subprocess.py:106} INFO - 26/09/30 01:22:32 INFO BlockManagerMasterEndpoint: Using org.apache.spark.storage.DefaultTopologyMapper for getting topology information
+[2026-09-30T01:22:32.417+0700] {subprocess.py:106} INFO - 26/09/30 01:22:32 INFO BlockManagerMasterEndpoint: BlockManagerMasterEndpoint up
+[2026-09-30T01:22:32.423+0700] {subprocess.py:106} INFO - 26/09/30 01:22:32 INFO SparkEnv: Registering BlockManagerMasterHeartbeat
+[2026-09-30T01:22:32.443+0700] {subprocess.py:106} INFO - 26/09/30 01:22:32 INFO DiskBlockManager: Created local directory at /tmp/blockmgr-d59467ef-afac-4af1-bfd7-a1d89ebf5faf
+[2026-09-30T01:22:32.454+0700] {subprocess.py:106} INFO - 26/09/30 01:22:32 INFO MemoryStore: MemoryStore started with capacity 434.4 MiB
+[2026-09-30T01:22:32.465+0700] {subprocess.py:106} INFO - 26/09/30 01:22:32 INFO SparkEnv: Registering OutputCommitCoordinator
+[2026-09-30T01:22:32.565+0700] {subprocess.py:106} INFO - 26/09/30 01:22:32 INFO JettyUtils: Start Jetty 0.0.0.0:4040 for SparkUI
+[2026-09-30T01:22:32.649+0700] {subprocess.py:106} INFO - 26/09/30 01:22:32 INFO Utils: Successfully started service 'SparkUI' on port 4040.
+[2026-09-30T01:22:32.795+0700] {subprocess.py:106} INFO - 26/09/30 01:22:32 INFO StandaloneAppClient$ClientEndpoint: Connecting to master spark://spark-master:7077...
+[2026-09-30T01:22:32.831+0700] {subprocess.py:106} INFO - 26/09/30 01:22:32 INFO TransportClientFactory: Successfully created connection to spark-master/172.21.0.5:7077 after 19 ms (0 ms spent in bootstraps)
+[2026-09-30T01:22:32.905+0700] {subprocess.py:106} INFO - 26/09/30 01:22:32 INFO StandaloneSchedulerBackend: Connected to Spark cluster with app ID app-20260929182232-0004
+[2026-09-30T01:22:32.907+0700] {subprocess.py:106} INFO - 26/09/30 01:22:32 INFO StandaloneAppClient$ClientEndpoint: Executor added: app-20260929182232-0004/0 on worker-20260929181947-172.21.0.6-33617 (172.21.0.6:33617) with 2 core(s)
+[2026-09-30T01:22:32.910+0700] {subprocess.py:106} INFO - 26/09/30 01:22:32 INFO StandaloneSchedulerBackend: Granted executor ID app-20260929182232-0004/0 on hostPort 172.21.0.6:33617 with 2 core(s), 1024.0 MiB RAM
+[2026-09-30T01:22:32.916+0700] {subprocess.py:106} INFO - 26/09/30 01:22:32 INFO Utils: Successfully started service 'org.apache.spark.network.netty.NettyBlockTransferService' on port 44859.
+[2026-09-30T01:22:32.916+0700] {subprocess.py:106} INFO - 26/09/30 01:22:32 INFO NettyBlockTransferService: Server created on 9b9f40ad5c30:44859
+[2026-09-30T01:22:32.918+0700] {subprocess.py:106} INFO - 26/09/30 01:22:32 INFO BlockManager: Using org.apache.spark.storage.RandomBlockReplicationPolicy for block replication policy
+[2026-09-30T01:22:32.935+0700] {subprocess.py:106} INFO - 26/09/30 01:22:32 INFO BlockManagerMaster: Registering BlockManager BlockManagerId(driver, 9b9f40ad5c30, 44859, None)
+[2026-09-30T01:22:32.939+0700] {subprocess.py:106} INFO - 26/09/30 01:22:32 INFO BlockManagerMasterEndpoint: Registering block manager 9b9f40ad5c30:44859 with 434.4 MiB RAM, BlockManagerId(driver, 9b9f40ad5c30, 44859, None)
+[2026-09-30T01:22:32.941+0700] {subprocess.py:106} INFO - 26/09/30 01:22:32 INFO BlockManagerMaster: Registered BlockManager BlockManagerId(driver, 9b9f40ad5c30, 44859, None)
+[2026-09-30T01:22:32.943+0700] {subprocess.py:106} INFO - 26/09/30 01:22:32 INFO BlockManager: Initialized BlockManager: BlockManagerId(driver, 9b9f40ad5c30, 44859, None)
+[2026-09-30T01:22:32.990+0700] {subprocess.py:106} INFO - 26/09/30 01:22:32 INFO StandaloneAppClient$ClientEndpoint: Executor updated: app-20260929182232-0004/0 is now RUNNING
+[2026-09-30T01:22:33.170+0700] {subprocess.py:106} INFO - 26/09/30 01:22:33 INFO StandaloneSchedulerBackend: SchedulerBackend is ready for scheduling beginning after reached minRegisteredResourcesRatio: 0.0
+[2026-09-30T01:22:34.679+0700] {subprocess.py:106} INFO - 26/09/30 01:22:34 WARN MetricsConfig: Cannot locate configuration: tried hadoop-metrics2-s3a-file-system.properties,hadoop-metrics2.properties
+[2026-09-30T01:23:29.019+0700] {subprocess.py:106} INFO - INFO:root:pipeline_stage_success stage=silver batch_id=bootstrap_first_run metrics={"branch": {"input": 26, "valid": 13, "invalid": 0, "duplicates": 13, "output": 13}, "customer": {"input": 5006, "valid": 2503, "invalid": 0, "duplicates": 2503, "output": 2503}, "customer_device": {"input": 6002, "valid": 3001, "invalid": 0, "duplicates": 3001, "output": 3001}, "login_event": {"input": 6200, "valid": 3100, "invalid": 0, "duplicates": 3100, "output": 3100}, "account_type": {"input": 10, "valid": 5, "invalid": 0, "duplicates": 5, "output": 5}, "bank_account": {"input": 6004, "valid": 3002, "invalid": 0, "duplicates": 3002, "output": 3002}, "account_holder": {"input": 6004, "valid": 3002, "invalid": 0, "duplicates": 3002, "output": 3002}, "transaction_type": {"input": 12, "valid": 6, "invalid": 0, "duplicates": 6, "output": 6}, "bank_transaction": {"input": 6018, "valid": 3009, "invalid": 0, "duplicates": 3009, "output": 3009}, "transfer_request": {"input": 2418, "valid": 1209, "invalid": 0, "duplicates": 1209, "output": 1209}, "transaction_posting": {"input": 6420, "valid": 3210, "invalid": 0, "duplicates": 3210, "output": 3210}, "loan_type": {"input": 8, "valid": 4, "invalid": 0, "duplicates": 4, "output": 4}, "loan": {"input": 600, "valid": 300, "invalid": 0, "duplicates": 300, "output": 300}, "repayment_schedule": {"input": 1400, "valid": 700, "invalid": 0, "duplicates": 700, "output": 700}, "loan_payment": {"input": 500, "valid": 250, "invalid": 0, "duplicates": 250, "output": 250}, "model_version": {"input": 8, "valid": 4, "invalid": 0, "duplicates": 4, "output": 4}, "risk_assessment": {"input": 3018, "valid": 1509, "invalid": 0, "duplicates": 1509, "output": 1509}, "review_case": {"input": 202, "valid": 101, "invalid": 0, "duplicates": 101, "output": 101}, "fraud_label_event": {"input": 600, "valid": 300, "invalid": 0, "duplicates": 300, "output": 300}, "event_outbox": {"input": 1010, "valid": 505, "invalid": 0, "duplicates": 505, "output": 505}}
+[2026-09-30T01:23:29.050+0700] {subprocess.py:106} INFO - INFO:py4j.clientserver:Closing down clientserver connection
+[2026-09-30T01:23:29.564+0700] {subprocess.py:110} INFO - Command exited with return code 0
+[2026-09-30T01:23:29.671+0700] {taskinstance.py:341} INFO - ::group::Post task execution logs
+[2026-09-30T01:23:29.672+0700] {taskinstance.py:353} INFO - Marking task as SUCCESS. dag_id=banking_bronze_silver_gold, task_id=bronze_to_silver, run_id=bootstrap_first_run, execution_date=20260929T182055, start_date=20260929T182228, end_date=20260929T182329
+[2026-09-30T01:23:29.796+0700] {local_task_job_runner.py:266} INFO - Task exited with return code 0
+[2026-09-30T01:23:29.979+0700] {taskinstance.py:3901} INFO - 1 downstream tasks scheduled from follow-on schedule check
+[2026-09-30T01:23:29.987+0700] {local_task_job_runner.py:245} INFO - ::endgroup::

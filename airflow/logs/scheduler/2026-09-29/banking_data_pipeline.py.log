@@ -1,0 +1,103 @@
+[2026-09-30T01:20:18.352+0700] {processor.py:186} INFO - Started process (PID=171) to work on /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:20:18.353+0700] {processor.py:914} INFO - Processing file /opt/airflow/dags/banking_data_pipeline.py for tasks to queue
+[2026-09-30T01:20:18.358+0700] {logging_mixin.py:190} INFO - [2026-09-30T01:20:18.358+0700] {dagbag.py:588} INFO - Filling up the DagBag from /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:20:18.384+0700] {processor.py:925} INFO - DAG(s) 'banking_bronze_silver_gold' retrieved from /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:20:18.844+0700] {logging_mixin.py:190} INFO - [2026-09-30T01:20:18.844+0700] {dag.py:3239} INFO - Sync 1 DAGs
+[2026-09-30T01:20:18.892+0700] {processor.py:208} INFO - Processing /opt/airflow/dags/banking_data_pipeline.py took 0.553 seconds
+[2026-09-30T01:20:49.100+0700] {processor.py:186} INFO - Started process (PID=361) to work on /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:20:49.102+0700] {processor.py:914} INFO - Processing file /opt/airflow/dags/banking_data_pipeline.py for tasks to queue
+[2026-09-30T01:20:49.111+0700] {logging_mixin.py:190} INFO - [2026-09-30T01:20:49.109+0700] {dagbag.py:588} INFO - Filling up the DagBag from /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:20:49.183+0700] {processor.py:925} INFO - DAG(s) 'banking_bronze_silver_gold' retrieved from /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:20:49.281+0700] {logging_mixin.py:190} INFO - [2026-09-30T01:20:49.280+0700] {dag.py:3239} INFO - Sync 1 DAGs
+[2026-09-30T01:20:49.380+0700] {logging_mixin.py:190} INFO - [2026-09-30T01:20:49.380+0700] {dag.py:4180} INFO - Setting next_dagrun for banking_bronze_silver_gold to 2026-09-29 18:00:00+00:00, run_after=2026-09-30 18:00:00+00:00
+[2026-09-30T01:20:49.427+0700] {processor.py:208} INFO - Processing /opt/airflow/dags/banking_data_pipeline.py took 0.337 seconds
+[2026-09-30T01:21:19.713+0700] {processor.py:186} INFO - Started process (PID=701) to work on /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:21:19.718+0700] {processor.py:914} INFO - Processing file /opt/airflow/dags/banking_data_pipeline.py for tasks to queue
+[2026-09-30T01:21:19.739+0700] {logging_mixin.py:190} INFO - [2026-09-30T01:21:19.736+0700] {dagbag.py:588} INFO - Filling up the DagBag from /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:21:19.847+0700] {processor.py:925} INFO - DAG(s) 'banking_bronze_silver_gold' retrieved from /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:21:20.270+0700] {logging_mixin.py:190} INFO - [2026-09-30T01:21:20.269+0700] {dag.py:3239} INFO - Sync 1 DAGs
+[2026-09-30T01:21:20.583+0700] {processor.py:208} INFO - Processing /opt/airflow/dags/banking_data_pipeline.py took 0.898 seconds
+[2026-09-30T01:21:50.915+0700] {processor.py:186} INFO - Started process (PID=1091) to work on /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:21:50.920+0700] {processor.py:914} INFO - Processing file /opt/airflow/dags/banking_data_pipeline.py for tasks to queue
+[2026-09-30T01:21:50.949+0700] {logging_mixin.py:190} INFO - [2026-09-30T01:21:50.944+0700] {dagbag.py:588} INFO - Filling up the DagBag from /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:21:51.081+0700] {processor.py:925} INFO - DAG(s) 'banking_bronze_silver_gold' retrieved from /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:21:51.202+0700] {logging_mixin.py:190} INFO - [2026-09-30T01:21:51.202+0700] {dag.py:3239} INFO - Sync 1 DAGs
+[2026-09-30T01:21:51.331+0700] {processor.py:208} INFO - Processing /opt/airflow/dags/banking_data_pipeline.py took 0.479 seconds
+[2026-09-30T01:22:21.648+0700] {processor.py:186} INFO - Started process (PID=1542) to work on /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:22:21.655+0700] {processor.py:914} INFO - Processing file /opt/airflow/dags/banking_data_pipeline.py for tasks to queue
+[2026-09-30T01:22:21.682+0700] {logging_mixin.py:190} INFO - [2026-09-30T01:22:21.680+0700] {dagbag.py:588} INFO - Filling up the DagBag from /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:22:21.787+0700] {processor.py:925} INFO - DAG(s) 'banking_bronze_silver_gold' retrieved from /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:22:21.984+0700] {logging_mixin.py:190} INFO - [2026-09-30T01:22:21.984+0700] {dag.py:3239} INFO - Sync 1 DAGs
+[2026-09-30T01:22:22.087+0700] {processor.py:208} INFO - Processing /opt/airflow/dags/banking_data_pipeline.py took 0.479 seconds
+[2026-09-30T01:22:52.310+0700] {processor.py:186} INFO - Started process (PID=2040) to work on /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:22:52.316+0700] {processor.py:914} INFO - Processing file /opt/airflow/dags/banking_data_pipeline.py for tasks to queue
+[2026-09-30T01:22:52.332+0700] {logging_mixin.py:190} INFO - [2026-09-30T01:22:52.328+0700] {dagbag.py:588} INFO - Filling up the DagBag from /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:22:52.398+0700] {processor.py:925} INFO - DAG(s) 'banking_bronze_silver_gold' retrieved from /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:22:52.476+0700] {logging_mixin.py:190} INFO - [2026-09-30T01:22:52.476+0700] {dag.py:3239} INFO - Sync 1 DAGs
+[2026-09-30T01:22:52.598+0700] {processor.py:208} INFO - Processing /opt/airflow/dags/banking_data_pipeline.py took 0.317 seconds
+[2026-09-30T01:23:22.918+0700] {processor.py:186} INFO - Started process (PID=2224) to work on /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:23:22.920+0700] {processor.py:914} INFO - Processing file /opt/airflow/dags/banking_data_pipeline.py for tasks to queue
+[2026-09-30T01:23:22.937+0700] {logging_mixin.py:190} INFO - [2026-09-30T01:23:22.927+0700] {dagbag.py:588} INFO - Filling up the DagBag from /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:23:23.086+0700] {processor.py:925} INFO - DAG(s) 'banking_bronze_silver_gold' retrieved from /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:23:23.202+0700] {logging_mixin.py:190} INFO - [2026-09-30T01:23:23.202+0700] {dag.py:3239} INFO - Sync 1 DAGs
+[2026-09-30T01:23:23.292+0700] {processor.py:208} INFO - Processing /opt/airflow/dags/banking_data_pipeline.py took 0.395 seconds
+[2026-09-30T01:23:53.395+0700] {processor.py:186} INFO - Started process (PID=2739) to work on /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:23:53.399+0700] {processor.py:914} INFO - Processing file /opt/airflow/dags/banking_data_pipeline.py for tasks to queue
+[2026-09-30T01:23:53.406+0700] {logging_mixin.py:190} INFO - [2026-09-30T01:23:53.404+0700] {dagbag.py:588} INFO - Filling up the DagBag from /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:23:53.472+0700] {processor.py:925} INFO - DAG(s) 'banking_bronze_silver_gold' retrieved from /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:23:53.682+0700] {logging_mixin.py:190} INFO - [2026-09-30T01:23:53.681+0700] {dag.py:3239} INFO - Sync 1 DAGs
+[2026-09-30T01:23:53.886+0700] {processor.py:208} INFO - Processing /opt/airflow/dags/banking_data_pipeline.py took 0.506 seconds
+[2026-09-30T01:24:24.151+0700] {processor.py:186} INFO - Started process (PID=2818) to work on /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:24:24.154+0700] {processor.py:914} INFO - Processing file /opt/airflow/dags/banking_data_pipeline.py for tasks to queue
+[2026-09-30T01:24:24.161+0700] {logging_mixin.py:190} INFO - [2026-09-30T01:24:24.160+0700] {dagbag.py:588} INFO - Filling up the DagBag from /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:24:24.207+0700] {processor.py:925} INFO - DAG(s) 'banking_bronze_silver_gold' retrieved from /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:24:24.318+0700] {logging_mixin.py:190} INFO - [2026-09-30T01:24:24.316+0700] {dag.py:3239} INFO - Sync 1 DAGs
+[2026-09-30T01:24:24.457+0700] {processor.py:208} INFO - Processing /opt/airflow/dags/banking_data_pipeline.py took 0.321 seconds
+[2026-09-30T01:24:54.665+0700] {processor.py:186} INFO - Started process (PID=2831) to work on /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:24:54.679+0700] {processor.py:914} INFO - Processing file /opt/airflow/dags/banking_data_pipeline.py for tasks to queue
+[2026-09-30T01:24:54.682+0700] {logging_mixin.py:190} INFO - [2026-09-30T01:24:54.682+0700] {dagbag.py:588} INFO - Filling up the DagBag from /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:24:54.696+0700] {processor.py:925} INFO - DAG(s) 'banking_bronze_silver_gold' retrieved from /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:24:54.730+0700] {logging_mixin.py:190} INFO - [2026-09-30T01:24:54.729+0700] {dag.py:3239} INFO - Sync 1 DAGs
+[2026-09-30T01:24:54.775+0700] {processor.py:208} INFO - Processing /opt/airflow/dags/banking_data_pipeline.py took 0.116 seconds
+[2026-09-30T01:25:24.961+0700] {processor.py:186} INFO - Started process (PID=2844) to work on /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:25:24.962+0700] {processor.py:914} INFO - Processing file /opt/airflow/dags/banking_data_pipeline.py for tasks to queue
+[2026-09-30T01:25:24.964+0700] {logging_mixin.py:190} INFO - [2026-09-30T01:25:24.964+0700] {dagbag.py:588} INFO - Filling up the DagBag from /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:25:24.980+0700] {processor.py:925} INFO - DAG(s) 'banking_bronze_silver_gold' retrieved from /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:25:25.022+0700] {logging_mixin.py:190} INFO - [2026-09-30T01:25:25.022+0700] {dag.py:3239} INFO - Sync 1 DAGs
+[2026-09-30T01:25:25.066+0700] {processor.py:208} INFO - Processing /opt/airflow/dags/banking_data_pipeline.py took 0.116 seconds
+[2026-09-30T01:25:55.218+0700] {processor.py:186} INFO - Started process (PID=2864) to work on /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:25:55.219+0700] {processor.py:914} INFO - Processing file /opt/airflow/dags/banking_data_pipeline.py for tasks to queue
+[2026-09-30T01:25:55.222+0700] {logging_mixin.py:190} INFO - [2026-09-30T01:25:55.221+0700] {dagbag.py:588} INFO - Filling up the DagBag from /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:25:55.239+0700] {processor.py:925} INFO - DAG(s) 'banking_bronze_silver_gold' retrieved from /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:25:55.285+0700] {logging_mixin.py:190} INFO - [2026-09-30T01:25:55.285+0700] {dag.py:3239} INFO - Sync 1 DAGs
+[2026-09-30T01:25:55.359+0700] {processor.py:208} INFO - Processing /opt/airflow/dags/banking_data_pipeline.py took 0.152 seconds
+[2026-09-30T01:26:26.448+0700] {processor.py:186} INFO - Started process (PID=2878) to work on /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:26:26.449+0700] {processor.py:914} INFO - Processing file /opt/airflow/dags/banking_data_pipeline.py for tasks to queue
+[2026-09-30T01:26:26.452+0700] {logging_mixin.py:190} INFO - [2026-09-30T01:26:26.452+0700] {dagbag.py:588} INFO - Filling up the DagBag from /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:26:26.468+0700] {processor.py:925} INFO - DAG(s) 'banking_bronze_silver_gold' retrieved from /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:26:26.500+0700] {logging_mixin.py:190} INFO - [2026-09-30T01:26:26.500+0700] {dag.py:3239} INFO - Sync 1 DAGs
+[2026-09-30T01:26:26.549+0700] {processor.py:208} INFO - Processing /opt/airflow/dags/banking_data_pipeline.py took 0.112 seconds
+[2026-09-30T01:26:56.743+0700] {processor.py:186} INFO - Started process (PID=2891) to work on /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:26:56.744+0700] {processor.py:914} INFO - Processing file /opt/airflow/dags/banking_data_pipeline.py for tasks to queue
+[2026-09-30T01:26:56.747+0700] {logging_mixin.py:190} INFO - [2026-09-30T01:26:56.746+0700] {dagbag.py:588} INFO - Filling up the DagBag from /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:26:56.758+0700] {processor.py:925} INFO - DAG(s) 'banking_bronze_silver_gold' retrieved from /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:26:56.789+0700] {logging_mixin.py:190} INFO - [2026-09-30T01:26:56.789+0700] {dag.py:3239} INFO - Sync 1 DAGs
+[2026-09-30T01:26:56.835+0700] {processor.py:208} INFO - Processing /opt/airflow/dags/banking_data_pipeline.py took 0.099 seconds
+[2026-09-30T01:27:28.012+0700] {processor.py:186} INFO - Started process (PID=3189) to work on /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:27:28.015+0700] {processor.py:914} INFO - Processing file /opt/airflow/dags/banking_data_pipeline.py for tasks to queue
+[2026-09-30T01:27:28.020+0700] {logging_mixin.py:190} INFO - [2026-09-30T01:27:28.019+0700] {dagbag.py:588} INFO - Filling up the DagBag from /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:27:28.064+0700] {processor.py:925} INFO - DAG(s) 'banking_bronze_silver_gold' retrieved from /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:27:28.147+0700] {logging_mixin.py:190} INFO - [2026-09-30T01:27:28.147+0700] {dag.py:3239} INFO - Sync 1 DAGs
+[2026-09-30T01:27:28.215+0700] {processor.py:208} INFO - Processing /opt/airflow/dags/banking_data_pipeline.py took 0.217 seconds
+[2026-09-30T01:27:59.306+0700] {processor.py:186} INFO - Started process (PID=3413) to work on /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:27:59.309+0700] {processor.py:914} INFO - Processing file /opt/airflow/dags/banking_data_pipeline.py for tasks to queue
+[2026-09-30T01:27:59.312+0700] {logging_mixin.py:190} INFO - [2026-09-30T01:27:59.311+0700] {dagbag.py:588} INFO - Filling up the DagBag from /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:27:59.338+0700] {processor.py:925} INFO - DAG(s) 'banking_bronze_silver_gold' retrieved from /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:27:59.381+0700] {logging_mixin.py:190} INFO - [2026-09-30T01:27:59.380+0700] {dag.py:3239} INFO - Sync 1 DAGs
+[2026-09-30T01:27:59.425+0700] {processor.py:208} INFO - Processing /opt/airflow/dags/banking_data_pipeline.py took 0.127 seconds
+[2026-09-30T01:28:30.466+0700] {processor.py:186} INFO - Started process (PID=3427) to work on /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:28:30.467+0700] {processor.py:914} INFO - Processing file /opt/airflow/dags/banking_data_pipeline.py for tasks to queue
+[2026-09-30T01:28:30.470+0700] {logging_mixin.py:190} INFO - [2026-09-30T01:28:30.469+0700] {dagbag.py:588} INFO - Filling up the DagBag from /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:28:30.484+0700] {processor.py:925} INFO - DAG(s) 'banking_bronze_silver_gold' retrieved from /opt/airflow/dags/banking_data_pipeline.py
+[2026-09-30T01:28:30.518+0700] {logging_mixin.py:190} INFO - [2026-09-30T01:28:30.517+0700] {dag.py:3239} INFO - Sync 1 DAGs
+[2026-09-30T01:28:30.556+0700] {processor.py:208} INFO - Processing /opt/airflow/dags/banking_data_pipeline.py took 0.099 seconds

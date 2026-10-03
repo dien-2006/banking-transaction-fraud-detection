@@ -1,0 +1,142 @@
+[2026-09-30T01:23:30.584+0700] {local_task_job_runner.py:123} INFO - ::group::Pre task execution logs
+[2026-09-30T01:23:30.616+0700] {taskinstance.py:2614} INFO - Dependencies all met for dep_context=non-requeueable deps ti=<TaskInstance: banking_bronze_silver_gold.silver_dq bootstrap_first_run [queued]>
+[2026-09-30T01:23:30.630+0700] {taskinstance.py:2614} INFO - Dependencies all met for dep_context=requeueable deps ti=<TaskInstance: banking_bronze_silver_gold.silver_dq bootstrap_first_run [queued]>
+[2026-09-30T01:23:30.631+0700] {taskinstance.py:2867} INFO - Starting attempt 1 of 3
+[2026-09-30T01:23:30.651+0700] {taskinstance.py:2890} INFO - Executing <Task(BashOperator): silver_dq> on 2026-09-29 18:20:55+00:00
+[2026-09-30T01:23:30.656+0700] {standard_task_runner.py:72} INFO - Started process 2302 to run task
+[2026-09-30T01:23:30.661+0700] {standard_task_runner.py:104} INFO - Running: ['airflow', 'tasks', 'run', 'banking_bronze_silver_gold', 'silver_dq', 'bootstrap_first_run', '--job-id', '18', '--raw', '--subdir', 'DAGS_FOLDER/banking_data_pipeline.py', '--cfg-path', '/tmp/tmp9tlwii61']
+[2026-09-30T01:23:30.665+0700] {standard_task_runner.py:105} INFO - Job 18: Subtask silver_dq
+[2026-09-30T01:23:30.731+0700] {task_command.py:467} INFO - Running <TaskInstance: banking_bronze_silver_gold.silver_dq bootstrap_first_run [running]> on host 9b9f40ad5c30
+[2026-09-30T01:23:30.831+0700] {taskinstance.py:3134} INFO - Exporting env vars: AIRFLOW_CTX_DAG_OWNER='data-platform' AIRFLOW_CTX_DAG_ID='banking_bronze_silver_gold' AIRFLOW_CTX_TASK_ID='silver_dq' AIRFLOW_CTX_EXECUTION_DATE='2026-09-29T18:20:55+00:00' AIRFLOW_CTX_TRY_NUMBER='1' AIRFLOW_CTX_DAG_RUN_ID='bootstrap_first_run'
+[2026-09-30T01:23:30.831+0700] {taskinstance.py:732} INFO - ::endgroup::
+[2026-09-30T01:23:30.873+0700] {subprocess.py:78} INFO - Tmp dir root location: /tmp
+[2026-09-30T01:23:30.874+0700] {subprocess.py:88} INFO - Running command: ['/usr/bin/bash', '-c', "spark-submit --master $SPARK_MASTER_URL /workspace/data_engineering/jobs/pipeline.py silver-dq --batch-id 'bootstrap_first_run'"]
+[2026-09-30T01:23:30.887+0700] {subprocess.py:99} INFO - Output:
+[2026-09-30T01:23:30.989+0700] {subprocess.py:106} INFO - /home/airflow/.local/lib/python3.11/site-packages/pyspark/bin/load-spark-env.sh: line 68: ps: command not found
+[2026-09-30T01:23:34.946+0700] {subprocess.py:106} INFO - 26/09/30 01:23:34 INFO SparkContext: Running Spark version 3.5.5
+[2026-09-30T01:23:34.949+0700] {subprocess.py:106} INFO - 26/09/30 01:23:34 INFO SparkContext: OS info Linux, 6.18.33.2-microsoft-standard-WSL2, amd64
+[2026-09-30T01:23:34.950+0700] {subprocess.py:106} INFO - 26/09/30 01:23:34 INFO SparkContext: Java version 17.0.20.1
+[2026-09-30T01:23:35.076+0700] {subprocess.py:106} INFO - 26/09/30 01:23:35 WARN NativeCodeLoader: Unable to load native-hadoop library for your platform... using builtin-java classes where applicable
+[2026-09-30T01:23:35.200+0700] {subprocess.py:106} INFO - 26/09/30 01:23:35 INFO ResourceUtils: ==============================================================
+[2026-09-30T01:23:35.201+0700] {subprocess.py:106} INFO - 26/09/30 01:23:35 INFO ResourceUtils: No custom resources configured for spark.driver.
+[2026-09-30T01:23:35.201+0700] {subprocess.py:106} INFO - 26/09/30 01:23:35 INFO ResourceUtils: ==============================================================
+[2026-09-30T01:23:35.202+0700] {subprocess.py:106} INFO - 26/09/30 01:23:35 INFO SparkContext: Submitted application: silver-quality
+[2026-09-30T01:23:35.224+0700] {subprocess.py:106} INFO - 26/09/30 01:23:35 INFO ResourceProfile: Default ResourceProfile created, executor resources: Map(memory -> name: memory, amount: 1024, script: , vendor: , offHeap -> name: offHeap, amount: 0, script: , vendor: ), task resources: Map(cpus -> name: cpus, amount: 1.0)
+[2026-09-30T01:23:35.230+0700] {subprocess.py:106} INFO - 26/09/30 01:23:35 INFO ResourceProfile: Limiting resource is cpu
+[2026-09-30T01:23:35.231+0700] {subprocess.py:106} INFO - 26/09/30 01:23:35 INFO ResourceProfileManager: Added ResourceProfile id: 0
+[2026-09-30T01:23:35.285+0700] {subprocess.py:106} INFO - 26/09/30 01:23:35 INFO SecurityManager: Changing view acls to: airflow
+[2026-09-30T01:23:35.285+0700] {subprocess.py:106} INFO - 26/09/30 01:23:35 INFO SecurityManager: Changing modify acls to: airflow
+[2026-09-30T01:23:35.287+0700] {subprocess.py:106} INFO - 26/09/30 01:23:35 INFO SecurityManager: Changing view acls groups to:
+[2026-09-30T01:23:35.288+0700] {subprocess.py:106} INFO - 26/09/30 01:23:35 INFO SecurityManager: Changing modify acls groups to:
+[2026-09-30T01:23:35.288+0700] {subprocess.py:106} INFO - 26/09/30 01:23:35 INFO SecurityManager: SecurityManager: authentication disabled; ui acls disabled; users with view permissions: airflow; groups with view permissions: EMPTY; users with modify permissions: airflow; groups with modify permissions: EMPTY
+[2026-09-30T01:23:35.566+0700] {subprocess.py:106} INFO - 26/09/30 01:23:35 INFO Utils: Successfully started service 'sparkDriver' on port 43673.
+[2026-09-30T01:23:35.634+0700] {subprocess.py:106} INFO - 26/09/30 01:23:35 INFO SparkEnv: Registering MapOutputTracker
+[2026-09-30T01:23:35.673+0700] {subprocess.py:106} INFO - 26/09/30 01:23:35 INFO SparkEnv: Registering BlockManagerMaster
+[2026-09-30T01:23:35.692+0700] {subprocess.py:106} INFO - 26/09/30 01:23:35 INFO BlockManagerMasterEndpoint: Using org.apache.spark.storage.DefaultTopologyMapper for getting topology information
+[2026-09-30T01:23:35.694+0700] {subprocess.py:106} INFO - 26/09/30 01:23:35 INFO BlockManagerMasterEndpoint: BlockManagerMasterEndpoint up
+[2026-09-30T01:23:35.702+0700] {subprocess.py:106} INFO - 26/09/30 01:23:35 INFO SparkEnv: Registering BlockManagerMasterHeartbeat
+[2026-09-30T01:23:35.736+0700] {subprocess.py:106} INFO - 26/09/30 01:23:35 INFO DiskBlockManager: Created local directory at /tmp/blockmgr-89cc24a0-bc34-49f1-ad1b-56eef3ff3a3a
+[2026-09-30T01:23:35.751+0700] {subprocess.py:106} INFO - 26/09/30 01:23:35 INFO MemoryStore: MemoryStore started with capacity 434.4 MiB
+[2026-09-30T01:23:35.769+0700] {subprocess.py:106} INFO - 26/09/30 01:23:35 INFO SparkEnv: Registering OutputCommitCoordinator
+[2026-09-30T01:23:35.903+0700] {subprocess.py:106} INFO - 26/09/30 01:23:35 INFO JettyUtils: Start Jetty 0.0.0.0:4040 for SparkUI
+[2026-09-30T01:23:35.952+0700] {subprocess.py:106} INFO - 26/09/30 01:23:35 INFO Utils: Successfully started service 'SparkUI' on port 4040.
+[2026-09-30T01:23:36.098+0700] {subprocess.py:106} INFO - 26/09/30 01:23:36 INFO StandaloneAppClient$ClientEndpoint: Connecting to master spark://spark-master:7077...
+[2026-09-30T01:23:36.205+0700] {subprocess.py:106} INFO - 26/09/30 01:23:36 INFO TransportClientFactory: Successfully created connection to spark-master/172.21.0.5:7077 after 55 ms (0 ms spent in bootstraps)
+[2026-09-30T01:23:36.318+0700] {subprocess.py:106} INFO - 26/09/30 01:23:36 INFO StandaloneSchedulerBackend: Connected to Spark cluster with app ID app-20260929182336-0005
+[2026-09-30T01:23:36.320+0700] {subprocess.py:106} INFO - 26/09/30 01:23:36 INFO StandaloneAppClient$ClientEndpoint: Executor added: app-20260929182336-0005/0 on worker-20260929181947-172.21.0.6-33617 (172.21.0.6:33617) with 2 core(s)
+[2026-09-30T01:23:36.325+0700] {subprocess.py:106} INFO - 26/09/30 01:23:36 INFO StandaloneSchedulerBackend: Granted executor ID app-20260929182336-0005/0 on hostPort 172.21.0.6:33617 with 2 core(s), 1024.0 MiB RAM
+[2026-09-30T01:23:36.334+0700] {subprocess.py:106} INFO - 26/09/30 01:23:36 INFO Utils: Successfully started service 'org.apache.spark.network.netty.NettyBlockTransferService' on port 37053.
+[2026-09-30T01:23:36.334+0700] {subprocess.py:106} INFO - 26/09/30 01:23:36 INFO NettyBlockTransferService: Server created on 9b9f40ad5c30:37053
+[2026-09-30T01:23:36.338+0700] {subprocess.py:106} INFO - 26/09/30 01:23:36 INFO BlockManager: Using org.apache.spark.storage.RandomBlockReplicationPolicy for block replication policy
+[2026-09-30T01:23:36.345+0700] {subprocess.py:106} INFO - 26/09/30 01:23:36 INFO BlockManagerMaster: Registering BlockManager BlockManagerId(driver, 9b9f40ad5c30, 37053, None)
+[2026-09-30T01:23:36.348+0700] {subprocess.py:106} INFO - 26/09/30 01:23:36 INFO BlockManagerMasterEndpoint: Registering block manager 9b9f40ad5c30:37053 with 434.4 MiB RAM, BlockManagerId(driver, 9b9f40ad5c30, 37053, None)
+[2026-09-30T01:23:36.350+0700] {subprocess.py:106} INFO - 26/09/30 01:23:36 INFO BlockManagerMaster: Registered BlockManager BlockManagerId(driver, 9b9f40ad5c30, 37053, None)
+[2026-09-30T01:23:36.352+0700] {subprocess.py:106} INFO - 26/09/30 01:23:36 INFO BlockManager: Initialized BlockManager: BlockManagerId(driver, 9b9f40ad5c30, 37053, None)
+[2026-09-30T01:23:36.426+0700] {subprocess.py:106} INFO - 26/09/30 01:23:36 INFO StandaloneAppClient$ClientEndpoint: Executor updated: app-20260929182336-0005/0 is now RUNNING
+[2026-09-30T01:23:36.602+0700] {subprocess.py:106} INFO - 26/09/30 01:23:36 INFO StandaloneSchedulerBackend: SchedulerBackend is ready for scheduling beginning after reached minRegisteredResourcesRatio: 0.0
+[2026-09-30T01:23:38.192+0700] {subprocess.py:106} INFO - 26/09/30 01:23:38 WARN MetricsConfig: Cannot locate configuration: tried hadoop-metrics2-s3a-file-system.properties,hadoop-metrics2.properties
+[2026-09-30T01:24:10.389+0700] {subprocess.py:106} INFO - Traceback (most recent call last):
+[2026-09-30T01:24:10.390+0700] {subprocess.py:106} INFO -   File "/workspace/data_engineering/jobs/pipeline.py", line 72, in <module>
+[2026-09-30T01:24:10.392+0700] {subprocess.py:106} INFO -     main()
+[2026-09-30T01:24:10.392+0700] {subprocess.py:106} INFO -   File "/workspace/data_engineering/jobs/pipeline.py", line 61, in main
+[2026-09-30T01:24:10.393+0700] {subprocess.py:106} INFO -     metrics = quality("silver", args.batch_id)
+[2026-09-30T01:24:10.393+0700] {subprocess.py:106} INFO -               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[2026-09-30T01:24:10.393+0700] {subprocess.py:106} INFO -   File "/workspace/data_engineering/quality/checks.py", line 226, in run
+[2026-09-30T01:24:10.394+0700] {subprocess.py:106} INFO -     metrics = _silver_quality(spark) if layer == "silver" else _gold_quality(spark)
+[2026-09-30T01:24:10.394+0700] {subprocess.py:106} INFO -               ^^^^^^^^^^^^^^^^^^^^^^
+[2026-09-30T01:24:10.394+0700] {subprocess.py:106} INFO -   File "/workspace/data_engineering/quality/checks.py", line 145, in _silver_quality
+[2026-09-30T01:24:10.394+0700] {subprocess.py:106} INFO -     raise ValueError("Silver DQ failed: " + "; ".join(failures))
+[2026-09-30T01:24:10.395+0700] {subprocess.py:106} INFO - ValueError: Silver DQ failed: non_success_postings=224; success_without_postings=552; unbalanced_successful_transfers=192; success_without_allow_or_approved_review=1272
+[2026-09-30T01:24:10.395+0700] {subprocess.py:106} INFO - INFO:py4j.clientserver:Closing down clientserver connection
+[2026-09-30T01:24:10.735+0700] {subprocess.py:110} INFO - Command exited with return code 1
+[2026-09-30T01:24:10.749+0700] {taskinstance.py:3313} ERROR - Task failed with exception
+Traceback (most recent call last):
+  File "/home/airflow/.local/lib/python3.11/site-packages/airflow/models/taskinstance.py", line 763, in _execute_task
+    result = _execute_callable(context=context, **execute_callable_kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/airflow/.local/lib/python3.11/site-packages/airflow/models/taskinstance.py", line 734, in _execute_callable
+    return ExecutionCallableRunner(
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/airflow/.local/lib/python3.11/site-packages/airflow/utils/operator_helpers.py", line 252, in run
+    return self.func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/airflow/.local/lib/python3.11/site-packages/airflow/models/baseoperator.py", line 424, in wrapper
+    return func(self, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/airflow/.local/lib/python3.11/site-packages/airflow/operators/bash.py", line 276, in execute
+    raise AirflowException(
+airflow.exceptions.AirflowException: Bash command failed. The command returned a non-zero exit code 1.
+[2026-09-30T01:24:10.789+0700] {taskinstance.py:1226} INFO - Marking task as UP_FOR_RETRY. dag_id=banking_bronze_silver_gold, task_id=silver_dq, run_id=bootstrap_first_run, execution_date=20260929T182055, start_date=20260929T182330, end_date=20260929T182410
+[2026-09-30T01:24:10.860+0700] {taskinstance.py:341} INFO - ::group::Post task execution logs
+[2026-09-30T01:24:10.860+0700] {standard_task_runner.py:124} ERROR - Failed to execute job 18 for task silver_dq (Bash command failed. The command returned a non-zero exit code 1.; 2302)
+Traceback (most recent call last):
+  File "/home/airflow/.local/lib/python3.11/site-packages/airflow/task/task_runner/standard_task_runner.py", line 117, in _start_by_fork
+    ret = args.func(args, dag=self.dag)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/airflow/.local/lib/python3.11/site-packages/airflow/cli/cli_config.py", line 49, in command
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/airflow/.local/lib/python3.11/site-packages/airflow/utils/cli.py", line 116, in wrapper
+    return f(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^
+  File "/home/airflow/.local/lib/python3.11/site-packages/airflow/cli/commands/task_command.py", line 483, in task_run
+    task_return_code = _run_task_by_selected_method(args, _dag, ti)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/airflow/.local/lib/python3.11/site-packages/airflow/cli/commands/task_command.py", line 256, in _run_task_by_selected_method
+    return _run_raw_task(args, ti)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/airflow/.local/lib/python3.11/site-packages/airflow/cli/commands/task_command.py", line 341, in _run_raw_task
+    return ti._run_raw_task(
+           ^^^^^^^^^^^^^^^^^
+  File "/home/airflow/.local/lib/python3.11/site-packages/airflow/utils/session.py", line 97, in wrapper
+    return func(*args, session=session, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/airflow/.local/lib/python3.11/site-packages/airflow/models/taskinstance.py", line 3006, in _run_raw_task
+    return _run_raw_task(
+           ^^^^^^^^^^^^^^
+  File "/home/airflow/.local/lib/python3.11/site-packages/airflow/models/taskinstance.py", line 274, in _run_raw_task
+    TaskInstance._execute_task_with_callbacks(
+  File "/home/airflow/.local/lib/python3.11/site-packages/airflow/models/taskinstance.py", line 3161, in _execute_task_with_callbacks
+    result = self._execute_task(context, task_orig)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/airflow/.local/lib/python3.11/site-packages/airflow/models/taskinstance.py", line 3185, in _execute_task
+    return _execute_task(self, context, task_orig)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/airflow/.local/lib/python3.11/site-packages/airflow/models/taskinstance.py", line 763, in _execute_task
+    result = _execute_callable(context=context, **execute_callable_kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/airflow/.local/lib/python3.11/site-packages/airflow/models/taskinstance.py", line 734, in _execute_callable
+    return ExecutionCallableRunner(
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/airflow/.local/lib/python3.11/site-packages/airflow/utils/operator_helpers.py", line 252, in run
+    return self.func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/airflow/.local/lib/python3.11/site-packages/airflow/models/baseoperator.py", line 424, in wrapper
+    return func(self, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/airflow/.local/lib/python3.11/site-packages/airflow/operators/bash.py", line 276, in execute
+    raise AirflowException(
+airflow.exceptions.AirflowException: Bash command failed. The command returned a non-zero exit code 1.
+[2026-09-30T01:24:10.913+0700] {local_task_job_runner.py:266} INFO - Task exited with return code 1
+[2026-09-30T01:24:10.943+0700] {taskinstance.py:3901} INFO - 0 downstream tasks scheduled from follow-on schedule check
+[2026-09-30T01:24:10.946+0700] {local_task_job_runner.py:245} INFO - ::endgroup::
