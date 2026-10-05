@@ -36,7 +36,7 @@ async def lifespan(_: FastAPI):
             except TimeoutError:
                 pass
 
-    task = asyncio.creategg_task(recovery_loop())
+    task = asyncio.create_task(recovery_loop())
     try:
         yield
     finally:
