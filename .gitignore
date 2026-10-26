@@ -13,3 +13,8 @@ venv/
 .vscode/
 .idea/
 airflow/logs/
+
+# Node/NestJS
+backend/node_modules/
+backend/dist/
+backend/*.tsbuildinfo

@@ -18,6 +18,67 @@ button, a, input, select { outline-color: #f80820; }
   .btn-secondary { @apply inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 text-sm font-semibold text-navy transition hover:border-coral hover:text-coral; }
 }
 
+/* Shared visual contract for every data list in the application. */
+main table,
+.d4-data-table {
+  --d4-table-header-height: 36px;
+  --d4-table-row-height: 44px;
+  width: 100%;
+  max-width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  color: #000064;
+}
+main table thead th,
+.d4-data-table thead th {
+  height: var(--d4-table-header-height) !important;
+  padding: 6px 8px !important;
+  border-bottom: 1px solid #dfe5ee;
+  background: #f3f6fa;
+  color: #4772bd;
+  font-weight: 600;
+  line-height: 1.25;
+  text-align: left;
+  vertical-align: middle;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+main table thead th:first-child,
+.d4-data-table thead th:first-child { border-top-left-radius: 8px; }
+main table thead th:last-child,
+.d4-data-table thead th:last-child { border-top-right-radius: 8px; }
+main table tbody tr,
+.d4-data-table tbody tr {
+  height: var(--d4-table-row-height) !important;
+  transition: background-color .16s ease;
+}
+main table tbody td,
+.d4-data-table tbody td {
+  height: var(--d4-table-row-height) !important;
+  max-height: var(--d4-table-row-height);
+  padding: 6px 8px !important;
+  border-bottom: 1px solid #e8edf4;
+  line-height: 1.2;
+  vertical-align: middle;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+main table tbody tr:hover td,
+.d4-data-table tbody tr:hover td { background: #fff8f9; }
+main table tbody tr:last-child td,
+.d4-data-table tbody tr:last-child td { border-bottom-color: transparent; }
+.d4-data-table--compact thead th,
+.d4-data-table--compact tbody td { padding: 3px 7px !important; }
+.admin-overview-fit table {
+  --d4-table-header-height: 24px;
+  --d4-table-row-height: 27px;
+}
+.admin-overview-fit table thead th,
+.admin-overview-fit table tbody td { padding: 3px 7px !important; }
+
 .d4-banner{background:linear-gradient(90deg,rgba(255,239,242,.98),rgba(255,244,245,.78)),repeating-linear-gradient(90deg,transparent 0 64px,rgba(248,8,32,.08) 65px 66px)}
 .d4-city{position:absolute;inset:auto 0 0 auto;width:48%;height:86%;opacity:.18;overflow:hidden}.d4-city:before{content:"";position:absolute;inset:auto 0 0;height:85%;width:100%;background:#f80820;clip-path:polygon(0 45%,8% 45%,8% 26%,19% 26%,19% 52%,31% 52%,31% 9%,45% 9%,45% 38%,58% 38%,58% 0,71% 0,71% 30%,85% 30%,85% 17%,100% 17%,100% 100%,0 100%)}
 

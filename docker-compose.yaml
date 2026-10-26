@@ -18,7 +18,7 @@ x-airflow-common: &airflow-common
     SPARK_MASTER_URL: spark://spark-master:7077
     SOURCE_TIMEZONE: Asia/Ho_Chi_Minh
     PYTHONPATH: /workspace
-    ENABLE_REALTIME_SILVER_MERGE: "false"
+    ENABLE_REALTIME_SILVER_MERGE: "true"
     SPARK_LOG_LEVEL: WARN
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
@@ -270,31 +270,47 @@ services:
       airflow-scheduler: {condition: service_healthy}
 
   banking-api:
-    build: {context: ., dockerfile: docker/Dockerfile.banking}
-    image: bank-fraud-banking:3.11
+    build: {context: ., dockerfile: docker/Dockerfile.backend}
+    image: bank-fraud-backend:node22
     container_name: bank-banking-api
     restart: unless-stopped
     env_file: [.env]
     environment:
       POSTGRES_HOST: postgres-bank
       POSTGRES_INTERNAL_PORT: 5432
-      POSTGRES_SCHEMA: banking
-      MODEL_ARTIFACT_PATH: /models/current/model.json
-      MODEL_DB_NAME: fraud_detection_v1
-      BANKING_RECOVERY_INTERVAL_SECONDS: 10
-    command: [sh, -ec, "mkdir -p /models/current && if [ ! -s /models/current/model.json ]; then cp /workspace/ml/artifacts/fraud_detection/v1/model.json /models/current/model.json; fi && exec uvicorn banking.api:app --host 0.0.0.0 --port 8000"]
-    volumes:
-      - ./:/workspace:ro
-      - model_cache:/models
+      PORT: 8000
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      JWT_SECRET: ${JWT_SECRET}
+      TRINO_URL: http://trino:8080
+      TRINO_USER: ${TRINO_USER:-d4-bank-api}
+      REDIS_URL: redis://redis:6379
+      OTP_HASH_SECRET: ${OTP_HASH_SECRET}
+      BREVO_API_KEY: ${BREVO_API_KEY}
+      OTP_SENDER_EMAIL: ${OTP_SENDER_EMAIL}
+      OTP_SENDER_NAME: ${OTP_SENDER_NAME:-D4 Bank}
     ports: ["${BANKING_API_PORT:-8000}:8000"]
     healthcheck:
-      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3).read()"]
+      test: [CMD-SHELL, "wget -qO- http://localhost:8000/api/v1/health >/dev/null"]
       interval: 10s
       timeout: 5s
       retries: 12
     depends_on:
       postgres-bank: {condition: service_healthy}
       demo-bootstrap: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+    networks: [bank-network]
+
+  redis:
+    image: redis:${REDIS_VERSION:-7.4-alpine}
+    container_name: bank-redis
+    restart: unless-stopped
+    command: [redis-server, --appendonly, "yes", --maxmemory, 128mb, --maxmemory-policy, volatile-ttl]
+    volumes: [redis_data:/data]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      timeout: 3s
+      retries: 12
     networks: [bank-network]
 
   demo-bootstrap:
@@ -313,23 +329,41 @@ services:
     networks: [bank-network]
 
   outbox-publisher:
-    build: {context: ., dockerfile: docker/Dockerfile.streaming}
-    image: bank-fraud-streaming:3.11
+    build: {context: ., dockerfile: docker/Dockerfile.backend}
+    image: bank-fraud-backend:node22
     container_name: bank-outbox-publisher
     restart: unless-stopped
     env_file: [.env]
-    environment: {<<: *pipeline-environment}
+    environment:
+      POSTGRES_HOST: postgres-bank
+      POSTGRES_INTERNAL_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      KAFKA_BOOTSTRAP_SERVERS: kafka1:29092,kafka2:29092,kafka3:29092
+      KAFKA_TRANSACTION_TOPIC: ${KAFKA_TRANSACTION_TOPIC:-banking.transaction-events.v1}
     profiles: [realtime]
-    command: [python, -m, streaming.publisher.service]
-    volumes: [./:/workspace:ro]
-    healthcheck:
-      test: [CMD, python, -m, streaming.healthcheck, publisher]
-      interval: 15s
-      timeout: 5s
-      retries: 3
+    command: [node, dist/producer.js]
     depends_on:
       postgres-bank: {condition: service_healthy}
       kafka-init: {condition: service_completed_successfully}
+    networks: [bank-network]
+
+  notification-sender:
+    build: {context: ., dockerfile: docker/Dockerfile.backend}
+    image: bank-fraud-backend:node22
+    container_name: bank-notification-sender
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      POSTGRES_HOST: postgres-bank
+      POSTGRES_INTERNAL_PORT: 5432
+      BREVO_API_KEY: ${BREVO_API_KEY}
+      OTP_SENDER_EMAIL: ${OTP_SENDER_EMAIL}
+      OTP_SENDER_NAME: ${OTP_SENDER_NAME:-D4 Bank}
+    command: [node, dist/notification-producer.js]
+    depends_on:
+      postgres-bank: {condition: service_healthy}
     networks: [bank-network]
 
   bronze-consumer:
@@ -436,3 +470,4 @@ volumes:
   model_cache:
   hive_metastore_data:
   airflow_logs:
+  redis_data:

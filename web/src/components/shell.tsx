@@ -10,28 +10,25 @@ import { ProfilePanel } from "@/components/profile-panel";
 import { SessionProvider } from "@/components/session-context";
 import { navigation, roleLabels } from "@/config/navigation";
 import { cn } from "@/lib/utils";
-import { authService, demoUsers } from "@/services/auth.service";
+import { authService } from "@/services/auth.service";
+import { bankService } from "@/services/bank.service";
+import { useQuery } from "@tanstack/react-query";
 import type { Role, SessionUser } from "@/types";
 import { ReferenceArtwork } from "@/features/customer/reference-artwork";
 import "@/features/customer/customer-home.css";
 
-const notifications: Record<Role, { title: string; detail: string; time: string; href: string }[]> = {
-  admin: [
-    { title: "Giao dịch rủi ro cao", detail: "TRX001256 có RuleScore 92 và đã bị chặn.", time: "2 phút trước", href: "/admin/fraud" },
-    { title: "Review đang chờ", detail: "Có 5 giao dịch cần được kiểm tra.", time: "12 phút trước", href: "/admin/fraud?status=review" },
-    { title: "Hoạt động hệ thống", detail: "Model v1.2 đã được triển khai thành công.", time: "1 giờ trước", href: "/admin/audit-logs" },
-  ],
-  employee: [
-    { title: "Hồ sơ cần xử lý", detail: "Có 3 hồ sơ khách hàng mới đang chờ.", time: "5 phút trước", href: "/employee/customers" },
-    { title: "Review giao dịch", detail: "Một giao dịch mới được chuyển tới bạn.", time: "20 phút trước", href: "/employee/fraud" },
-  ],
-  customer: [
-    { title: "Giao dịch thành công", detail: "Giao dịch gần nhất đã được xử lý.", time: "8 phút trước", href: "/customer/transactions" },
-    { title: "Nhắc lịch thanh toán", detail: "Kỳ thanh toán khoản vay sắp đến hạn.", time: "1 giờ trước", href: "/customer/loans" },
-  ],
-};
-
-function NotificationMenu({ role, unreadCount, markRead }: { role: Role; unreadCount: number; markRead: () => void }) {
+function NotificationMenu({ role }: { role: Role }) {
+  const[read,setRead]=useState(false);
+  const query=useQuery({queryKey:["shell-notifications"],queryFn:()=>bankService.customerNotifications(1,5),enabled:role==="customer"});
+  const items = role === "customer"
+    ? (query.data?.items ?? []).map((item) => ({
+        title: String(item.notificationtype ?? "Thông báo").replaceAll("_", " "),
+        detail: item.transactioncode ? `Giao dịch ${item.transactioncode}` : "Cập nhật từ D4 Bank",
+        time: new Date(String(item.createdat)).toLocaleString("vi-VN"),
+        href: "/customer/notifications",
+      }))
+    : [];
+  const unreadCount=read?0:items.length;
   return <DropdownMenu.Root>
     <DropdownMenu.Trigger asChild>
       <button aria-label={`Thông báo, ${unreadCount} chưa đọc`} className="relative grid size-8 place-items-center rounded-lg bg-slate-50 outline-none transition hover:bg-[#fff0f0] data-[state=open]:bg-[#fff0f0]">
@@ -42,14 +39,14 @@ function NotificationMenu({ role, unreadCount, markRead }: { role: Role; unreadC
       <DropdownMenu.Content align="end" className="z-50 mt-2 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-slate-100 bg-white shadow-2xl" sideOffset={4}>
         <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
           <div><p className="text-sm font-black text-navy">Thông báo</p><p className="mt-0.5 text-[11px] text-slate-400">{unreadCount} thông báo chưa đọc</p></div>
-          {unreadCount > 0 && <button className="text-[11px] font-bold text-coral hover:underline" onClick={markRead}>Đánh dấu đã đọc</button>}
+          {unreadCount > 0 && <button className="text-[11px] font-bold text-coral hover:underline" onClick={()=>setRead(true)}>Đánh dấu đã đọc</button>}
         </div>
-        <div className="p-2">{notifications[role].map((item, index) => <DropdownMenu.Item asChild key={item.title}>
+        <div className="p-2">{items.map((item, index) => <DropdownMenu.Item asChild key={`${item.title}-${item.time}`}>
           <Link className="flex cursor-pointer gap-3 rounded-lg px-3 py-2.5 outline-none hover:bg-[#fff7f8] focus:bg-[#fff7f8]" href={item.href}>
             <span className={cn("mt-1 size-2 shrink-0 rounded-full", index < unreadCount ? "bg-coral" : "bg-slate-200")}/>
             <span className="min-w-0"><b className="block truncate text-xs text-navy">{item.title}</b><span className="mt-1 block text-[11px] leading-4 text-slate-500">{item.detail}</span><small className="mt-1 block text-[10px] text-slate-400">{item.time}</small></span>
           </Link>
-        </DropdownMenu.Item>)}</div>
+        </DropdownMenu.Item>)}{items.length===0&&<p className="px-3 py-6 text-center text-xs text-slate-400">Chưa có thông báo.</p>}</div>
       </DropdownMenu.Content>
     </DropdownMenu.Portal>
   </DropdownMenu.Root>;
@@ -79,9 +76,8 @@ export function DashboardShell({ role, children }: { role: Role; children: React
   const [sessionReady, setSessionReady] = useState(false);
   const [open, setOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
-  const [unreadCount, setUnreadCount] = useState(notifications[role].length);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
-  const [session, setSession] = useState<SessionUser>(demoUsers[role]);
+  const [session, setSession] = useState<SessionUser | null>(null);
   const [featureQuery, setFeatureQuery] = useState("");
   const pathname = usePathname();
   const router = useRouter();
@@ -96,12 +92,17 @@ export function DashboardShell({ role, children }: { role: Role; children: React
       router.replace(`/${activeSession.role}`);
       return;
     }
-    setSession({ ...demoUsers[role], ...activeSession });
-    setUnreadCount(notifications[role].length);
+    setSession(activeSession);
     setSessionReady(true);
   }, [role, router]);
 
-  if (!sessionReady) {
+  useEffect(() => {
+    const expired = () => router.replace("/login");
+    window.addEventListener("d4-session-expired", expired);
+    return () => window.removeEventListener("d4-session-expired", expired);
+  }, [router]);
+
+  if (!sessionReady || !session) {
     return <main className="grid min-h-screen place-items-center bg-slate-50" aria-busy="true">
       <div className="text-center"><div className="mx-auto size-9 animate-spin rounded-full border-4 border-slate-200 border-t-coral"/><p className="mt-3 text-sm font-semibold text-slate-500">Đang kiểm tra phiên đăng nhập...</p></div>
     </main>;
@@ -129,7 +130,7 @@ export function DashboardShell({ role, children }: { role: Role; children: React
       ].map(([label, href]) => <Link className={cn("rounded-lg px-3 py-1.5 transition", pathname === href ? "bg-[#fff0f0] text-coral" : "hover:bg-slate-50 hover:text-coral")} href={href} key={href}>{label}</Link>)}</nav>
       <div className="ml-auto flex items-center gap-2">
         {role === "customer" ? <div className="customer-feature-search"><label><Search size={18}/><input aria-label="Tìm tính năng" placeholder="Tìm giao dịch, tính năng, sản phẩm..." value={featureQuery} onChange={(event) => setFeatureQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setFeatureQuery(""); }}/></label>{featureQuery.trim() && <div className="customer-search-results"><p>Tính năng</p>{navigation.customer.filter((item) => item.label.toLocaleLowerCase("vi").includes(featureQuery.trim().toLocaleLowerCase("vi"))).map((item) => <Link key={item.href} href={item.href} onClick={() => setFeatureQuery("")}>{item.label}<ArrowRight size={16}/></Link>)}{!navigation.customer.some((item) => item.label.toLocaleLowerCase("vi").includes(featureQuery.trim().toLocaleLowerCase("vi"))) && <p>Không tìm thấy tính năng.</p>}</div>}</div> : <label className="relative hidden xl:block"><Search className="absolute left-3 top-1.5 text-slate-400" size={16}/><input className="h-8 w-60 rounded-lg bg-slate-50 pl-9 pr-3 text-xs" placeholder="Tìm kiếm trong D4 Bank..."/></label>}
-        <NotificationMenu role={role} unreadCount={unreadCount} markRead={() => setUnreadCount(0)}/>
+        <NotificationMenu role={role}/>
         <AccountMenu role={role} session={session} avatarUrl={avatarUrl} openProfile={() => setProfileOpen(true)} logout={() => { authService.logout(); router.push("/login"); }}/>
       </div>
     </header>

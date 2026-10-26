@@ -1,0 +1,77 @@
+import { Kafka } from 'kafkajs';
+import { Pool } from 'pg';
+
+const pool = new Pool({
+  host: process.env.POSTGRES_HOST ?? 'localhost',
+  port: Number(process.env.POSTGRES_INTERNAL_PORT ?? process.env.POSTGRES_PORT ?? 5432),
+  database: process.env.POSTGRES_DB,
+  user: process.env.POSTGRES_USER,
+  password: process.env.POSTGRES_PASSWORD,
+  max: 2,
+  application_name: 'd4-bank-outbox-producer',
+});
+const kafka = new Kafka({ clientId: 'd4-bank-outbox-producer',
+  brokers: (process.env.KAFKA_BOOTSTRAP_SERVERS ?? 'localhost:9092').split(',') });
+const producer = kafka.producer({ allowAutoTopicCreation: false, idempotent: true, maxInFlightRequests: 1 });
+const topic = process.env.KAFKA_TRANSACTION_TOPIC ?? 'banking.transaction-events.v1';
+
+async function publishBatch(): Promise<number> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await client.query(
+      'SELECT * FROM banking_api.claim_outbox($1)',
+      [Number(process.env.OUTBOX_BATCH_SIZE ?? 100)],
+    );
+    let published = 0;
+    for (const event of result.rows) {
+      try {
+        await producer.send({ topic, acks: -1, messages: [{
+          key: event.eventkey,
+          value: JSON.stringify({
+            event_id: event.eventkey,
+            event_type: event.eventtype,
+            event_version: '1.0',
+            occurred_at: event.createdat,
+            aggregate_type: event.aggregatetype,
+            aggregate_id: event.aggregateid,
+            payload: event.payloadjson,
+            source_system: 'banking_postgresql',
+            outbox_id: event.eventoutboxid,
+          }),
+        }] });
+        await client.query('SELECT banking_api.mark_outbox_published($1)', [event.eventoutboxid]);
+        published += 1;
+      } catch (error) {
+        await client.query('SELECT banking_api.mark_outbox_failed($1)', [event.eventoutboxid]);
+        console.error('outbox_event_publish_failed', { eventId: event.eventkey, error });
+      }
+    }
+    await client.query('COMMIT');
+    return published;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally { client.release(); }
+}
+
+async function main(): Promise<void> {
+  await producer.connect();
+  const interval = Number(process.env.OUTBOX_POLL_INTERVAL_MS ?? 1000);
+  for (;;) {
+    try {
+      const count = await publishBatch();
+      if (count === 0) await new Promise((resolve) => setTimeout(resolve, interval));
+    } catch (error) {
+      console.error('outbox_publish_failed', error);
+      await new Promise((resolve) => setTimeout(resolve, interval));
+    }
+  }
+}
+
+async function shutdown(): Promise<void> {
+  await producer.disconnect(); await pool.end(); process.exit(0);
+}
+process.on('SIGTERM', () => void shutdown());
+process.on('SIGINT', () => void shutdown());
+void main();

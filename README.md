@@ -1305,6 +1305,8 @@ test -f .env || cp .env.example .env
 
 Đổi toàn bộ giá trị `change_me_*`; không commit `.env`. `KAFKA_CLUSTER_ID` chỉ cần tạo khi bật profile `realtime`, không phải điều kiện để Batch chạy.
 
+Để OTP và thông báo email hoạt động thật, cấu hình thêm `OTP_HASH_SECRET`, `BREVO_API_KEY`, `OTP_SENDER_EMAIL` (địa chỉ sender đã verify trên Brevo) và email thật trong hồ sơ customer. Frontend dùng `NEXT_PUBLIC_API_URL=http://localhost:8000`.
+
 ## 30.2 Start tự động
 
 ```bash
@@ -1318,6 +1320,7 @@ Compose tự thực hiện:
 - tạo các MinIO bucket;
 - seed bộ demo idempotent;
 - chạy Banking/Risk API;
+- chạy Redis cho OTP, worker gửi notification email;
 - chạy Spark master/worker, Airflow scheduler/webserver và Trino;
 - tự unpause và trigger run `bootstrap_first_run` của DAG Batch đúng một lần trên Airflow metadata mới;
 - đăng ký 10 dimensions + 7 facts dưới `hive.gold`.
@@ -1328,7 +1331,15 @@ Airflow DAG `banking_bronze_silver_gold` chạy tự động lần đầu khi st
 PostgreSQL -> Bronze -> Bronze DQ -> Silver -> Silver DQ -> commit watermark -> Gold -> Gold DQ
 ```
 
-Kafka/realtime và model sync không nằm trong luồng Batch mặc định. Khi cần phát triển realtime sau này, khởi động riêng bằng `docker compose --profile realtime up -d`; model sync dùng profile `ml`. DAG Batch không tự training model.
+Kafka/realtime là profile riêng: khởi động bằng `docker compose --profile realtime up -d --build`. Khi bật, outbox publisher đẩy event sang Kafka, consumer ghi MinIO Bronze và lần Batch kế tiếp đối soát event realtime vào Silver. Model sync dùng profile `ml`; DAG Batch không tự training model.
+
+Chạy giao diện Next.js ở terminal riêng:
+
+```bash
+cd web
+npm install
+npm run dev
+```
 
 Sau khi bật Realtime, chạy `conda run -n bank-fraud python -m scripts.healthcheck` để kiểm tra cả Kafka và các service còn lại.
 
@@ -1343,7 +1354,7 @@ Sau khi bật Realtime, chạy `conda run -n bank-fraud python -m scripts.health
 | MinIO console | `http://localhost:9001` |
 | Trino | `http://localhost:8084` |
 
-## 30.4 Tạo giao dịch mẫu
+## 30.4 Kiểm tra API và giao dịch
 
 Lấy các ID demo theo cách idempotent:
 
@@ -1351,23 +1362,21 @@ Lấy các ID demo theo cách idempotent:
 docker compose run --rm demo-bootstrap
 ```
 
-Gửi transfer với các ID trả về (thay ID nếu output khác):
+Đăng nhập trước để lấy JWT:
 
 ```bash
-curl -X POST http://localhost:8000/transactions/transfers \
+curl -X POST http://localhost:8000/api/v1/auth/login \
   -H 'Content-Type: application/json' \
   -d '{
-    "customer_id": 1,
-    "source_account_id": 1,
-    "destination_account_id": 2,
-    "device_id": 1,
-    "amount": "100000",
-    "idempotency_key": "demo-transfer-001",
-    "channel": "MobileBanking"
+    "username": "your_username",
+    "password": "your_password",
+    "role": "customer"
   }'
 ```
 
-Response phân biệt rõ `decision=ALLOW` với `status=Success`; chỉ `Success` sau posting mới có `TransactionCompleted` outbox event. Với `REVIEW`, dùng `POST /reviews/{review_case_id}` và action `APPROVE` hoặc `REJECT`.
+Luồng chuyển khoản của web thực hiện đủ ba bước có cùng context: `POST /api/v1/security/otp/request`, `POST /api/v1/security/otp/verify`, rồi `POST /api/v1/transactions/transfers` với `otpAuthorizationToken`. Không gọi thẳng bước transfer nếu chưa verify OTP.
+
+Response phân biệt rõ `decision=ALLOW` với `status=Success`; chỉ `Success` sau posting mới có `TransactionCompleted` outbox event. Với `REVIEW`, nhân viên dùng `POST /api/v1/transactions/reviews/{review_case_id}` và action `APPROVE` hoặc `REJECT`.
 
 ## 30.5 Theo dõi pipeline
 

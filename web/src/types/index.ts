@@ -2,6 +2,11 @@ export type Role = "admin" | "employee" | "customer";
 export type RiskDecision = "ALLOW" | "REVIEW" | "BLOCK";
 export interface SessionUser {
   id: string;
+  customerId?: number;
+  userId?: number;
+  employeeId?: number;
+  deviceId?: number;
+  branchId?: number;
   name: string;
   role: Role;
   subtitle: string;
