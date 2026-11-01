@@ -28,7 +28,7 @@ Trước khi sửa code, đọc các tài liệu liên quan theo thứ tự:
 
 1. `AGENTS.md` — luật làm việc.
 2. `README.md` — kiến trúc và luồng end-to-end.
-3. `create_table_risk_updated.sql` — PostgreSQL schema hiện tại.
+3. `create_table.sql` — PostgreSQL schema hiện tại.
 4. Config/code của module đang được sửa.
 5. Tests hiện có.
 
@@ -57,7 +57,7 @@ thay CHECK constraint
 thêm bảng chỉ để phục vụ ETL/ML
 ```
 
-Không sửa `create_table_risk_updated.sql` trừ khi người dùng **yêu cầu trực tiếp sửa database/schema**.
+Không sửa `create_table.sql` trừ khi người dùng **yêu cầu trực tiếp sửa database/schema**.
 
 Nếu ETL, ML hoặc service cần metadata bổ sung, ưu tiên:
 

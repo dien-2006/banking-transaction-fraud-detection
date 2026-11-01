@@ -20,8 +20,8 @@ from dotenv import load_dotenv
 from minio import Minio
 from psycopg.rows import dict_row
 
-from banking.config import POSTGRES_SCHEMA, postgres_dsn
 from scripts.bootstrap_demo import main as bootstrap_demo
+from scripts.postgres_config import POSTGRES_SCHEMA, postgres_dsn
 
 
 load_dotenv()

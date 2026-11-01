@@ -8,7 +8,8 @@
     "start:dev": "nest start --watch",
     "start:producer": "node dist/producer.js",
     "start:notifications": "node dist/notification-producer.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:web": "npm run build && node --test tests/*.test.cjs"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.0",

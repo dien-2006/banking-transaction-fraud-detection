@@ -34,28 +34,46 @@ export class DatabaseService implements OnModuleDestroy {
     });
   }
 
-  async adminOverview<T = Record<string, unknown>>(): Promise<T> {
+  async adminOverview<T = Record<string, unknown>>(branchId?: number): Promise<T> {
     const result = await this.pool.query<{ result: T }>(`
       WITH bounds AS (
         SELECT date_trunc('month', CURRENT_TIMESTAMP) AS month_start,
                date_trunc('month', CURRENT_TIMESTAMP) - interval '1 month' AS previous_start
+      ), scoped_accounts AS (
+        SELECT accountid FROM banking.bank_account
+        WHERE $1::int IS NULL OR branchid = $1
+      ), scoped_customers AS (
+        SELECT c.customerid
+        FROM banking.customer c
+        WHERE $1::int IS NULL OR EXISTS (
+          SELECT 1 FROM banking.account_holder ah JOIN scoped_accounts sa USING(accountid)
+          WHERE ah.customerid=c.customerid AND ah.status='Active'
+        )
+      ), scoped_transactions AS (
+        SELECT DISTINCT bt.transactionid
+        FROM banking.bank_transaction bt
+        WHERE $1::int IS NULL
+           OR EXISTS (SELECT 1 FROM banking.transfer_request tr JOIN scoped_accounts sa ON sa.accountid IN (tr.sourceaccountid,tr.destinationaccountid) WHERE tr.transactionid=bt.transactionid)
+           OR EXISTS (SELECT 1 FROM banking.transaction_posting tp JOIN scoped_accounts sa USING(accountid) WHERE tp.transactionid=bt.transactionid)
+      ), scoped_loans AS (
+        SELECT loanid FROM banking.loan WHERE $1::int IS NULL OR branchid = $1
       ), metrics AS (
         SELECT
-          (SELECT count(*) FROM banking.customer)::int AS customers_total,
-          (SELECT count(*) FROM banking.customer c, bounds b WHERE c.createddate >= b.month_start)::int AS customers_current,
-          (SELECT count(*) FROM banking.customer c, bounds b WHERE c.createddate >= b.previous_start AND c.createddate < b.month_start)::int AS customers_previous,
-          (SELECT count(*) FROM banking.bank_account)::int AS accounts_total,
-          (SELECT count(*) FROM banking.bank_account a, bounds b WHERE a.opendate >= b.month_start::date)::int AS accounts_current,
-          (SELECT count(*) FROM banking.bank_account a, bounds b WHERE a.opendate >= b.previous_start::date AND a.opendate < b.month_start::date)::int AS accounts_previous,
-          (SELECT count(*) FROM banking.bank_transaction)::int AS transactions_total,
-          (SELECT count(*) FROM banking.bank_transaction t, bounds b WHERE t.transactiondate >= b.month_start)::int AS transactions_current,
-          (SELECT count(*) FROM banking.bank_transaction t, bounds b WHERE t.transactiondate >= b.previous_start AND t.transactiondate < b.month_start)::int AS transactions_previous,
-          (SELECT count(*) FROM banking.loan)::int AS loans_total,
-          (SELECT count(*) FROM banking.loan l, bounds b WHERE l.startdate >= b.month_start::date)::int AS loans_current,
-          (SELECT count(*) FROM banking.loan l, bounds b WHERE l.startdate >= b.previous_start::date AND l.startdate < b.month_start::date)::int AS loans_previous,
-          (SELECT count(DISTINCT transactionid) FROM banking.risk_assessment WHERE decision IN ('REVIEW','BLOCK'))::int AS risks_total,
-          (SELECT count(DISTINCT r.transactionid) FROM banking.risk_assessment r, bounds b WHERE r.decision IN ('REVIEW','BLOCK') AND r.assessedat >= b.month_start)::int AS risks_current,
-          (SELECT count(DISTINCT r.transactionid) FROM banking.risk_assessment r, bounds b WHERE r.decision IN ('REVIEW','BLOCK') AND r.assessedat >= b.previous_start AND r.assessedat < b.month_start)::int AS risks_previous
+          (SELECT count(*) FROM scoped_customers)::int AS customers_total,
+          (SELECT count(*) FROM banking.customer c JOIN scoped_customers sc USING(customerid), bounds b WHERE c.createddate >= b.month_start)::int AS customers_current,
+          (SELECT count(*) FROM banking.customer c JOIN scoped_customers sc USING(customerid), bounds b WHERE c.createddate >= b.previous_start AND c.createddate < b.month_start)::int AS customers_previous,
+          (SELECT count(*) FROM scoped_accounts)::int AS accounts_total,
+          (SELECT count(*) FROM banking.bank_account a JOIN scoped_accounts sa USING(accountid), bounds b WHERE a.opendate >= b.month_start::date)::int AS accounts_current,
+          (SELECT count(*) FROM banking.bank_account a JOIN scoped_accounts sa USING(accountid), bounds b WHERE a.opendate >= b.previous_start::date AND a.opendate < b.month_start::date)::int AS accounts_previous,
+          (SELECT count(*) FROM scoped_transactions)::int AS transactions_total,
+          (SELECT count(*) FROM banking.bank_transaction t JOIN scoped_transactions st USING(transactionid), bounds b WHERE t.transactiondate >= b.month_start)::int AS transactions_current,
+          (SELECT count(*) FROM banking.bank_transaction t JOIN scoped_transactions st USING(transactionid), bounds b WHERE t.transactiondate >= b.previous_start AND t.transactiondate < b.month_start)::int AS transactions_previous,
+          (SELECT count(*) FROM scoped_loans)::int AS loans_total,
+          (SELECT count(*) FROM banking.loan l JOIN scoped_loans sl USING(loanid), bounds b WHERE l.startdate >= b.month_start::date)::int AS loans_current,
+          (SELECT count(*) FROM banking.loan l JOIN scoped_loans sl USING(loanid), bounds b WHERE l.startdate >= b.previous_start::date AND l.startdate < b.month_start::date)::int AS loans_previous,
+          (SELECT count(DISTINCT r.transactionid) FROM banking.risk_assessment r JOIN scoped_transactions st USING(transactionid) WHERE r.decision IN ('REVIEW','BLOCK'))::int AS risks_total,
+          (SELECT count(DISTINCT r.transactionid) FROM banking.risk_assessment r JOIN scoped_transactions st USING(transactionid), bounds b WHERE r.decision IN ('REVIEW','BLOCK') AND r.assessedat >= b.month_start)::int AS risks_current,
+          (SELECT count(DISTINCT r.transactionid) FROM banking.risk_assessment r JOIN scoped_transactions st USING(transactionid), bounds b WHERE r.decision IN ('REVIEW','BLOCK') AND r.assessedat >= b.previous_start AND r.assessedat < b.month_start)::int AS risks_previous
       ), metric_rows AS (
         SELECT * FROM (VALUES
           ('customers','Tổng khách hàng',(SELECT customers_total FROM metrics),(SELECT customers_current FROM metrics),(SELECT customers_previous FROM metrics)),
@@ -68,9 +86,9 @@ export class DatabaseService implements OnModuleDestroy {
       SELECT jsonb_build_object(
         'generatedAt', clock_timestamp(),
         'customers', (SELECT customers_total FROM metrics),
-        'activeAccounts', (SELECT count(*)::int FROM banking.bank_account WHERE status='Active'),
-        'transactionsToday', (SELECT count(*)::int FROM banking.bank_transaction WHERE transactiondate >= CURRENT_DATE),
-        'openReviews', (SELECT count(*)::int FROM banking.review_case WHERE status IN ('OPEN','IN_REVIEW')),
+        'activeAccounts', (SELECT count(*)::int FROM banking.bank_account a JOIN scoped_accounts sa USING(accountid) WHERE a.status='Active'),
+        'transactionsToday', (SELECT count(*)::int FROM banking.bank_transaction t JOIN scoped_transactions st USING(transactionid) WHERE t.transactiondate >= CURRENT_DATE),
+        'openReviews', (SELECT count(*)::int FROM banking.review_case r JOIN scoped_transactions st USING(transactionid) WHERE r.status IN ('OPEN','IN_REVIEW')),
         'kpis', (SELECT jsonb_agg(jsonb_build_object(
           'key',key,'label',label,'value',total,'currentPeriod',current_period,'previousPeriod',previous_period,
           'changePercent',CASE WHEN previous_period=0 THEN CASE WHEN current_period=0 THEN 0 ELSE 100 END
@@ -78,61 +96,102 @@ export class DatabaseService implements OnModuleDestroy {
         ) ORDER BY CASE key WHEN 'customers' THEN 1 WHEN 'accounts' THEN 2 WHEN 'transactions' THEN 3 WHEN 'loans' THEN 4 ELSE 5 END) FROM metric_rows),
         'dailyTransactions', (SELECT COALESCE(jsonb_agg(jsonb_build_object('date',d.day::date,'count',COALESCE(t.count,0)) ORDER BY d.day),'[]'::jsonb)
           FROM generate_series(CURRENT_DATE-9,CURRENT_DATE,interval '1 day') d(day)
-          LEFT JOIN (SELECT transactiondate::date AS day,count(*)::int AS count FROM banking.bank_transaction
-            WHERE transactiondate >= CURRENT_DATE-9 GROUP BY transactiondate::date) t USING(day)),
+          LEFT JOIN (SELECT bt.transactiondate::date AS day,count(*)::int AS count FROM banking.bank_transaction bt
+            JOIN scoped_transactions st USING(transactionid)
+            WHERE bt.transactiondate >= CURRENT_DATE-9 GROUP BY bt.transactiondate::date) t USING(day)),
         'transactionTypes', (SELECT COALESCE(jsonb_agg(jsonb_build_object('code',typecode,'label',typename,'count',count) ORDER BY count DESC),'[]'::jsonb)
           FROM (SELECT tt.typecode,tt.typename,count(*)::int AS count FROM banking.bank_transaction bt
-            JOIN banking.transaction_type tt USING(transactiontypeid), bounds b
+            JOIN scoped_transactions st USING(transactionid) JOIN banking.transaction_type tt USING(transactiontypeid), bounds b
             WHERE bt.transactiondate >= b.month_start GROUP BY tt.typecode,tt.typename) x),
         'transactionStatuses', (SELECT COALESCE(jsonb_agg(jsonb_build_object('status',status,'count',count) ORDER BY count DESC),'[]'::jsonb)
-          FROM (SELECT bt.status,count(*)::int AS count FROM banking.bank_transaction bt,bounds b
+          FROM (SELECT bt.status,count(*)::int AS count FROM banking.bank_transaction bt JOIN scoped_transactions st USING(transactionid),bounds b
             WHERE bt.transactiondate >= b.month_start GROUP BY bt.status) x),
         'recentRisks', (SELECT COALESCE(jsonb_agg(to_jsonb(x) ORDER BY x.assessed_at DESC),'[]'::jsonb) FROM (
           SELECT v.transactionid AS "transactionId",v.transactioncode AS "transactionCode",
             COALESCE(c.fullname,v.description,'Khách hàng #'||COALESCE(v.initiatedbycustomerid::text,'-')) AS customer,
             v.amount::float8 AS amount,v.rulescore::int AS "ruleScore",v.modelprobability::float8 AS "modelProbability",
             v.assessedat AS assessed_at,v.decision
-          FROM banking.vw_transaction_detail v LEFT JOIN banking.customer c ON c.customerid=v.initiatedbycustomerid
+          FROM banking.vw_transaction_detail v JOIN scoped_transactions st USING(transactionid) LEFT JOIN banking.customer c ON c.customerid=v.initiatedbycustomerid
           WHERE v.decision IN ('REVIEW','BLOCK') ORDER BY v.assessedat DESC NULLS LAST LIMIT 5) x),
         'pendingReviews', (SELECT COALESCE(jsonb_agg(to_jsonb(x) ORDER BY x.created_at DESC),'[]'::jsonb) FROM (
           SELECT v.transactionid AS "transactionId",v.transactioncode AS "transactionCode",v.reviewcaseid AS "reviewId",
             COALESCE(c.fullname,v.description,'Khách hàng #'||COALESCE(v.initiatedbycustomerid::text,'-')) AS customer,
             v.amount::float8 AS amount,v.rulescore::int AS "ruleScore",v.modelprobability::float8 AS "modelProbability",
             v.reviewcreatedat AS created_at,v.decision
-          FROM banking.vw_transaction_detail v LEFT JOIN banking.customer c ON c.customerid=v.initiatedbycustomerid
+          FROM banking.vw_transaction_detail v JOIN scoped_transactions st USING(transactionid) LEFT JOIN banking.customer c ON c.customerid=v.initiatedbycustomerid
           WHERE v.reviewstatus IN ('OPEN','IN_REVIEW') ORDER BY v.reviewcreatedat DESC NULLS LAST LIMIT 5) x),
         'branches', (SELECT COALESCE(jsonb_agg(jsonb_build_object(
           'branchId',b.branchid,'branchName',b.branchname,
           'customers',(SELECT count(DISTINCT ah.customerid)::int FROM banking.bank_account ba JOIN banking.account_holder ah USING(accountid) WHERE ba.branchid=b.branchid AND ah.status='Active'),
           'accounts',(SELECT count(*)::int FROM banking.bank_account ba WHERE ba.branchid=b.branchid),
-          'transactions',(SELECT count(DISTINCT tp.transactionid)::int FROM banking.transaction_posting tp JOIN banking.bank_account ba USING(accountid) WHERE ba.branchid=b.branchid),
+          'transactions',(SELECT count(*)::int FROM banking.bank_transaction bt WHERE
+            EXISTS(SELECT 1 FROM banking.transaction_posting tp JOIN banking.bank_account ba USING(accountid) WHERE tp.transactionid=bt.transactionid AND ba.branchid=b.branchid)
+            OR EXISTS(SELECT 1 FROM banking.transfer_request tr JOIN banking.bank_account ba ON ba.accountid IN (tr.sourceaccountid,tr.destinationaccountid) WHERE tr.transactionid=bt.transactionid AND ba.branchid=b.branchid)),
           'loans',(SELECT count(*)::int FROM banking.loan l WHERE l.branchid=b.branchid),
-          'risks',(SELECT count(DISTINCT ra.transactionid)::int FROM banking.risk_assessment ra WHERE ra.decision IN ('REVIEW','BLOCK') AND EXISTS(SELECT 1 FROM banking.transaction_posting tp JOIN banking.bank_account ba USING(accountid) WHERE tp.transactionid=ra.transactionid AND ba.branchid=b.branchid))
-        ) ORDER BY b.branchid),'[]'::jsonb) FROM banking.branch b),
+          'risks',(SELECT count(DISTINCT ra.transactionid)::int FROM banking.risk_assessment ra WHERE ra.decision IN ('REVIEW','BLOCK') AND (
+            EXISTS(SELECT 1 FROM banking.transaction_posting tp JOIN banking.bank_account ba USING(accountid) WHERE tp.transactionid=ra.transactionid AND ba.branchid=b.branchid)
+            OR EXISTS(SELECT 1 FROM banking.transfer_request tr JOIN banking.bank_account ba ON ba.accountid IN (tr.sourceaccountid,tr.destinationaccountid) WHERE tr.transactionid=ra.transactionid AND ba.branchid=b.branchid)))
+        ) ORDER BY b.branchid),'[]'::jsonb) FROM banking.branch b WHERE $1::int IS NULL OR b.branchid=$1),
         'recentActivities', (SELECT COALESCE(jsonb_agg(to_jsonb(x) ORDER BY x.created_at DESC),'[]'::jsonb) FROM (
           SELECT a.auditid AS "auditId",COALESCE(e.fullname,su.username,'System') AS actor,
+            COALESCE(r.rolename,'Hệ thống') AS role,
             concat(a.action,' ',a.entitytype,' #',a.entityid) AS description,a.createdat AS created_at
           FROM banking.audit_log a LEFT JOIN banking.system_user su USING(userid)
           LEFT JOIN banking.employee e ON e.employeeid=su.employeeid
+          LEFT JOIN banking.role r ON r.roleid=e.roleid
+          WHERE $1::int IS NULL OR e.branchid=$1
           ORDER BY a.createdat DESC LIMIT 5) x)
       ) AS result
-    `);
+    `, [branchId ?? null]);
     return result.rows[0].result;
   }
 
   async authenticate(
     username: string,
     password: string,
-    role: 'customer' | 'employee' | 'admin',
+    role: 'customer' | 'employee' | 'admin' | undefined,
     deviceCode: string | null,
     ipAddress: string | undefined,
   ): Promise<AuthResult> {
     const client = await this.pool.connect();
+    let attemptedCustomerId: number | undefined;
+    let attemptedDeviceId: number | undefined;
     try {
       await client.query('BEGIN');
       await this.setContext(client, { ipAddress });
 
-      if (role === 'customer') {
+      let resolvedRole = role;
+      if (!resolvedRole) {
+        const candidates = await client.query<{
+          role: 'customer' | 'employee' | 'admin';
+          customerid?: number;
+          passwordvalid: boolean;
+        }>(`
+          SELECT 'customer'::text AS role, coa.customerid,
+                 coa.passwordhash = public.crypt($2, coa.passwordhash) AS passwordvalid
+          FROM banking.customer_online_account coa
+          WHERE lower(coa.username) = lower(trim($1))
+          UNION ALL
+          SELECT CASE
+                   WHEN lower(r.rolename) LIKE '%admin%'
+                     OR r.rolename = 'Quản trị hệ thống' THEN 'admin'
+                   ELSE 'employee'
+                 END AS role,
+                 NULL::bigint AS customerid,
+                 su.passwordhash = public.crypt($2, su.passwordhash) AS passwordvalid
+          FROM banking.system_user su
+          JOIN banking.employee e USING (employeeid)
+          JOIN banking.role r USING (roleid)
+          WHERE lower(su.username) = lower(trim($1))
+        `, [username, password]);
+        attemptedCustomerId = candidates.rows.find((candidate) => candidate.customerid)?.customerid;
+        const matches = candidates.rows.filter((candidate) => candidate.passwordvalid);
+        if (matches.length === 0) throw new Error('AUTH_INVALID:Tên đăng nhập hoặc mật khẩu không chính xác');
+        if (matches.length > 1) throw new Error('AUTH_AMBIGUOUS:Tên đăng nhập trùng giữa nhiều loại tài khoản');
+        resolvedRole = matches[0].role;
+      }
+
+      if (resolvedRole === 'customer') {
         const result = await client.query<{
           onlineaccountid: number; customerid: number; isactive: boolean;
           customercode: string; fullname: string; status: string;
@@ -147,6 +206,7 @@ export class DatabaseService implements OnModuleDestroy {
         `, [username, password]);
         const row = result.rows[0];
         if (!row) throw new Error('AUTH_INVALID:Tài khoản khách hàng không tồn tại');
+        attemptedCustomerId = row.customerid;
         if (!row.passwordvalid) throw new Error('AUTH_INVALID:Mật khẩu không chính xác');
         if (!row.isactive || row.status !== 'Active') {
           throw new Error('AUTH_BLOCKED:Tài khoản đã bị khóa hoặc ngừng hoạt động');
@@ -159,6 +219,7 @@ export class DatabaseService implements OnModuleDestroy {
             WHERE customerid = $1 AND devicecode = $2 AND status = 'Active'
           `, [row.customerid, deviceCode]);
           deviceId = device.rows[0]?.deviceid;
+          attemptedDeviceId = deviceId;
         }
         await client.query(
           'UPDATE banking.customer_online_account SET lastlogin=clock_timestamp() WHERE onlineaccountid=$1',
@@ -203,7 +264,7 @@ export class DatabaseService implements OnModuleDestroy {
       }
       const actualRole = row.rolename === 'Quản trị hệ thống' || row.rolename.toLowerCase().includes('admin')
         ? 'admin' : 'employee';
-      if (role !== actualRole) throw new Error('FORBIDDEN:Loại tài khoản đã chọn không đúng với vai trò của người dùng');
+      if (resolvedRole !== actualRole) throw new Error('FORBIDDEN:Loại tài khoản đã chọn không đúng với vai trò của người dùng');
       await client.query(
         'UPDATE banking.system_user SET lastlogin=clock_timestamp() WHERE userid=$1',
         [row.userid],
@@ -217,6 +278,20 @@ export class DatabaseService implements OnModuleDestroy {
       };
     } catch (error) {
       await client.query('ROLLBACK');
+      if (attemptedCustomerId) {
+        const message = error instanceof Error ? error.message : '';
+        const status = message.startsWith('AUTH_BLOCKED:') ? 'Blocked' : 'Failed';
+        await client.query(`
+          INSERT INTO banking.login_event(customerid,deviceid,ipaddress,status,failurereason)
+          VALUES($1,$2,$3,$4,$5)
+        `, [
+          attemptedCustomerId,
+          attemptedDeviceId ?? null,
+          ipAddress ?? null,
+          status,
+          message.slice(0, 255) || 'Authentication failed',
+        ]).catch(() => undefined);
+      }
       throw error;
     } finally {
       client.release();
@@ -225,15 +300,22 @@ export class DatabaseService implements OnModuleDestroy {
 
   async function<T>(name: string, args: unknown[] = [], context: RequestContext = {}): Promise<T> {
     if (!/^banking_api\.[a-z0-9_]+$/.test(name)) throw new Error('Unsafe database function name');
+    return this.transaction(context, async (client) => {
+      const placeholders = args.map((_, i) => `$${i + 1}`).join(', ');
+      const result = await client.query<{ result: T }>(`SELECT ${name}(${placeholders}) AS result`, args);
+      return result.rows[0]?.result;
+    });
+  }
+
+  async transaction<T>(context: RequestContext, work: (client: PoolClient) => Promise<T>): Promise<T> {
     const client = await this.pool.connect();
     try {
       await this.ensureCryptoCompatibility(client);
       await client.query('BEGIN');
       await this.setContext(client, context);
-      const placeholders = args.map((_, i) => `$${i + 1}`).join(', ');
-      const result = await client.query<{ result: T }>(`SELECT ${name}(${placeholders}) AS result`, args);
+      const result = await work(client);
       await client.query('COMMIT');
-      return result.rows[0]?.result;
+      return result;
     } catch (error) {
       await client.query('ROLLBACK');
       throw error;

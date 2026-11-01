@@ -1,5 +1,6 @@
+import { CounterTransferController, CounterTransferService } from './http/counter-transfer';
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { DatabaseModule } from './database/database.module';
 import { AuthController } from './http/auth.controller';
@@ -23,13 +24,14 @@ import { ManagementController } from './http/management.controller';
     ConfigModule.forRoot({ isGlobal: true }),
     JwtModule.registerAsync({
       global: true,
-      inject: [],
-      useFactory: () => ({ secret: process.env.JWT_SECRET, signOptions: { expiresIn: '15m' } }),
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({ secret: config.getOrThrow<string>('JWT_SECRET'), signOptions: { expiresIn: '15m' } }),
     }),
     DatabaseModule, AnalyticsModule,
   ],
-  controllers: [AuthController, CustomerController, TransactionController, AdminController, ManagementController, HealthController, OtpController],
+  controllers: [AuthController, CustomerController, TransactionController, AdminController, ManagementController, HealthController, OtpController, CounterTransferController],
   providers: [
+    CounterTransferService,
     RedisService,
     OtpService,
     { provide: APP_GUARD, useClass: AuthGuard },

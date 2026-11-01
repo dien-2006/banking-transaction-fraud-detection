@@ -9,6 +9,7 @@ SET search_path TO banking;
 CREATE OR REPLACE FUNCTION fn_touch_account_updatedat ()
     RETURNS TRIGGER
     LANGUAGE plpgsql
+    SET search_path = banking, pg_temp
     AS $$
 BEGIN
     NEW.updatedat := clock_timestamp();
@@ -26,6 +27,7 @@ CREATE TRIGGER trg_touch_account_updatedat
 CREATE OR REPLACE FUNCTION fn_record_account_status ()
     RETURNS TRIGGER
     LANGUAGE plpgsql
+    SET search_path = banking, pg_temp
     AS $$
 DECLARE
     v_user integer := banking_api.request_user_id ();
@@ -62,6 +64,7 @@ CREATE TRIGGER trg_record_account_status
 CREATE OR REPLACE FUNCTION fn_validate_financial_commit ()
     RETURNS TRIGGER
     LANGUAGE plpgsql
+    SET search_path = banking, pg_temp
     AS $$
 DECLARE
     v_id bigint := COALESCE(NEW.transactionid, OLD.transactionid);
@@ -127,6 +130,7 @@ CREATE CONSTRAINT TRIGGER trg_validate_posting_commit
 CREATE OR REPLACE FUNCTION fn_protect_financial_history ()
     RETURNS TRIGGER
     LANGUAGE plpgsql
+    SET search_path = banking, pg_temp
     AS $$
 DECLARE
     v_status text;
@@ -148,8 +152,14 @@ BEGIN
         END IF;
         RETURN NEW;
     END IF;
-    IF OLD.status = 'Success' AND NEW.status IS DISTINCT FROM OLD.status THEN
-        RAISE EXCEPTION 'IMMUTABLE:a successful transaction must be reversed, not reopened';
+    IF TG_OP = 'DELETE' THEN
+        IF OLD.status = 'Success' THEN
+            RAISE EXCEPTION 'IMMUTABLE:a successful transaction must be reversed, not deleted';
+        END IF;
+        RETURN OLD;
+    END IF;
+    IF OLD.status = 'Success' AND NEW IS DISTINCT FROM OLD THEN
+        RAISE EXCEPTION 'IMMUTABLE:a successful transaction must be reversed, not modified';
     END IF;
     RETURN NEW;
 END;
@@ -164,8 +174,10 @@ CREATE TRIGGER trg_protect_final_posting
 
 DROP TRIGGER IF EXISTS trg_protect_success_status ON bank_transaction;
 
-CREATE TRIGGER trg_protect_success_status
-    BEFORE UPDATE OF status ON bank_transaction
+DROP TRIGGER IF EXISTS trg_protect_success_transaction ON bank_transaction;
+
+CREATE TRIGGER trg_protect_success_transaction
+    BEFORE UPDATE OR DELETE ON bank_transaction
     FOR EACH ROW
     EXECUTE FUNCTION fn_protect_financial_history ();
 
@@ -173,6 +185,7 @@ CREATE TRIGGER trg_protect_success_status
 CREATE OR REPLACE FUNCTION fn_audit_change ()
     RETURNS TRIGGER
     LANGUAGE plpgsql
+    SET search_path = banking, pg_temp
     AS $$
 DECLARE
     v_old jsonb;

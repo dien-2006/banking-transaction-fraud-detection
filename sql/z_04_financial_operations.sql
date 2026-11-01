@@ -392,7 +392,7 @@ END IF;
     WHERE
         typecode = 'TRANSFER'
         AND status = 'Active';
-    v_code := 'TX-' || upper(encode(gen_random_bytes(12), 'hex'));
+    v_code := 'TX-' || upper(encode(public.gen_random_bytes(12), 'hex'));
 INSERT INTO bank_transaction (transactioncode, transactiontypeid, deviceid, channel, amount, fee, currency, transactiondate, ipaddress, description, status, initiatedbycustomerid)
     VALUES (v_code, v_type, p_device, p_channel, p_amount, 0, 'VND', clock_timestamp(), p_ip, p_description, 'Pending', p_customer)
 RETURNING
@@ -495,6 +495,23 @@ BEGIN
         PERFORM
             banking_api.raise_error ('NOT_FOUND', 'customer owner not found');
     END IF;
+    IF NOT EXISTS (
+        SELECT 1
+        FROM account_holder
+        WHERE customerid = v_customer
+          AND accountid = CASE
+              WHEN p_type_code = 'WITHDRAWAL' THEN p_debit
+              ELSE p_credit
+          END
+          AND status = 'Active'
+          AND startdate <= CURRENT_DATE
+          AND (enddate IS NULL OR enddate >= CURRENT_DATE)
+    ) THEN
+        PERFORM banking_api.raise_error(
+            'FORBIDDEN',
+            'customer does not own the movement account'
+        );
+    END IF;
     SELECT
         transactiontypeid
     INTO
@@ -546,6 +563,72 @@ BEGIN
 END;
 $$;
 
+-- Completes the loan domain records after the financial posting succeeds.
+CREATE OR REPLACE FUNCTION banking_api.finalize_loan_payment (
+    p_transaction bigint,
+    p_loan bigint,
+    p_schedule bigint,
+    p_channel varchar(30)
+)
+    RETURNS VOID
+    LANGUAGE plpgsql
+    SET search_path = banking, pg_temp
+    AS $$
+DECLARE
+    v_schedule repayment_schedule%ROWTYPE;
+BEGIN
+    SELECT *
+    INTO v_schedule
+    FROM repayment_schedule
+    WHERE loanid = p_loan
+      AND scheduleid = p_schedule
+    FOR UPDATE;
+
+    IF NOT FOUND THEN
+        PERFORM banking_api.raise_error('NOT_FOUND', 'loan schedule not found');
+    END IF;
+    IF v_schedule.status = 'Paid' THEN
+        PERFORM banking_api.raise_error('CONFLICT', 'schedule already paid');
+    END IF;
+
+    INSERT INTO loan_payment (
+        loanid,
+        scheduleid,
+        amountpaid,
+        principalpaid,
+        interestpaid,
+        penaltyfee,
+        paymentchannel,
+        transactionid
+    )
+    VALUES (
+        p_loan,
+        p_schedule,
+        v_schedule.principaldue + v_schedule.interestdue + v_schedule.penaltydue,
+        v_schedule.principaldue,
+        v_schedule.interestdue,
+        v_schedule.penaltydue,
+        p_channel,
+        p_transaction
+    );
+
+    UPDATE repayment_schedule
+    SET status = 'Paid'
+    WHERE scheduleid = p_schedule;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM repayment_schedule
+        WHERE loanid = p_loan
+          AND status <> 'Paid'
+    ) THEN
+        UPDATE loan
+        SET status = 'Paid'
+        WHERE loanid = p_loan;
+    END IF;
+END;
+$$;
+
 -- Manual approval or rejection of a REVIEW decision.
 CREATE OR REPLACE FUNCTION banking_api.resolve_review (p_review bigint, p_reviewer integer, p_action text, p_reason varchar(255) DEFAULT NULL)
     RETURNS jsonb
@@ -555,25 +638,28 @@ CREATE OR REPLACE FUNCTION banking_api.resolve_review (p_review bigint, p_review
 DECLARE
     vc RECORD;
     vr RECORD;
+    vu RECORD;
     v_type text;
     v_owner boolean;
+    v_result text;
+    v_description text;
 BEGIN
     IF upper(p_action)
         NOT IN ('APPROVE', 'REJECT') THEN
         PERFORM
             banking_api.raise_error ('VALIDATION', 'invalid action');
     END IF;
-    IF NOT EXISTS (
-        SELECT
-            1
-        FROM
-            "system_user"
-        WHERE
-            userid = p_reviewer
-            AND isactive) THEN
-    PERFORM
-        banking_api.raise_error ('FORBIDDEN', 'reviewer is inactive');
-END IF;
+    SELECT su.userid, e.employeeid, e.branchid, r.rolename
+    INTO vu
+    FROM "system_user" su
+    JOIN employee e USING (employeeid)
+    JOIN role r USING (roleid)
+    WHERE su.userid = p_reviewer
+      AND su.isactive
+      AND e.status = 'Active';
+    IF NOT FOUND THEN
+        PERFORM banking_api.raise_error('FORBIDDEN', 'reviewer is inactive');
+    END IF;
     SELECT
         *
     INTO
@@ -590,6 +676,21 @@ END IF;
     IF vc.status NOT IN ('OPEN', 'IN_REVIEW') THEN
         PERFORM
             banking_api.raise_error ('CONFLICT', 'review already resolved');
+    END IF;
+    IF lower(vu.rolename) NOT LIKE '%admin%'
+       AND vu.rolename <> 'Quản trị hệ thống'
+       AND NOT EXISTS (
+           SELECT 1
+           FROM transfer_request tr
+           JOIN bank_account ba
+             ON ba.accountid IN (tr.sourceaccountid, tr.destinationaccountid)
+           WHERE tr.transactionid = vc.transactionid
+             AND ba.branchid = vu.branchid
+       ) THEN
+        PERFORM banking_api.raise_error(
+            'FORBIDDEN',
+            'review case is outside employee branch scope'
+        );
     END IF;
     UPDATE
         review_case
@@ -646,17 +747,35 @@ END IF;
             transactionid = vc.transactionid
         FOR UPDATE;
         SELECT
-            tt.typecode
+            tt.typecode,
+            bt.description
         INTO
-            v_type
+            v_type,
+            v_description
         FROM
             bank_transaction bt
             JOIN transaction_type tt USING (transactiontypeid)
         WHERE
             bt.transactionid = vc.transactionid;
         v_owner := v_type IN ('TRANSFER', 'WITHDRAWAL', 'LOAN_PAYMENT');
-        PERFORM
-            banking_api.post_balanced_transaction (vc.transactionid, vr.sourceaccountid, vr.destinationaccountid, vr.amount, vr.customerid, v_owner);
+        v_result := banking_api.post_balanced_transaction(
+            vc.transactionid,
+            vr.sourceaccountid,
+            vr.destinationaccountid,
+            vr.amount,
+            vr.customerid,
+            v_owner
+        );
+        IF v_result = 'Success'
+           AND v_type = 'LOAN_PAYMENT'
+           AND split_part(COALESCE(v_description, ''), '|', 1) = 'LOAN_PAYMENT' THEN
+            PERFORM banking_api.finalize_loan_payment(
+                vc.transactionid,
+                split_part(v_description, '|', 2)::bigint,
+                split_part(v_description, '|', 3)::bigint,
+                split_part(v_description, '|', 4)::varchar(30)
+            );
+        END IF;
     END IF;
     RETURN banking_api.transaction_result (vc.transactionid);
 END;
@@ -673,9 +792,14 @@ DECLARE
     v_type integer;
     v_id bigint;
     v_result text;
+    v_risk jsonb;
 BEGIN
-    PERFORM
-        pg_advisory_xact_lock(hashtextextended(p_code, 0));
+    IF p_amount <= 0 OR p_source = p_internal
+       OR NULLIF(trim(p_code), '') IS NULL
+       OR p_channel NOT IN ('Counter', 'Account', 'Online') THEN
+        PERFORM banking_api.raise_error('VALIDATION', 'invalid loan payment');
+    END IF;
+    PERFORM pg_advisory_xact_lock(hashtextextended(p_code, 0));
     SELECT
         transactionid
     INTO
@@ -687,26 +811,21 @@ BEGIN
     IF v_id IS NOT NULL THEN
         RETURN banking_api.transaction_result (v_id);
     END IF;
-    SELECT
-        rs.*
-    INTO
-        vs
-    FROM
-        repayment_schedule rs
-        JOIN loan l USING (loanid)
-    WHERE
-        rs.loanid = p_loan
-        AND rs.scheduleid = p_schedule
-        AND l.customerid = p_customer
-    FOR UPDATE
-        OF rs;
+    SELECT rs.*, l.status AS loanstatus
+    INTO vs
+    FROM repayment_schedule rs
+    JOIN loan l USING (loanid)
+    WHERE rs.loanid = p_loan
+      AND rs.scheduleid = p_schedule
+      AND l.customerid = p_customer
+    FOR UPDATE OF rs;
     IF NOT FOUND THEN
         PERFORM
             banking_api.raise_error ('NOT_FOUND', 'loan schedule not found');
     END IF;
-    IF vs.status = 'Paid' THEN
+    IF vs.loanstatus <> 'Active' OR vs.status = 'Paid' THEN
         PERFORM
-            banking_api.raise_error ('CONFLICT', 'schedule already paid');
+            banking_api.raise_error ('CONFLICT', 'loan or schedule is not payable');
     END IF;
     IF p_amount <> vs.principaldue + vs.interestdue + vs.penaltydue THEN
         PERFORM
@@ -721,42 +840,82 @@ BEGIN
     WHERE
         typecode = 'LOAN_PAYMENT'
         AND status = 'Active';
-    INSERT INTO bank_transaction (transactioncode, transactiontypeid, channel, amount, fee, currency, status, initiatedbycustomerid)
-        VALUES (p_code, v_type, CASE WHEN p_channel = 'Counter' THEN
-                'Counter'
-            ELSE
-                'InternetBanking'
-            END, p_amount, 0, 'VND', 'Pending', p_customer)
+    INSERT INTO bank_transaction (
+        transactioncode,
+        transactiontypeid,
+        channel,
+        amount,
+        fee,
+        currency,
+        description,
+        status,
+        initiatedbycustomerid
+    )
+    VALUES (
+        p_code,
+        v_type,
+        CASE WHEN p_channel = 'Counter' THEN 'Counter' ELSE 'InternetBanking' END,
+        p_amount,
+        0,
+        'VND',
+        concat('LOAN_PAYMENT|', p_loan, '|', p_schedule, '|', p_channel),
+        'Pending',
+        p_customer
+    )
     RETURNING
         transactionid
     INTO
         v_id;
-    v_result := banking_api.post_balanced_transaction (v_id, p_source, p_internal, p_amount, p_customer, TRUE);
-    IF v_result = 'Success' THEN
-        INSERT INTO loan_payment (loanid, scheduleid, amountpaid, principalpaid, interestpaid, penaltyfee, paymentchannel, transactionid)
-            VALUES (p_loan, p_schedule, p_amount, vs.principaldue, vs.interestdue, vs.penaltydue, p_channel, v_id);
-        UPDATE
-            repayment_schedule
-        SET
-            status = 'Paid'
-        WHERE
-            scheduleid = p_schedule;
-        IF NOT EXISTS (
-            SELECT
-                1
-            FROM
-                repayment_schedule
-            WHERE
-                loanid = p_loan
-                AND status <> 'Paid') THEN
-        UPDATE
-            loan
-        SET
-            status = 'Paid'
-        WHERE
-            loanid = p_loan;
+    INSERT INTO transfer_request (
+        transactionid,
+        customerid,
+        sourceaccountid,
+        destinationaccountid,
+        idempotencykey,
+        amount,
+        currency,
+        status
+    )
+    VALUES (v_id, p_customer, p_source, p_internal, p_code, p_amount, 'VND', 'Pending');
+
+    v_risk := banking_api.assess_transaction(v_id, p_customer, NULL, p_amount);
+    IF v_risk ->> 'decision' = 'BLOCK' THEN
+        UPDATE bank_transaction SET status = 'Cancelled' WHERE transactionid = v_id;
+        UPDATE transfer_request SET status = 'Rejected' WHERE transactionid = v_id;
+        PERFORM banking_api.emit_event(
+            v_id,
+            'TransactionBlocked',
+            jsonb_build_object('transaction_id', v_id, 'risk', v_risk)
+        );
+        INSERT INTO notification_outbox (customerid, transactionid, notificationtype)
+        VALUES (p_customer, v_id, 'TRANSACTION_BLOCKED');
+    ELSIF v_risk ->> 'decision' = 'REVIEW' THEN
+        INSERT INTO review_case (transactionid, status) VALUES (v_id, 'OPEN');
+        PERFORM banking_api.emit_event(
+            v_id,
+            'TransactionReviewRequired',
+            jsonb_build_object('transaction_id', v_id, 'risk', v_risk)
+        );
+        INSERT INTO notification_outbox (customerid, transactionid, notificationtype)
+        VALUES (p_customer, v_id, 'TRANSACTION_UNDER_REVIEW');
+    ELSE
+        v_result := banking_api.post_balanced_transaction(
+            v_id,
+            p_source,
+            p_internal,
+            p_amount,
+            p_customer,
+            TRUE
+        );
+        IF v_result = 'Success' THEN
+            PERFORM banking_api.finalize_loan_payment(
+                v_id,
+                p_loan,
+                p_schedule,
+                p_channel
+            );
+        END IF;
     END IF;
-END IF;
     RETURN banking_api.transaction_result (v_id);
 END;
 $$;
@@ -771,22 +930,21 @@ DECLARE
     vo RECORD;
     vd RECORD;
     vc RECORD;
+    ve RECORD;
     v_type integer;
     v_id bigint;
 BEGIN
     PERFORM
         pg_advisory_xact_lock(p_original);
-    IF NOT EXISTS (
-        SELECT
-            1
-        FROM
-            employee
-        WHERE
-            employeeid = p_employee
-            AND status = 'Active') THEN
-    PERFORM
-        banking_api.raise_error ('FORBIDDEN', 'employee is not active');
-END IF;
+    SELECT e.employeeid, e.branchid, r.rolename
+    INTO ve
+    FROM employee e
+    JOIN role r USING (roleid)
+    WHERE e.employeeid = p_employee
+      AND e.status = 'Active';
+    IF NOT FOUND THEN
+        PERFORM banking_api.raise_error('FORBIDDEN', 'employee is not active');
+    END IF;
     SELECT
         *
     INTO
@@ -841,6 +999,19 @@ END IF;
     WHERE
         transactionid = p_original
         AND postingtype = 'CREDIT';
+    IF lower(ve.rolename) NOT LIKE '%admin%'
+       AND ve.rolename <> 'Quản trị hệ thống'
+       AND NOT EXISTS (
+           SELECT 1
+           FROM bank_account
+           WHERE accountid = vd.accountid
+             AND branchid = ve.branchid
+       ) THEN
+        PERFORM banking_api.raise_error(
+            'FORBIDDEN',
+            'transaction is outside employee branch scope'
+        );
+    END IF;
     IF vd.amount <> vc.amount THEN
         PERFORM
             banking_api.raise_error ('INTEGRITY', 'original posting is unbalanced');

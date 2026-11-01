@@ -48,7 +48,7 @@ BEGIN
         PERFORM
             banking_api.raise_error ('VALIDATION', 'password must contain at least 8 characters');
     END IF;
-    RETURN crypt(p_password, gen_salt('bf', 12));
+    RETURN public.crypt(p_password, public.gen_salt('bf', 12));
 END;
 $$;
 
@@ -58,7 +58,7 @@ CREATE OR REPLACE FUNCTION banking_api.verify_password (p_password text, p_hash 
     STABLE STRICT
     AS $$
     SELECT
-        crypt(p_password, p_hash) = p_hash;
+        public.crypt(p_password, p_hash) = p_hash;
 $$;
 
 CREATE OR REPLACE FUNCTION banking_api.health ()
@@ -167,8 +167,8 @@ BEGIN
         PERFORM
             banking_api.raise_error ('AUTH_BLOCKED', 'account is inactive');
     END IF;
-    v_role := CASE WHEN lower(v_row.rolename)
-    LIKE '%admin%' THEN
+    v_role := CASE WHEN lower(v_row.rolename) LIKE '%admin%'
+        OR v_row.rolename = 'Quản trị hệ thống' THEN
         'admin'
     ELSE
         'employee'

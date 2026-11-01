@@ -1,1 +1,0 @@
-"""Banking core application."""

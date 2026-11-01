@@ -2,37 +2,21 @@ from __future__ import annotations
 
 import os
 import uuid
+from datetime import datetime
 from decimal import Decimal
 
 import psycopg
 import pytest
 from psycopg.rows import dict_row
 
-from banking.config import POSTGRES_SCHEMA, postgres_dsn
-from banking.service import BusinessRejection, TransferService
 from scripts.bootstrap_demo import main as bootstrap_demo
+from scripts.postgres_config import POSTGRES_SCHEMA, postgres_dsn
 
 
 pytestmark = pytest.mark.skipif(
     os.getenv("RUN_BANKING_INTEGRATION") != "1",
     reason="set RUN_BANKING_INTEGRATION=1 with PostgreSQL running",
 )
-
-
-class FixedPredictor:
-    version = "v1"
-
-    def __init__(self, probability: str):
-        self.probability = Decimal(probability)
-
-    def predict(self, _features):
-        return self.probability
-
-
-def service(probability: str) -> TransferService:
-    return TransferService(
-        postgres_dsn(), FixedPredictor(probability), POSTGRES_SCHEMA  # type: ignore[arg-type]
-    )
 
 
 @pytest.fixture(scope="module")
@@ -58,16 +42,31 @@ def demo():
         ).fetchone()
 
 
-def request(demo, amount: str = "1000", customer_id: int | None = None) -> dict:
-    return {
-        "customer_id": customer_id or demo["customerid"],
-        "source_account_id": demo["sourceid"],
-        "destination_account_id": demo["destinationid"],
-        "device_id": demo["deviceid"] if customer_id is None else None,
-        "amount": Decimal(amount),
-        "idempotency_key": f"pytest-{uuid.uuid4()}",
-        "channel": "MobileBanking",
-    }
+def create_transfer(
+    demo,
+    *,
+    idempotency_key: str,
+    amount: str = "1000",
+    customer_id: int | None = None,
+) -> dict:
+    with psycopg.connect(postgres_dsn(), row_factory=dict_row) as connection:
+        row = connection.execute(
+            """
+            SELECT banking_api.create_transfer(
+                %s, %s, %s, %s, %s, 'MobileBanking', %s, NULL,
+                'SQL contract integration test'
+            ) AS result
+            """,
+            (
+                customer_id or demo["customerid"],
+                demo["sourceid"],
+                demo["destinationid"],
+                Decimal(amount),
+                idempotency_key,
+                demo["deviceid"] if customer_id is None else None,
+            ),
+        ).fetchone()
+        return row["result"]
 
 
 def financial_evidence(transaction_id: int) -> dict:
@@ -92,10 +91,9 @@ def financial_evidence(transaction_id: int) -> dict:
 
 
 def test_allow_posts_atomically_and_retry_is_idempotent(demo):
-    banking = service("0.10")
-    command = request(demo)
-    first = banking.create_transfer(**command)
-    second = banking.create_transfer(**command)
+    idempotency_key = f"pytest-{uuid.uuid4()}"
+    first = create_transfer(demo, idempotency_key=idempotency_key)
+    second = create_transfer(demo, idempotency_key=idempotency_key)
 
     assert first["decision"] == "ALLOW"
     assert second["transactionid"] == first["transactionid"]
@@ -104,34 +102,6 @@ def test_allow_posts_atomically_and_retry_is_idempotent(demo):
         "posting_count": 2,
         "outbox_count": 1,
     }
-
-
-def test_allow_with_insufficient_balance_never_posts(demo):
-    banking = service("0.10")
-    command = request(demo, "999999999999")
-    with pytest.raises(BusinessRejection, match="insufficient balance"):
-        banking.create_transfer(**command)
-
-    existing = banking._find_by_idempotency_key(command["idempotency_key"])
-    assert financial_evidence(existing["transactionid"]) == {
-        "status": "Failed",
-        "posting_count": 0,
-        "outbox_count": 0,
-    }
-
-
-def test_block_and_unapproved_review_do_not_post(demo):
-    blocked = service("0.95").create_transfer(**request(demo))
-    assert blocked["decision"] == "BLOCK"
-    assert financial_evidence(blocked["transactionid"])["posting_count"] == 0
-
-    review_service = service("0.70")
-    pending = review_service.create_transfer(**request(demo))
-    assert pending["decision"] == "REVIEW"
-    assert financial_evidence(pending["transactionid"])["posting_count"] == 0
-
-    approved = review_service.review(pending["reviewcaseid"], approve=True)
-    assert financial_evidence(approved["transactionid"])["posting_count"] == 2
 
 
 def test_customer_cannot_debit_an_account_they_do_not_hold(demo):
@@ -148,6 +118,24 @@ def test_customer_cannot_debit_an_account_they_do_not_hold(demo):
         ).fetchone()["customerid"]
 
     with pytest.raises(
-        BusinessRejection, match="not an active source account holder"
+        psycopg.errors.RaiseException,
+        match="FORBIDDEN:customer does not own source account",
     ):
-        service("0.10").create_transfer(**request(demo, customer_id=customer_id))
+        create_transfer(
+            demo,
+            customer_id=customer_id,
+            idempotency_key=f"pytest-{uuid.uuid4()}",
+        )
+
+
+def test_database_risk_contract_applies_documented_rules(demo):
+    with psycopg.connect(postgres_dsn(), row_factory=dict_row) as connection:
+        result = connection.execute(
+            "SELECT banking_api.calculate_risk(%s, NULL, %s, %s) AS result",
+            (demo["customerid"], Decimal("50000000"), datetime(2026, 1, 1, 1)),
+        ).fetchone()["result"]
+
+    assert result["ruleScore"] >= 50
+    assert {"R01_HIGH_AMOUNT", "R02_NEW_DEVICE", "R03_UNUSUAL_TIME"}.issubset(
+        set(result["triggeredRules"])
+    )

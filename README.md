@@ -2,7 +2,7 @@
 
 Hệ thống mô phỏng một nền tảng ngân hàng tích hợp **xử lý giao dịch**, **đánh giá rủi ro/phát hiện gian lận**, **Batch + Realtime Data Pipeline**, **Data Lakehouse Bronze/Silver/Gold**, **Machine Learning** và **BI/Analytics**.
 
-> **Nguyên tắc dự án:** PostgreSQL schema hiện tại trong `create_table_risk_updated.sql` được xem là **cố định**. Các service, pipeline ETL và ML phải thích nghi với schema này; không thay đổi database chỉ để phục vụ ETL/ML.
+> **Nguyên tắc dự án:** PostgreSQL schema hiện tại trong `create_table.sql` được xem là **cố định**. Các service, pipeline ETL và ML phải thích nghi với schema này; không thay đổi database chỉ để phục vụ ETL/ML.
 
 ---
 
@@ -125,9 +125,12 @@ Dự án được xây dựng để mô phỏng end-to-end một hệ thống ng
 
 | Thành phần | Công nghệ | Vai trò |
 |---|---|---|
+| Web | Next.js / TypeScript | Giao diện cho customer, employee và admin |
+| Banking API | NestJS / TypeScript | HTTP API, authentication, authorization và orchestration |
 | OLTP Database | PostgreSQL | Dữ liệu nghiệp vụ ngân hàng |
-| Risk Rules | Python | Rule Engine |
-| Fraud Model | Python / ML | Tính ModelProbability |
+| Banking Core | PostgreSQL `banking_api.*` | Transaction, locking, posting, balance và outbox nguyên tử |
+| Risk Rules | PostgreSQL | Rule Engine trên cùng dữ liệu giao dịch nhất quán |
+| Fraud Model | Python / ML | Training và model artifact; không cập nhật dữ liệu tài chính |
 | Model Artifact Storage | MinIO | Lưu file model và metadata file ngoài DB |
 | Realtime Messaging | Kafka | Event streaming |
 | Data Lake | MinIO | Bronze, Silver, Gold, Quarantine |
@@ -888,37 +891,18 @@ bank-fraud-detection/
 ├── README.md
 ├── docker-compose.yml
 │
-├── database/
-│   └── create_table_risk_updated.sql
+├── backend/
+│   └── src/                 # NestJS HTTP/auth/orchestration layer
 │
-├── banking/
-│   ├── transaction_service.py
-│   ├── transfer_service.py
-│   ├── posting_service.py
-│   ├── account_service.py
-│   └── outbox_service.py
+├── web/
+│   └── src/                 # Next.js role-based user interface
 │
-├── risk/
-│   ├── rule_engine/
-│   │   ├── engine.py
-│   │   └── rules.py
-│   │
-│   ├── ml/
-│   │   ├── feature_builder.py
-│   │   └── predictor.py
-│   │
-│   └── decision/
-│       └── decision_engine.py
+├── sql/
+│   ├── create_table.sql     # Fixed 29-table source schema
+│   └── z_*.sql              # banking_api transaction/query contract
 │
-├── realtime/
-│   ├── outbox_publisher/
-│   │   └── publisher.py
-│   │
-│   ├── kafka/
-│   │   └── consumer.py
-│   │
-│   └── schemas/
-│       └── event_schema.py
+├── streaming/
+│   └── consumer/            # Kafka consumer ghi durable Bronze
 │
 ├── airflow/
 │   └── dags/
@@ -927,26 +911,11 @@ bank-fraud-detection/
 │       ├── silver_dq.py
 │       └── silver_to_gold.py
 │
-├── spark/
-│   ├── bronze/
-│   │   └── extract_postgres.py
-│   │
-│   ├── silver/
-│   │   ├── customer.py
-│   │   ├── transaction.py
-│   │   ├── risk_assessment.py
-│   │   └── ...
-│   │
-│   └── gold/
-│       ├── dimensions/
-│       │   ├── dim_customer.py
-│       │   ├── dim_account.py
-│       │   └── ...
-│       │
-│       └── facts/
-│           ├── fact_transaction.py
-│           ├── fact_risk_assessment.py
-│           └── ...
+├── data_engineering/
+│   ├── ingestion/           # PostgreSQL batch extraction
+│   ├── bronze/              # Raw validation
+│   ├── silver/              # Normalize, validate, deduplicate
+│   └── gold/                # Dimensions, facts và feature mart
 │
 ├── ml/
 │   ├── features/
@@ -961,18 +930,12 @@ bank-fraud-detection/
 │   ├── data_quality.yaml
 │   └── spark.yaml
 │
-├── common/
-│   ├── postgres.py
-│   ├── minio.py
-│   ├── kafka.py
-│   ├── dq.py
-│   └── logging.py
+├── scripts/
+│   ├── postgres_config.py   # Shared connection settings for Python tools
+│   ├── bootstrap_demo.py
+│   └── e2e_test.py
 │
-└── tests/
-    ├── banking/
-    ├── risk/
-    ├── realtime/
-    └── data_pipeline/
+└── tests/                   # SQL contract, ML, streaming và data tests
 ```
 
 ---
@@ -981,16 +944,16 @@ bank-fraud-detection/
 
 | Module | Trách nhiệm |
 |---|---|
-| `banking/` | Financial processing, posting, balance, outbox |
-| `risk/` | Rule Engine, ML inference, Decision Engine |
-| `realtime/` | Outbox Publisher, Kafka Consumer |
+| `backend/` | NestJS API, authentication, authorization và orchestration |
+| `sql/` | Financial processing, rule decision, posting, balance và outbox |
+| `streaming/` | Kafka Consumer và durable Bronze writer |
 | `airflow/` | Batch orchestration |
-| `spark/bronze/` | PostgreSQL extraction |
-| `spark/silver/` | Normalize, validation, dedup, integration |
-| `spark/gold/` | Build dimensions và facts |
+| `data_engineering/ingestion/` | PostgreSQL batch extraction |
+| `data_engineering/silver/` | Normalize, validation, dedup, integration |
+| `data_engineering/gold/` | Build dimensions, facts và feature mart |
 | `ml/` | Feature engineering, training, evaluation |
 | `config/` | Pipeline/rule/DQ configuration ngoài DB |
-| `common/` | Shared clients/utilities |
+| `scripts/` | Bootstrap, E2E và operational utilities |
 | `tests/` | Unit/integration/data pipeline tests |
 
 ---
@@ -1331,7 +1294,7 @@ Airflow DAG `banking_bronze_silver_gold` chạy tự động lần đầu khi st
 PostgreSQL -> Bronze -> Bronze DQ -> Silver -> Silver DQ -> commit watermark -> Gold -> Gold DQ
 ```
 
-Kafka/realtime là profile riêng: khởi động bằng `docker compose --profile realtime up -d --build`. Khi bật, outbox publisher đẩy event sang Kafka, consumer ghi MinIO Bronze và lần Batch kế tiếp đối soát event realtime vào Silver. Model sync dùng profile `ml`; DAG Batch không tự training model.
+Kafka/realtime là profile riêng: khởi động bằng `docker compose --profile realtime up -d --build`. Khi bật, outbox publisher đẩy event sang Kafka và consumer ghi MinIO Bronze bền vững. PostgreSQL Batch vẫn là nguồn duy nhất tạo các bảng Silver nghiệp vụ; Kafka event không ghi đè `silver/bank_transaction`. Nếu chủ động bật `ENABLE_REALTIME_SILVER_MERGE`, Batch chỉ materialize `silver/domain_event` để phân tích và đối soát. Model sync dùng profile `ml`; DAG Batch không tự training model.
 
 Chạy giao diện Next.js ở terminal riêng:
 

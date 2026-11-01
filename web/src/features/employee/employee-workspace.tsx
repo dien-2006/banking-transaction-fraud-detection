@@ -1,14 +1,273 @@
 "use client";
-import { CheckCircle2, Clock3, Filter, Search, ShieldCheck } from "lucide-react";
+import { formatDateTime } from "@/lib/presentation";
+import { useQuery } from "@tanstack/react-query";
+import {
+  Bell,
+  CheckCheck,
+  Clock3,
+  RefreshCw,
+  Search,
+  ShieldAlert,
+} from "lucide-react";
+import Link from "next/link";
 import { useMemo, useState } from "react";
+import {
+  ListPagination,
+  useListPagination,
+} from "@/components/list-pagination";
+import { useSessionUser } from "@/components/session-context";
+import { Modal } from "@/components/ui";
+import { loadAllPages } from "@/lib/paged-data";
+import {
+  bankService,
+  type EmployeeNotification,
+} from "@/services/bank.service";
+import { useNotificationRead } from "./use-notification-read";
 
-const configs:Record<string,{title:string;desc:string;headers:string[];rows:string[][];action:string}>={
-  customers:{title:"Khách hàng chi nhánh",desc:"Hồ sơ khách hàng thuộc phạm vi được phân công",headers:["Mã KH","Họ và tên","Điện thoại","KYC","Phân khúc","Trạng thái"],rows:[["KH000123","Nguyễn Văn An","09•• ••• 128","Đã xác minh","Cá nhân","Hoạt động"],["KH000124","Trần Thị Bình","09•• ••• 642","Chờ xác minh","Ưu tiên","Chờ xử lý"],["KH000125","Lê Văn Cường","09•• ••• 903","Đã xác minh","Cá nhân","Hoạt động"]],action:"Tạo hồ sơ khách hàng"},
-  accounts:{title:"Tài khoản khách hàng",desc:"Tra cứu và tiếp nhận yêu cầu tài khoản; nhân viên không được sửa số dư",headers:["Số tài khoản","Chủ tài khoản","Loại","Số dư hiển thị","Trạng thái","Yêu cầu"],rows:[["0123 •••• 8901","Nguyễn Văn An","Thanh toán","245.680.000 ₫","Hoạt động","—"],["0234 •••• 9012","Trần Thị Bình","Tiết kiệm","580.250.000 ₫","Hoạt động","Mở mới"],["0345 •••• 0123","Lê Văn Cường","Thanh toán","124.930.000 ₫","Tạm khóa","Mở khóa"]],action:"Mở tài khoản"},
-  transactions:{title:"Tra cứu giao dịch",desc:"Theo dõi giao dịch; trạng thái SUCCESS chỉ do Banking Core xác lập sau posting",headers:["Mã GD","Khách hàng","Số tiền","Risk decision","Trạng thái","Thời gian"],rows:[["GD20241002001","Nguyễn Văn An","25.000.000 ₫","ALLOW","SUCCESS","02/10 09:15"],["GD20241002002","Trần Thị Bình","80.000.000 ₫","REVIEW","PENDING","02/10 09:24"],["GD20241002003","Lê Văn Cường","120.000.000 ₫","BLOCK","REJECTED","02/10 09:31"]],action:"Tra cứu nâng cao"},
-  loans:{title:"Hồ sơ khoản vay",desc:"Thẩm định hồ sơ trong hạn mức được giao",headers:["Mã hồ sơ","Khách hàng","Sản phẩm","Số tiền","Giai đoạn","Trạng thái"],rows:[["KV000456","Phạm Thị Dung","Vay mua nhà","1.200.000.000 ₫","Thẩm định","Đang xử lý"],["KV000457","Hoàng Văn Em","Vay tiêu dùng","120.000.000 ₫","Bổ sung hồ sơ","Chờ khách hàng"],["KV000458","Đỗ Thị Phương","Vay kinh doanh","680.000.000 ₫","Kiểm tra","Chờ xử lý"]],action:"Tạo hồ sơ vay"},
-  cards:{title:"Dịch vụ thẻ",desc:"Tiếp nhận yêu cầu phát hành và khóa/mở thẻ theo quy trình",headers:["Số thẻ","Chủ thẻ","Loại","Hạn mức","Trạng thái","Yêu cầu"],rows:[["9704 •••• •••• 1234","Nguyễn Văn An","Debit","50.000.000 ₫","Hoạt động","—"],["9704 •••• •••• 5678","Trần Thị Bình","Credit","100.000.000 ₫","Tạm khóa","Mở khóa"],["9704 •••• •••• 9012","Lê Văn Cường","Debit","30.000.000 ₫","Hoạt động","Phát hành lại"]],action:"Yêu cầu phát hành thẻ"},
-  notifications:{title:"Thông báo",desc:"Công việc và cảnh báo gửi đến tài khoản nhân viên",headers:["Thời gian","Tiêu đề","Nội dung","Phân hệ","Trạng thái","Mức độ"],rows:[["02/10 09:20","Review mới","GD20241002002 được phân công","Fraud","Chưa đọc","Cao"],["02/10 08:45","Hồ sơ bổ sung","KV000457 đã có tài liệu mới","Khoản vay","Đã đọc","Bình thường"],["01/10 16:30","Nhắc hạn xử lý","Có 3 công việc sắp đến hạn","Công việc","Đã đọc","Ưu tiên"]],action:"Đánh dấu đã đọc"},
-  reports:{title:"Báo cáo chi nhánh",desc:"Chỉ số vận hành của Chi nhánh Hà Nội",headers:["Báo cáo","Kỳ dữ liệu","Người tạo","Cập nhật","Phạm vi","Trạng thái"],rows:[["Hiệu suất giao dịch","Tháng 10/2026","Hệ thống","02/10 08:00","Chi nhánh Hà Nội","Sẵn sàng"],["Hồ sơ khách hàng","Quý III/2026","Nguyễn Hoàng An","01/10 17:30","Chi nhánh Hà Nội","Sẵn sàng"],["Khoản vay chờ xử lý","02/10/2026","Hệ thống","02/10 09:00","Được phân công","Sẵn sàng"]],action:"Xuất báo cáo"},
+const typeLabels: Record<string, string> = {
+  fraud: "Fraud & Review",
+  loan: "Khoản vay",
+  work: "Công việc",
+  system: "Hệ thống",
 };
-export function EmployeeWorkspace({slug}:{slug:string}){const c=configs[slug]??configs.work,[q,setQ]=useState("");const rows=useMemo(()=>c.rows.filter(r=>r.join(" ").toLowerCase().includes(q.toLowerCase())),[c,q]);return <div className="flex h-full flex-col gap-3 text-navy"><section className="d4-banner relative overflow-hidden rounded-xl border border-red-100 p-5"><div className="d4-city"/><div className="relative flex items-end justify-between"><div><p className="text-xs font-bold text-coral">CHI NHÁNH HÀ NỘI</p><h1 className="mt-1 text-3xl font-black">{c.title}</h1><p className="mt-2 text-sm text-slate-500">{c.desc}</p></div><button className="btn-primary h-9">{c.action}</button></div></section><section className="grid grid-cols-3 gap-3">{[[Clock3,"Chờ xử lý","12"],[CheckCircle2,"Hoàn tất hôm nay","18"],[ShieldCheck,"Trong phạm vi quyền","100%"]].map(([I,l,v])=>{const Icon=I as typeof Clock3;return <article className="card flex items-center gap-3 p-3" key={l as string}><span className="grid size-10 place-items-center rounded-full bg-red-50 text-coral"><Icon size={18}/></span><div><p className="text-xs text-slate-500">{l as string}</p><b className="text-xl">{v as string}</b></div></article>})}</section><section className="card flex min-h-0 flex-1 flex-col p-4"><div className="flex gap-2"><label className="relative flex-1"><Search className="absolute left-3 top-2.5 text-slate-400" size={15}/><input className="h-9 w-full rounded-lg border pl-9 text-xs" value={q} onChange={e=>setQ(e.target.value)} placeholder="Tìm trong phạm vi được phân công..."/></label><button className="btn-secondary h-9"><Filter size={14}/>Lọc</button></div><div className="mt-3 overflow-auto"><table className="w-full text-left text-xs"><thead className="bg-slate-50"><tr>{c.headers.map(h=><th className="p-3" key={h}>{h}</th>)}<th className="p-3">Thao tác</th></tr></thead><tbody>{rows.map((r,i)=><tr className="border-t" key={r[0]}>{r.map((v,j)=><td className="p-3" key={`${v}-${j}`}>{j===r.length-1?<span className="rounded bg-slate-100 px-2 py-1">{v}</span>:v}</td>)}<td className="p-3"><button className="font-bold text-coral">Xem</button></td></tr>)}</tbody></table></div><p className="mt-auto border-t pt-3 text-[10px] text-slate-500">Hiển thị {rows.length} bản ghi trong phạm vi được cấp quyền.</p></section></div>}
+export function EmployeeWorkspace() {
+  const user = useSessionUser();
+  const { readIds, markRead } = useNotificationRead(user.role, user.id);
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState("");
+  const [selected, setSelected] = useState<EmployeeNotification | null>(null);
+  const query = useQuery({
+    queryKey: ["staff-notifications", user.role, user.id],
+    queryFn: () =>
+      loadAllPages(
+        ({ page, pageSize }) =>
+          bankService.employeeNotifications(page, pageSize),
+        (row) => row.id,
+      ),
+    refetchInterval: 30_000,
+  });
+  const items = query.data ?? [];
+  const unread = (item: EmployeeNotification) =>
+    item.unread && !readIds.includes(item.id);
+  const filtered = useMemo(
+    () =>
+      items.filter(
+        (item) =>
+          (!filter || (filter === "unread" ? unread(item) : !unread(item))) &&
+          `${item.title} ${item.detail} ${typeLabels[item.type] ?? item.type}`
+            .toLocaleLowerCase("vi")
+            .includes(search.trim().toLocaleLowerCase("vi")),
+      ),
+    [items, filter, search, readIds],
+  );
+  const pagination = useListPagination(filtered, { fitViewportOnly: true });
+  const unreadCount = items.filter(unread).length;
+  const stats = [
+    [Bell, "Tổng thông báo", items.length],
+    [Clock3, "Chưa đọc", unreadCount],
+    [CheckCheck, "Đã đọc", items.length - unreadCount],
+    [
+      ShieldAlert,
+      "Mức độ cao",
+      items.filter((item) =>
+        ["HIGH", "CRITICAL", "Cao", "Rất cao"].includes(item.severity),
+      ).length,
+    ],
+  ] as const;
+  return (
+    <div className="staff-data-page employees-page-content flex flex-col gap-2.5 text-navy">
+      <section className="d4-banner relative overflow-hidden rounded-xl border border-red-100 p-3">
+        <p className="text-xs font-bold text-coral">D4 BANK</p>
+        <h1 className="text-2xl font-black">Thông báo</h1>
+        <p className="mt-1 text-xs text-slate-500">
+          Công việc và cảnh báo trong phạm vi được cấp quyền.
+        </p>
+      </section>
+      <section className="grid grid-cols-4 gap-3">
+        {stats.map(([Icon, label, value]) => (
+          <article key={label} className="card flex items-center gap-3 p-3">
+            <span className="grid size-9 shrink-0 place-items-center rounded-full bg-red-50 text-coral">
+              <Icon size={18} />
+            </span>
+            <div>
+              <p className="text-xs">{label}</p>
+              <b className="text-xl">{query.isSuccess ? value : "—"}</b>
+            </div>
+          </article>
+        ))}
+      </section>
+      <section className="d4-page-toolbar card flex h-12 items-center justify-between px-3">
+        <span className="text-xs font-semibold text-coral">
+          Danh sách thông báo
+        </span>
+        <button
+          className="btn-secondary"
+          disabled={!items.some(unread)}
+          onClick={() => markRead(items.filter(unread).map((item) => item.id))}
+        >
+          <CheckCheck size={15} />
+          Đọc tất cả thông báo
+        </button>
+      </section>
+      <section className="min-h-0 flex-1">
+        <article
+          ref={pagination.panelRef}
+          className="card flex h-full min-h-0 flex-col p-3"
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border px-3">
+              <Search size={15} />
+              <input
+                type="search"
+                aria-label="Tìm thông báo"
+                className="h-9 min-w-0 flex-1 bg-transparent text-xs"
+                placeholder="Tìm tiêu đề, nội dung…"
+                value={search}
+                onChange={(event) => {
+                  setSearch(event.target.value);
+                  pagination.setPage(1);
+                }}
+              />
+            </label>
+            <select
+              aria-label="Trạng thái thông báo"
+              className="h-9 rounded-lg border px-2 text-xs"
+              value={filter}
+              onChange={(event) => {
+                setFilter(event.target.value);
+                pagination.setPage(1);
+              }}
+            >
+              <option value="">Tất cả thông báo</option>
+              <option value="unread">Chưa đọc</option>
+              <option value="read">Đã đọc</option>
+            </select>
+            <button
+              aria-label="Tải lại thông báo"
+              className="btn-secondary"
+              onClick={() => void query.refetch()}
+            >
+              <RefreshCw size={15} />
+            </button>
+          </div>
+          <div className="mt-3 overflow-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50">
+                <tr>
+                  {[
+                    "Thời gian",
+                    "Thông báo",
+                    "Phân hệ",
+                    "Mức độ",
+                    "Trạng thái",
+                    "Thao tác",
+                  ].map((label) => (
+                    <th key={label} className="p-2">
+                      {label}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {query.isPending && (
+                  <tr>
+                    <td colSpan={6} className="p-4 text-center">
+                      Đang tải thông báo…
+                    </td>
+                  </tr>
+                )}
+                {query.isError && (
+                  <tr>
+                    <td
+                      colSpan={6}
+                      className="p-4 text-center text-red-600"
+                      role="alert"
+                    >
+                      Không thể tải thông báo.{" "}
+                      <button
+                        className="underline"
+                        onClick={() => void query.refetch()}
+                      >
+                        Thử lại
+                      </button>
+                    </td>
+                  </tr>
+                )}
+                {query.isSuccess && !filtered.length && (
+                  <tr>
+                    <td colSpan={6} className="p-4 text-center text-slate-500">
+                      Không có thông báo phù hợp.
+                    </td>
+                  </tr>
+                )}
+                {query.isSuccess &&
+                  pagination.visibleItems.map((item) => (
+                    <tr
+                      key={item.id}
+                      className={
+                        unread(item) ? "border-t bg-rose-50/40" : "border-t"
+                      }
+                    >
+                      <td className="p-2">
+                        {formatDateTime(item.createdat)}
+                      </td>
+                      <td className="p-2" title={item.detail}>
+                        <b>{item.title}</b>
+                      </td>
+                      <td className="p-2">
+                        {typeLabels[item.type] ?? item.type}
+                      </td>
+                      <td className="p-2">{item.severity}</td>
+                      <td className="p-2">
+                        {unread(item) ? "Chưa đọc" : "Đã đọc"}
+                      </td>
+                      <td className="p-2">
+                        <button
+                          className="d4-view-button"
+                          aria-label={`Xem thông báo ${item.title}`}
+                          onClick={() => {
+                            markRead([item.id]);
+                            setSelected(item);
+                          }}
+                        >
+                          Xem
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+          <ListPagination {...pagination} noun="thông báo" />
+        </article>
+      </section>
+      <Modal
+        open={!!selected}
+        onOpenChange={(open) => !open && setSelected(null)}
+        title={selected?.title ?? "Thông báo"}
+        description="Chi tiết thông báo dành cho tài khoản đang đăng nhập."
+      >
+        {selected && (
+          <div className="space-y-4 text-sm">
+            <p>{selected.detail}</p>
+            <p className="text-slate-500">
+              {formatDateTime(selected.createdat)}
+            </p>
+            <Link
+              className="btn-primary"
+              href={
+                selected.type === "fraud"
+                  ? `/${user.role}/fraud`
+                  : selected.type === "loan"
+                    ? `/${user.role}/loans`
+                    : `/${user.role}`
+              }
+            >
+              Mở phân hệ liên quan
+            </Link>
+          </div>
+        )}
+      </Modal>
+    </div>
+  );
+}

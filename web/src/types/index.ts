@@ -24,8 +24,11 @@ export interface SessionUser {
   status?: "Active" | "Inactive" | "Blocked";
 }
 export interface Transaction {
-  id: string; customer: string; type: "Chuyển khoản" | "Thanh toán" | "Nhận tiền";
-  amount: number; time: string; status: "Thành công" | "Đang xử lý" | "Thất bại";
-  risk: "Thấp" | "Trung bình" | "Cao";
+  id: string;
+  customer: string;
+  type: string;
+  amount: number;
+  time: string;
+  status: string;
+  risk: string;
 }
-export interface Stat { label: string; value: string; change: string; tone: "red" | "blue" | "green" | "orange"; }

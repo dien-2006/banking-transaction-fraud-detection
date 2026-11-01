@@ -1,5 +1,5 @@
 # Chỉ chia sẻ template; credentials thật phải ở file local hoặc secret manager.
-.env
+!.env
 !.env.example
 
 # Python

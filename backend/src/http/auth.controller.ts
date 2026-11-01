@@ -16,7 +16,7 @@ export class AuthController {
     const user = await this.db.authenticate(
       dto.username,
       dto.password,
-      dto.role as 'customer' | 'employee' | 'admin',
+      dto.role as 'customer' | 'employee' | 'admin' | undefined,
       dto.deviceCode ?? null,
       request.ip,
     );

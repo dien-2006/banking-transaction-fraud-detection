@@ -1,31 +1,411 @@
 "use client";
-import {ArrowDownLeft,ArrowRight,CalendarDays,ChevronDown,ChevronLeft,ChevronRight,Download,Landmark,ReceiptText,Search,ShoppingCart,Wallet} from "lucide-react";
-import {useLayoutEffect,useMemo,useRef,useState} from "react";
-import {useSessionUser} from "@/components/session-context";
-import {getCustomerHomeDemo,type HomeTransaction} from "./home-data";
+import { TransactionRecordResult } from "@/components/transaction-result";
+import {
+  CalendarDays,
+  ChevronDown,
+  ChevronRight,
+  Download,
+  Search,
+} from "lucide-react";
+import Link from "next/link";
+import { useMemo, useState, type FormEvent } from "react";
+import { Modal } from "@/components/ui";
+import { useListPagination } from "@/components/list-pagination";
+import {
+  customerDate,
+  customerTransactionsCsv,
+  transactionTypes,
+  transactionView,
+} from "@/lib/customer-data";
+import {
+  amountRanges,
+  emptyHistoryFilters,
+  filterCustomerHistory,
+  historyDay,
+  type HistoryFilters,
+} from "@/lib/customer-history";
+import type { ApiTransaction } from "@/services/bank.service";
+import {
+  useCustomerAccounts,
+  useCustomerTransactions,
+} from "./customer-queries";
+import {
+  CustomerEmpty,
+  CustomerLoading,
+  CustomerPager,
+  CustomerPanel,
+} from "./customer-ui";
+import {
+  HistoryFrequent,
+  HistorySummary,
+  HistoryTable,
+} from "./customer-history-widgets";
+import { ReferenceArtwork } from "./reference-artwork";
 import "./customer-transactions.css";
 
-const extras:HomeTransaction[]=[
-  {id:"DEMO-006",time:"12/09/2024 18:05",description:"Chuyển tiền đến TRAN VAN D",amount:1_200_000,direction:"out",kind:"transfer"},
-  {id:"DEMO-007",time:"12/09/2024 11:20",description:"Thanh toán Internet",amount:220_000,direction:"out",kind:"bill"},
-  {id:"DEMO-008",time:"10/09/2024 16:45",description:"Nhận lương tháng 9",amount:15_000_000,direction:"in",kind:"received"},
-  {id:"DEMO-009",time:"08/09/2024 09:30",description:"Chuyển tiền đến mẹ",amount:2_000_000,direction:"out",kind:"transfer"},
-  {id:"DEMO-010",time:"01/09/2024 08:21",description:"Gửi tiết kiệm kỳ hạn 6 tháng",amount:10_000_000,direction:"out",kind:"transfer"},
-];
-const format=new Intl.NumberFormat("en-US");
-const kinds={transfer:"Chuyển tiền",bill:"Thanh toán",shopping:"Thanh toán",received:"Nhận tiền"};
-const icons={transfer:ArrowRight,bill:ReceiptText,shopping:ShoppingCart,received:ArrowDownLeft};
-
-export function CustomerTransactions(){
-  const session=useSessionUser(),viewport=useRef<HTMLDivElement>(null),content=useRef<HTMLDivElement>(null),[query,setQuery]=useState(""),[kind,setKind]=useState("all");
-  const rows=useMemo(()=>[...getCustomerHomeDemo(session.id).transactions,...extras].filter(x=>(kind==="all"||x.kind===kind)&&`${x.id} ${x.description}`.toLocaleLowerCase("vi").includes(query.toLocaleLowerCase("vi"))),[session.id,query,kind]);
-  useLayoutEffect(()=>{const v=viewport.current,c=content.current;if(!v||!c)return;const media=matchMedia("(min-width:1024px)"),fit=()=>{c.style.removeProperty("zoom");c.style.removeProperty("width");if(!media.matches)return;const scale=Math.min(1,v.clientWidth/c.scrollWidth,v.clientHeight/c.scrollHeight);if(scale<.999){c.style.zoom=String(scale);c.style.width=`${v.clientWidth/scale}px`;}};const observer=new ResizeObserver(fit);observer.observe(v);media.addEventListener("change",fit);fit();return()=>{observer.disconnect();media.removeEventListener("change",fit);};},[rows.length]);
-  const exportCsv=()=>{const csv=["Thời gian,Mã giao dịch,Nội dung,Loại,Số tiền,Trạng thái",...rows.map(x=>`"${x.time}",${x.id},"${x.description}",${kinds[x.kind]},${x.direction==="in"?x.amount:-x.amount},Thành công`)].join("\n");const url=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"}));const link=document.createElement("a");link.href=url;link.download="lich-su-giao-dich.csv";link.click();URL.revokeObjectURL(url);};
-  return <div className="history-page" ref={viewport}><div className="history-content" ref={content}>
-    <section className="history-hero"><img src="/transactions-hero.png" alt=""/><div><p>Trang chủ <ChevronRight/> Lịch sử giao dịch</p><h1>Lịch sử <span>giao dịch</span></h1><strong>Tra cứu toàn bộ giao dịch của bạn một cách nhanh chóng và dễ dàng.</strong></div></section>
-    <section className="history-filter"><h2>Bộ lọc giao dịch</h2><div><label>Thời gian<button><CalendarDays/>01/09/2024 - 30/09/2024<ChevronDown/></button></label><label>Loại giao dịch<span><ReceiptText/><select value={kind} onChange={e=>setKind(e.target.value)}><option value="all">Tất cả giao dịch</option><option value="transfer">Chuyển tiền</option><option value="bill">Thanh toán</option><option value="received">Nhận tiền</option></select><ChevronDown/></span></label><label>Tài khoản<button><Landmark/>Tất cả tài khoản<ChevronDown/></button></label><label>Tìm nội dung<span><Search/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Mã hoặc nội dung"/></span></label><button className="history-search"><Search/>Tìm kiếm</button></div></section>
-    <div className="history-workspace"><section className="history-table-panel"><header><h2>Danh sách giao dịch</h2><button onClick={exportCsv}><Download/>Xuất file</button></header><div className="history-table-scroll"><table><thead><tr><th>Thời gian</th><th>Mã giao dịch</th><th>Nội dung</th><th>Loại giao dịch</th><th>Tài khoản</th><th>Số tiền (VND)</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>{rows.map(x=>{const Icon=icons[x.kind];return <tr key={x.id}><td><span className={`history-icon ${x.direction}`}><Icon/></span>{x.time}</td><td>{x.id.replace("DEMO","GD001234")}</td><td>{x.description}</td><td><span className={`history-icon ${x.direction}`}><Icon/></span>{kinds[x.kind]}</td><td>**** 8910</td><td className={x.direction}>{x.direction==="in"?"+":"-"}{format.format(x.amount)}</td><td><span className="history-success">Thành công</span></td><td><button className="history-detail">Xem chi tiết</button></td></tr>})}</tbody></table></div><footer><span>Hiển thị <b>10 / trang</b> · Tổng 128 giao dịch</span><nav><button><ChevronLeft/></button>{[1,2,3,4,5].map(x=><button className={x===1?"active":""} key={x}>{x}</button>)}<button>...</button><button>13</button><button><ChevronRight/></button></nav></footer></section>
-    <aside className="history-side"><section className="history-overview"><header><h2>Tổng quan giao dịch</h2><button>Tháng 9/2024 <ChevronDown/></button></header><div className="history-total"><i><Wallet/></i><p>Tổng số giao dịch<b>128 <em>↑ 12%</em></b></p></div><div className="history-money"><p>Tổng tiền chi<b>12,850,000 <small>VND</small></b><em>↑ 8%</em></p><p>Tổng tiền nhận<b>18,200,000 <small>VND</small></b><em>↑ 15%</em></p></div><div className="history-chart">{[5,9,14,7,10,16,11,8,15,12,18,6,9,17].map((h,i)=><i className={i%2?"in":"out"} style={{height:`${h*4}px`}} key={i}/>)}</div></section>
-    <section className="history-common"><header><h2>Giao dịch thường gặp</h2><button>Xem tất cả <ArrowRight/></button></header>{[{name:"Chuyển tiền đến mẹ",sub:"2,000,000 VND | 5 lần",icon:ArrowRight},{name:"Thanh toán điện",sub:"312,000 VND | 3 lần",icon:ReceiptText},{name:"Nạp tiền điện thoại",sub:"100,000 VND | 4 lần",icon:Wallet},{name:"Mua sắm Shopee",sub:"250,000 VND | 6 lần",icon:ShoppingCart}].map(({name,sub,icon:Icon})=><button key={name}><i><Icon/></i><p><b>{name}</b><small>{sub}</small></p><ChevronRight/></button>)}</section></aside></div>
-  </div></div>;
+export function CustomerTransactions() {
+  const query = useCustomerTransactions(),
+    accountsQuery = useCustomerAccounts();
+  const accounts = accountsQuery.data ?? [];
+  const [draft, setDraft] = useState<HistoryFilters>({
+    ...emptyHistoryFilters,
+  });
+  const [filters, setFilters] = useState<HistoryFilters>({
+    ...emptyHistoryFilters,
+  });
+  const [dateDialog, setDateDialog] = useState(false),
+    [dateError, setDateError] = useState("");
+  const [month, setMonth] = useState("");
+  const [selected, setSelected] = useState<ApiTransaction | null>(null);
+  const filtered = useMemo(
+    () => filterCustomerHistory(query.data ?? [], filters),
+    [query.data, filters],
+  );
+  const months = useMemo(
+    () =>
+      [
+        ...new Set(
+          (query.data ?? []).map((row) =>
+            historyDay(row.transactiondate).slice(0, 7),
+          ),
+        ),
+      ]
+        .sort()
+        .reverse(),
+    [query.data],
+  );
+  const list = useListPagination(filtered, { fitViewportOnly: true });
+  const ready = query.isSuccess && accountsQuery.isSuccess;
+  const set = (key: keyof HistoryFilters, value: string) =>
+    setDraft((current) => ({ ...current, [key]: value }));
+  const invalidDates = !!draft.from && !!draft.to && draft.from > draft.to;
+  const apply = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (invalidDates) {
+      setDateError("Ngày bắt đầu phải trước hoặc bằng ngày kết thúc.");
+      return;
+    }
+    setDateError("");
+    setFilters({ ...draft });
+    setMonth("");
+    list.setPage(1);
+  };
+  const reset = () => {
+    setDraft({ ...emptyHistoryFilters });
+    setFilters({ ...emptyHistoryFilters });
+    setDateError("");
+    setMonth("");
+    list.setPage(1);
+  };
+  const dateLabel =
+    draft.from || draft.to
+      ? `${draft.from ? customerDate(draft.from) : "Bắt đầu"} – ${draft.to ? customerDate(draft.to) : "Hiện tại"}`
+      : "Tất cả thời gian";
+  const preset = (days: number | null) => {
+    if (days === null) {
+      setDraft((current) => ({ ...current, from: "", to: "" }));
+      return;
+    }
+    const to = historyDay(new Date().toISOString()),
+      from = new Date(`${to}T12:00:00+07:00`);
+    from.setUTCDate(from.getUTCDate() - days + 1);
+    setDraft((current) => ({
+      ...current,
+      from: historyDay(from.toISOString()),
+      to,
+    }));
+    setDateError("");
+  };
+  const exportCsv = () => {
+    if (!ready || !filtered.length) return;
+    const url = URL.createObjectURL(
+      new Blob([customerTransactionsCsv(filtered, accounts)], {
+        type: "text/csv;charset=utf-8",
+      }),
+    );
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "lich-su-giao-dich.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+  return (
+    <div className="customer-screen customer-history-screen history-reference-screen">
+      <header className="customer-page-hero history-hero">
+        <ReferenceArtwork region="transferHero" className="history-hero-art" />
+        <div className="history-hero-copy">
+          <nav aria-label="Đường dẫn">
+            <Link href="/customer">Trang chủ</Link>
+            <ChevronRight size={13} />
+            <span>Lịch sử giao dịch</span>
+          </nav>
+          <h1>
+            Lịch sử <span>giao dịch</span>
+          </h1>
+          <p>
+            Tra cứu toàn bộ giao dịch của bạn một cách nhanh chóng và dễ dàng.
+          </p>
+        </div>
+        <p className="history-hero-slogan" aria-hidden="true">
+          Mỗi giao dịch
+          <br />
+          là một bước tiến
+          <br />
+          cùng bạn!
+        </p>
+      </header>
+      <CustomerPanel
+        title="Bộ lọc giao dịch"
+        className="history-filter-panel"
+        action={
+          <button
+            type="button"
+            className="customer-text-button"
+            onClick={reset}
+          >
+            Đặt lại
+          </button>
+        }
+      >
+        <form onSubmit={apply}>
+          <div className="history-filter-primary">
+            <label>
+              Thời gian
+              <button
+                type="button"
+                className="history-date-picker"
+                aria-label="Chọn thời gian"
+                onClick={() => setDateDialog(true)}
+                title={dateLabel}
+              >
+                <CalendarDays size={17} />
+                <span>{dateLabel}</span>
+                <ChevronDown size={15} />
+              </button>
+            </label>
+            <label>
+              Loại giao dịch
+              <select
+                aria-label="Loại giao dịch"
+                value={draft.type}
+                onChange={(e) => set("type", e.target.value)}
+              >
+                <option value="">Tất cả giao dịch</option>
+                {Object.entries(transactionTypes).map(([value, label]) => (
+                  <option value={value} key={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Tài khoản
+              <select
+                aria-label="Tài khoản"
+                value={draft.account}
+                onChange={(e) => set("account", e.target.value)}
+              >
+                <option value="">Tất cả tài khoản</option>
+                {accounts.map((row) => (
+                  <option value={row.accountid} key={row.accountid}>
+                    {row.accountnumber}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Số tiền (VND)
+              <select
+                aria-label="Khoảng số tiền"
+                value={draft.amount}
+                onChange={(e) => set("amount", e.target.value)}
+              >
+                {amountRanges.map((range) => (
+                  <option key={range.value} value={range.value}>
+                    {range.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              className="customer-button history-search-button"
+              disabled={!ready}
+            >
+              <Search size={16} />
+              Tìm kiếm
+            </button>
+          </div>
+          <div className="history-filter-secondary">
+            <label className="history-query">
+              <Search size={15} />
+              <input
+                type="search"
+                aria-label="Tìm mã hoặc nội dung giao dịch"
+                value={draft.search}
+                onChange={(e) => set("search", e.target.value)}
+                placeholder="Tìm mã hoặc nội dung giao dịch…"
+              />
+            </label>
+            <select
+              aria-label="Trạng thái giao dịch"
+              value={draft.status}
+              onChange={(e) => set("status", e.target.value)}
+            >
+              <option value="">Tất cả trạng thái</option>
+              <option value="Success">Thành công</option>
+              <option value="Pending">Đang xử lý</option>
+              <option value="Failed">Thất bại</option>
+              <option value="Cancelled">Đã hủy</option>
+            </select>
+            <span>Áp dụng bộ lọc bằng nút Tìm kiếm.</span>
+          </div>
+          {dateError && (
+            <p className="history-filter-error" role="alert">
+              {dateError}
+            </p>
+          )}
+        </form>
+      </CustomerPanel>
+      {!ready ? (
+        query.isError || accountsQuery.isError ? (
+          <CustomerEmpty
+            error
+            retry={() => {
+              void query.refetch();
+              void accountsQuery.refetch();
+            }}
+          >
+            Không thể tải lịch sử giao dịch.
+          </CustomerEmpty>
+        ) : (
+          <CustomerLoading />
+        )
+      ) : (
+        <div className="history-workspace">
+          <CustomerPanel
+            className="customer-list-panel history-list-panel"
+            panelRef={list.panelRef}
+            title="Danh sách giao dịch"
+            action={
+              <button
+                type="button"
+                className="history-export"
+                disabled={!filtered.length}
+                onClick={exportCsv}
+              >
+                <Download size={15} />
+                Xuất file
+              </button>
+            }
+          >
+            {filtered.length ? (
+              <HistoryTable
+                rows={list.visibleItems}
+                accounts={accounts}
+                onView={setSelected}
+              />
+            ) : (
+              <CustomerEmpty>Không có giao dịch phù hợp.</CustomerEmpty>
+            )}
+            <CustomerPager
+              page={list.page}
+              pageSize={list.pageSize}
+              total={filtered.length}
+              onPage={list.setPage}
+            />
+          </CustomerPanel>
+          <aside className="history-aside">
+            <HistorySummary
+              rows={filtered}
+              accounts={accounts}
+              month={month}
+              months={months}
+              onMonth={setMonth}
+            />
+            <HistoryFrequent
+              rows={filtered}
+              onShowAll={reset}
+              onChoose={(description, type) => {
+                const next = { ...filters, search: description, type };
+                setFilters(next);
+                setDraft(next);
+                setMonth("");
+                list.setPage(1);
+              }}
+            />
+          </aside>
+        </div>
+      )}
+      <Modal
+        open={dateDialog}
+        onOpenChange={setDateDialog}
+        title="Chọn thời gian giao dịch"
+        description="Chọn khoảng ngày rồi bấm Tìm kiếm để áp dụng bộ lọc."
+      >
+        <div className="history-date-presets">
+          <button type="button" onClick={() => preset(7)}>
+            7 ngày gần đây
+          </button>
+          <button type="button" onClick={() => preset(30)}>
+            30 ngày gần đây
+          </button>
+          <button type="button" onClick={() => preset(null)}>
+            Tất cả thời gian
+          </button>
+        </div>
+        <div className="history-date-fields">
+          <label>
+            Từ ngày
+            <input
+              type="date"
+              aria-label="Từ ngày"
+              value={draft.from}
+              onChange={(e) => set("from", e.target.value)}
+            />
+          </label>
+          <label>
+            Đến ngày
+            <input
+              type="date"
+              aria-label="Đến ngày"
+              value={draft.to}
+              onChange={(e) => set("to", e.target.value)}
+            />
+          </label>
+        </div>
+        {invalidDates && (
+          <p className="history-filter-error" role="alert">
+            Ngày bắt đầu phải trước hoặc bằng ngày kết thúc.
+          </p>
+        )}
+        <div className="history-date-actions">
+          <button
+            type="button"
+            className="customer-button"
+            disabled={invalidDates}
+            onClick={() => {
+              setDateError("");
+              setDateDialog(false);
+            }}
+          >
+            Dùng khoảng ngày
+          </button>
+        </div>
+      </Modal>
+      <Modal
+        open={!!selected}
+        onOpenChange={(open) => !open && setSelected(null)}
+        title="Chi tiết giao dịch"
+        description="Thông tin thực tế của giao dịch trên tài khoản của bạn."
+      >
+        {selected && (
+          <TransactionRecordResult
+            transaction={selected}
+            account={transactionView(selected, accounts).account}
+            hidden={false}
+          />
+        )}
+      </Modal>
+    </div>
+  );
 }

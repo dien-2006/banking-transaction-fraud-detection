@@ -9,7 +9,7 @@ import psycopg
 from confluent_kafka.admin import AdminClient
 from minio import Minio
 
-from banking.config import postgres_dsn
+from scripts.postgres_config import postgres_dsn
 
 
 def check_kafka() -> None:

@@ -1,139 +1,609 @@
 "use client";
-
-import * as Dialog from "@radix-ui/react-dialog";
 import {
-  ArrowDownLeft, ArrowRight, ArrowUpRight, ChevronRight, CreditCard,
-  Eye, EyeOff, FileText, PiggyBank, Plus, ShieldCheck,
-  Smartphone, Wallet, X, type LucideIcon,
+  ArrowRight,
+  ArrowUpRight,
+  Check,
+  ChevronRight,
+  CreditCard,
+  Eye,
+  EyeOff,
+  FileText,
+  PiggyBank,
+  Plus,
+  ShieldCheck,
+  Smartphone,
+  Wallet,
 } from "lucide-react";
 import Link from "next/link";
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useMemo, useState } from "react";
+import { Modal } from "@/components/ui";
 import { useSessionUser } from "@/components/session-context";
-import { getCustomerAccountsDemo, type CustomerAccount } from "./account-data";
-import type { HomeTransaction } from "./home-data";
+import { useListPagination } from "@/components/list-pagination";
+import {
+  accountBalanceSummary,
+  accountActivity,
+} from "@/lib/account-analytics";
+import { accountKind, formatVnd } from "@/lib/customer-data";
+import type { ApiAccount } from "@/services/bank.service";
+import {
+  useCustomerAccounts,
+  useCustomerTransactions,
+} from "./customer-queries";
+import {
+  CustomerEmpty,
+  CustomerLoading,
+  CustomerMetric,
+  CustomerPager,
+  CustomerPanel,
+  CustomerStatus,
+  CustomerTransactionTable,
+} from "./customer-ui";
+import { ReferenceArtwork } from "./reference-artwork";
 import "./customer-accounts.css";
 
-const formatNumber = new Intl.NumberFormat("en-US");
-const accountIcons: Record<CustomerAccount["type"], LucideIcon> = { "Thanh toán": Wallet, "Tiết kiệm": PiggyBank, "Thẻ": CreditCard };
-
-function AccountDialog({ title, close, children }: { title: string; close: () => void; children: ReactNode }) {
-  return <Dialog.Root open onOpenChange={(open) => { if (!open) close(); }}><Dialog.Portal>
-    <Dialog.Overlay className="fixed inset-0 z-50 bg-[#000064]/30 backdrop-blur-sm"/>
-    <Dialog.Content className="customer-dialog fixed left-1/2 top-1/2 z-50 max-h-[85dvh] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
-      <div className="flex items-center justify-between gap-4"><Dialog.Title className="text-xl font-bold">{title}</Dialog.Title><Dialog.Close aria-label="Đóng hộp thoại" className="rounded-lg p-2 hover:bg-slate-100"><X size={20}/></Dialog.Close></div>
-      <Dialog.Description className="mb-5 mt-2 text-sm text-slate-500">D4 Bank · Dữ liệu minh họa, chưa kết nối dịch vụ ngân hàng.</Dialog.Description>
-      {children}
-    </Dialog.Content>
-  </Dialog.Portal></Dialog.Root>;
-}
-
-function HeroArtwork() {
-  return <div className="customer-accounts-hero-art" aria-hidden="true"><img alt="" src="/customer-accounts-reference.png" draggable={false}/></div>;
-}
-
-function RoundIcon({ icon: Icon, incoming = false }: { icon: LucideIcon; incoming?: boolean }) {
-  return <span className={`customer-accounts-round ${incoming ? "incoming" : ""}`}><Icon aria-hidden="true"/></span>;
-}
+const tabs = [
+  "Danh sách tài khoản",
+  "Biến động số dư",
+  "Biểu đồ phân tích",
+] as const;
+const colors = ["#ff1741", "#329ef5", "#ffbf20"];
+const services = {
+  open: {
+    title: "Mở tài khoản mới",
+    description:
+      "Để mở thêm tài khoản, vui lòng liên hệ chi nhánh D4 Bank quản lý tài khoản của bạn. Nhân viên sẽ hỗ trợ lựa chọn sản phẩm và hoàn tất đăng ký.",
+  },
+  deposit: {
+    title: "Nạp tiền",
+    description:
+      "Bạn có thể chuyển tiền đến số tài khoản D4 Bank của mình hoặc nạp tiền tại chi nhánh. Kiểm tra tên người nhận và số tài khoản trước khi xác nhận.",
+  },
+  bills: {
+    title: "Thanh toán hóa đơn",
+    description:
+      "Dịch vụ thanh toán hóa đơn trực tiếp chưa được hỗ trợ trên web. Bạn có thể chuyển khoản theo thông tin thanh toán được đơn vị cung cấp dịch vụ xác nhận.",
+  },
+  savings: {
+    title: "Mở tài khoản tiết kiệm",
+    description:
+      "Liên hệ chi nhánh D4 Bank để được tư vấn kỳ hạn, lãi suất và đăng ký tài khoản tiết kiệm phù hợp.",
+  },
+} as const;
+type Service = keyof typeof services;
+const iconFor = (kind: string) =>
+  kind === "Tiết kiệm" ? PiggyBank : kind === "Thẻ" ? CreditCard : Wallet;
+const number = new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 2 });
 
 export function CustomerAccounts() {
-  const session = useSessionUser();
-  const data = getCustomerAccountsDemo(session.id);
-  const contentViewportRef = useRef<HTMLDivElement>(null);
-  const contentRef = useRef<HTMLDivElement>(null);
+  const user = useSessionUser();
+  const query = useCustomerAccounts(),
+    transactions = useCustomerTransactions();
   const [hidden, setHidden] = useState(false);
-  const [tab, setTab] = useState<"accounts" | "movements" | "analysis">("accounts");
-  const [account, setAccount] = useState<CustomerAccount | null>(null);
-  const [transaction, setTransaction] = useState<HomeTransaction | null>(null);
-  const [service, setService] = useState<string | null>(null);
-  const total = data.accounts.reduce((sum, item) => sum + item.balance, 0);
-  const amount = (value: number) => hidden ? "••••••" : formatNumber.format(value);
-
-  useLayoutEffect(() => {
-    const viewport = contentViewportRef.current;
-    const content = contentRef.current;
-    if (!viewport || !content) return;
-    const desktop = window.matchMedia("(min-width: 1024px)");
-    const fit = () => {
-      content.style.removeProperty("zoom");
-      content.style.removeProperty("width");
-      if (!desktop.matches) return;
-      const availableWidth = viewport.clientWidth;
-      const availableHeight = viewport.clientHeight;
-      if (availableWidth <= 0 || availableHeight <= 0) return;
-
-      // Measure the overflowing children, not the fixed-height content box. Using
-      // getBoundingClientRect() here kept reporting the viewport height and made
-      // the old binary search collapse the dashboard to its 10% fallback scale.
-      const naturalWidth = content.scrollWidth;
-      const naturalHeight = content.scrollHeight;
-      const scale = Math.min(1, availableWidth / naturalWidth, availableHeight / naturalHeight);
-      if (scale >= 0.999) return;
-
-      content.style.zoom = String(scale);
-      content.style.width = `${availableWidth / scale}px`;
-    };
-    const observer = new ResizeObserver(fit);
-    observer.observe(viewport);
-    desktop.addEventListener("change", fit);
-    fit();
-    return () => { observer.disconnect(); desktop.removeEventListener("change", fit); };
-  }, [tab, session.id]);
-
-  return <div className="customer-accounts-page">
-    <section className="customer-accounts-hero">
-      <HeroArtwork/>
-      <div className="customer-accounts-hero-copy"><p>Trang chủ <ChevronRight size={13}/> Tài khoản của tôi</p><h1>Tài khoản <span>của tôi</span></h1><strong>Quản lý tất cả tài khoản của bạn tại D4 Bank một cách dễ dàng, an toàn và tiện lợi.</strong></div>
-    </section>
-
-    <div className="customer-accounts-content-viewport" ref={contentViewportRef}><div className="customer-accounts-content" ref={contentRef}>
-      <section className="customer-accounts-stats">
-        <article><RoundIcon icon={Wallet}/><div><p>Tổng số dư</p><h2>{amount(total)} <small>VND</small><button aria-label={hidden ? "Hiện số dư" : "Ẩn số dư"} onClick={() => setHidden(!hidden)}>{hidden ? <Eye size={19}/> : <EyeOff size={19}/>}</button></h2><span>↑ 8% <i>so với tháng trước</i></span></div></article>
-        <article><RoundIcon icon={Wallet}/><div><p>Tài khoản thanh toán</p><h2>{amount(data.accounts.find((item) => item.type === "Thanh toán")?.balance ?? 0)} <small>VND</small></h2><span>1 tài khoản</span></div></article>
-        <article><RoundIcon icon={PiggyBank}/><div><p>Tài khoản tiết kiệm</p><h2>{amount(data.accounts.find((item) => item.type === "Tiết kiệm")?.balance ?? 0)} <small>VND</small></h2><span>1 tài khoản</span></div></article>
-        <article><RoundIcon icon={CreditCard}/><div><p>Tài khoản thẻ</p><h2>{amount(data.accounts.find((item) => item.type === "Thẻ")?.balance ?? 0)} <small>VND</small></h2><span>1 tài khoản</span></div></article>
-      </section>
-
-      <div className="customer-accounts-body">
-        <div className="customer-accounts-main">
-          <nav className="customer-accounts-tabs" aria-label="Nội dung tài khoản">
-            {[{ id: "accounts", label: "Danh sách tài khoản" }, { id: "movements", label: "Biến động số dư" }, { id: "analysis", label: "Biểu đồ phân tích" }].map((item) => <button className={tab === item.id ? "active" : ""} key={item.id} onClick={() => setTab(item.id as typeof tab)}>{item.label}</button>)}
-          </nav>
-
-          {tab === "accounts" && <section className="customer-accounts-panel customer-account-list">
-            <header><h2>Danh sách tài khoản</h2><button onClick={() => setService("open-account")}><Plus size={20}/> Mở tài khoản mới</button></header>
-            <div className="customer-account-table-scroll"><table><thead><tr><th></th><th>Số tài khoản</th><th>Tên tài khoản</th><th>Loại tài khoản</th><th>Số dư (VND)</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>{data.accounts.map((item) => {
-              const Icon = accountIcons[item.type];
-              return <tr key={item.id}><td><Icon size={21}/></td><td>{hidden ? "•••• •••• ••••" : item.number}</td><td><b>{item.name}</b><small>{item.description}</small></td><td><span className={`account-type ${item.id}`}>{item.type}</span></td><td>{amount(item.balance)}</td><td><span className="active-status">{item.status}</span></td><td><button className="account-detail" onClick={() => setAccount(item)}>Xem chi tiết</button></td></tr>;
-            })}</tbody></table></div>
-            {!data.accounts.length && <p className="customer-accounts-empty">Chưa có tài khoản minh họa.</p>}
-          </section>}
-
-          {tab === "movements" && <section className="customer-accounts-panel customer-balance-movements"><header><div><h2>Biến động số dư</h2><p>Thống kê từ các giao dịch minh họa gần nhất</p></div></header><div className="movement-summary"><article><span>Tiền vào</span><b>+3,000,000 VND</b></article><article><span>Tiền ra</span><b>-1,062,000 VND</b></article><article><span>Chênh lệch</span><b>+1,938,000 VND</b></article></div><div className="movement-bars">{[42,29,76,36,58,88,67].map((height, index) => <i key={index} style={{ height: `${height}%` }}/>)}</div></section>}
-
-          {tab === "analysis" && <section className="customer-accounts-panel customer-account-analysis"><header><div><h2>Biểu đồ phân tích</h2><p>Cơ cấu số dư và dòng tiền minh họa</p></div></header><div className="analysis-grid"><div className="account-donut"><span><b>{hidden ? "••••••" : "28,650,000"}</b><small>VND</small></span></div><div className="analysis-legend"><p><i className="payment"/> Thanh toán <b>65%</b></p><p><i className="savings"/> Tiết kiệm <b>35%</b></p><p><i className="card"/> Thẻ <b>0%</b></p></div></div></section>}
-
-          <section className="customer-accounts-panel customer-account-transactions">
-            <header><h2>Giao dịch gần đây</h2><Link href="/customer/transactions">Xem tất cả <ArrowRight size={18}/></Link></header>
-            <div className="customer-account-transactions-scroll"><table><thead><tr><th></th><th>Thời gian</th><th>Nội dung</th><th>Tài khoản</th><th>Số tiền (VND)</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>{data.transactions.map((item) => <tr key={item.id}><td><RoundIcon icon={item.direction === "in" ? ArrowDownLeft : ArrowRight} incoming={item.direction === "in"}/></td><td><span className="transaction-time">{item.time}</span></td><td>{item.description}</td><td>{hidden ? "•••• •••• ••••" : "1023 4567 8910"}</td><td className={item.direction === "in" ? "income" : "expense"}>{hidden ? "••••••" : `${item.direction === "in" ? "+" : "-"}${amount(item.amount)}`}</td><td><span className="active-status">Thành công</span></td><td><button className="account-detail" aria-label={`Chi tiết ${item.description}`} onClick={() => setTransaction(item)}>Xem chi tiết</button></td></tr>)}</tbody></table></div>
-            <p className="customer-accounts-demo">Dữ liệu minh họa · Không phải số dư hoặc giao dịch thực tế</p>
-          </section>
+  const [selected, setSelected] = useState<ApiAccount | null>(null);
+  const [service, setService] = useState<Service | null>(null);
+  const [tab, setTab] = useState<(typeof tabs)[number]>(tabs[0]);
+  const accounts = query.data ?? [];
+  const list = useListPagination(accounts, { fitViewportOnly: true });
+  const recent = useListPagination(transactions.data ?? [], {
+    fitViewportOnly: true,
+  });
+  const summary = useMemo(() => accountBalanceSummary(accounts), [accounts]);
+  const activity = useMemo(
+    () => accountActivity(transactions.data ?? [], accounts),
+    [transactions.data, accounts],
+  );
+  const amount = (value: number | string, currency = "VND") =>
+    hidden
+      ? "••••••"
+      : currency === "VND"
+        ? formatVnd(value)
+        : new Intl.NumberFormat("vi-VN", {
+            style: "currency",
+            currency,
+          }).format(Number(value));
+  const metricAmount = (value: number) => (
+    <>
+      {hidden ? "••••••" : number.format(value)} <em>VND</em>
+    </>
+  );
+  const graphTotal = summary.groups.reduce(
+    (sum, row) => sum + Math.max(row.balance, 0),
+    0,
+  );
+  let boundary = 0;
+  const gradient = summary.groups
+    .map((group, i) => {
+      const start = boundary;
+      boundary += graphTotal
+        ? (Math.max(group.balance, 0) / graphTotal) * 100
+        : 0;
+      return `${colors[i]} ${start}% ${boundary}%`;
+    })
+    .join(",");
+  const distribution = (
+    <div className="customer-accounts-distribution">
+      <div
+        className="customer-accounts-donut"
+        role="img"
+        aria-label={
+          hidden
+            ? "Cơ cấu số dư đã được ẩn"
+            : `Cơ cấu số dư ${amount(summary.total)}`
+        }
+        style={{
+          background:
+            hidden || !graphTotal ? "#edf1f7" : `conic-gradient(${gradient})`,
+        }}
+      >
+        <div>
+          <b>{hidden ? "••••••" : number.format(summary.total)}</b>
+          <small>VND</small>
         </div>
-
-        <aside>
-          <section className="customer-accounts-panel customer-account-actions"><h2>Thao tác nhanh</h2>{[
-            { label: "Chuyển tiền", icon: ArrowUpRight, href: "/customer/transfer" },
-            { label: "Nạp tiền", icon: Smartphone },
-            { label: "Thanh toán hóa đơn", icon: FileText },
-            { label: "Mở tài khoản tiết kiệm", icon: PiggyBank },
-          ].map(({ label, icon: Icon, href }) => href ? <Link href={href} key={label}><RoundIcon icon={Icon}/><span>{label}</span><ChevronRight/></Link> : <button onClick={() => setService(label)} key={label}><RoundIcon icon={Icon}/><span>{label}</span><ChevronRight/></button>)}</section>
-          <section className="customer-accounts-panel customer-account-structure"><h2>Cơ cấu số dư tài khoản</h2><div><div className="account-donut"><span><b>{hidden ? "••••••" : "28,650,000"}</b><small>VND</small></span></div><div className="analysis-legend"><p><i className="payment"/> Thanh toán <b>65%</b></p><p><i className="savings"/> Tiết kiệm <b>35%</b></p><p><i className="card"/> Thẻ <b>0%</b></p></div></div></section>
-          <section className="customer-accounts-panel customer-account-security"><ShieldCheck/><div><h2>Tài khoản an toàn<br/>Giao dịch an tâm</h2>{["Bảo mật đa lớp", "Theo dõi giao dịch 24/7", "Cảnh báo giao dịch bất thường"].map((item) => <p key={item}>● <span>{item}</span></p>)}</div></section>
-        </aside>
       </div>
-    </div></div>
-
-    {account && <AccountDialog title="Chi tiết tài khoản" close={() => setAccount(null)}><dl className="customer-detail-list"><div><dt>Tên tài khoản</dt><dd>{account.name}</dd></div><div><dt>Số tài khoản</dt><dd>{hidden ? "•••• •••• ••••" : account.number}</dd></div><div><dt>Loại</dt><dd>{account.type}</dd></div><div><dt>Số dư</dt><dd>{amount(account.balance)} VND</dd></div><div><dt>Trạng thái</dt><dd><span className="active-status">{account.status}</span></dd></div></dl></AccountDialog>}
-    {transaction && <AccountDialog title="Chi tiết giao dịch" close={() => setTransaction(null)}><dl className="customer-detail-list"><div><dt>Mã giao dịch mẫu</dt><dd>{transaction.id}</dd></div><div><dt>Thời gian</dt><dd>{transaction.time}</dd></div><div><dt>Nội dung</dt><dd>{transaction.description}</dd></div><div><dt>Số tiền</dt><dd className={transaction.direction === "in" ? "income" : "expense"}>{hidden ? "••••••" : `${transaction.direction === "in" ? "+" : "-"}${amount(transaction.amount)}`} VND</dd></div></dl></AccountDialog>}
-    {service && <AccountDialog title={service === "open-account" ? "Mở tài khoản mới" : service} close={() => setService(null)}><div className="space-y-4 text-sm leading-6"><p>Tính năng này chưa kết nối trong bản giao diện minh họa.</p><p className="rounded-xl bg-rose-50 p-4">Không có yêu cầu tài chính nào được gửi và không có số dư nào bị thay đổi.</p>{service === "open-account" && <div className="grid gap-3 sm:grid-cols-2"><button className="btn-secondary"><Wallet size={18}/>Thanh toán</button><button className="btn-secondary"><PiggyBank size={18}/>Tiết kiệm</button></div>}</div></AccountDialog>}
-  </div>;
+      <div className="customer-accounts-legend">
+        {summary.groups.map((group, i) => (
+          <p key={group.type}>
+            <i style={{ background: colors[i] }} />
+            <span>
+              {group.type}
+              <small>
+                {hidden
+                  ? "••••••"
+                  : `${graphTotal ? Math.round((Math.max(group.balance, 0) / graphTotal) * 100) : 0}% (${number.format(group.balance)})`}
+              </small>
+            </span>
+          </p>
+        ))}
+      </div>
+    </div>
+  );
+  return (
+    <div className="customer-screen customer-accounts-screen">
+      <header className="customer-page-hero customer-accounts-hero">
+        <ReferenceArtwork
+          region="accountsHero"
+          className="customer-accounts-hero-art"
+        />
+        <div className="customer-accounts-hero-copy">
+          <nav aria-label="Đường dẫn">
+            <Link href="/customer">Trang chủ</Link>
+            <ChevronRight size={13} />
+            <span>Tài khoản của tôi</span>
+          </nav>
+          <h1>
+            Tài khoản <span>của tôi</span>
+          </h1>
+          <p>
+            Quản lý tất cả tài khoản của bạn tại D4 Bank một cách dễ dàng, an
+            toàn và tiện lợi.
+          </p>
+        </div>
+      </header>
+      {query.isLoading ? (
+        <CustomerLoading />
+      ) : query.isError ? (
+        <CustomerEmpty error retry={() => void query.refetch()}>
+          Không thể tải tài khoản của bạn.
+        </CustomerEmpty>
+      ) : (
+        <>
+          <div className="customer-metrics">
+            <CustomerMetric
+              label="Tổng số dư"
+              value={
+                <>
+                  {metricAmount(summary.total)}{" "}
+                  <button
+                    className="customer-accounts-visibility"
+                    aria-label={hidden ? "Hiện số dư" : "Ẩn số dư"}
+                    onClick={() => setHidden(!hidden)}
+                  >
+                    {hidden ? <Eye size={18} /> : <EyeOff size={18} />}
+                  </button>
+                </>
+              }
+              caption={`${summary.count} tài khoản VND đang hoạt động`}
+            />
+            {summary.groups.map((group) => (
+              <CustomerMetric
+                key={group.type}
+                label={`Tài khoản ${group.type.toLocaleLowerCase("vi")}`}
+                icon={iconFor(group.type)}
+                value={metricAmount(group.balance)}
+                caption={`${group.count} tài khoản đang hoạt động`}
+              />
+            ))}
+          </div>
+          <div className="customer-accounts-workspace">
+            <div className="customer-accounts-main">
+              <nav
+                className="customer-tabs customer-accounts-tabs"
+                aria-label="Nội dung tài khoản"
+              >
+                {tabs.map((label) => (
+                  <button
+                    key={label}
+                    aria-pressed={tab === label}
+                    onClick={() => setTab(label)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </nav>
+              {tab === tabs[0] ? (
+                <CustomerPanel
+                  className="customer-list-panel customer-accounts-list"
+                  panelRef={list.panelRef}
+                  title="Danh sách tài khoản"
+                  action={
+                    <button
+                      className="customer-button customer-accounts-open"
+                      onClick={() => setService("open")}
+                    >
+                      <Plus size={16} />
+                      Mở tài khoản mới
+                    </button>
+                  }
+                >
+                  {accounts.length ? (
+                    <div
+                      className="customer-data-scroll"
+                      tabIndex={0}
+                      role="region"
+                      aria-label="Danh sách tài khoản"
+                    >
+                      <table className="customer-data-table customer-accounts-table">
+                        <colgroup>
+                          <col />
+                          <col />
+                          <col />
+                          <col />
+                          <col />
+                          <col />
+                        </colgroup>
+                        <thead>
+                          <tr>
+                            {[
+                              "Số tài khoản",
+                              "Tên tài khoản",
+                              "Loại tài khoản",
+                              "Số dư",
+                              "Trạng thái",
+                              "Thao tác",
+                            ].map((label) => (
+                              <th key={label}>{label}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {list.visibleItems.map((item) => {
+                            const kind = accountKind(item),
+                              Icon = iconFor(kind);
+                            return (
+                              <tr key={item.accountid}>
+                                <td>
+                                  <span className="customer-account-number">
+                                    <Icon size={21} />
+                                    <span>
+                                      {hidden ? "••••••" : item.accountnumber}
+                                    </span>
+                                  </span>
+                                </td>
+                                <td>
+                                  <b
+                                    className="customer-account-product"
+                                    title={item.accounttypename}
+                                  >
+                                    {item.accounttypename}
+                                  </b>
+                                  <small>{user.name}</small>
+                                </td>
+                                <td>
+                                  <span
+                                    className={`customer-account-kind ${kind === "Tiết kiệm" ? "saving" : kind === "Thẻ" ? "card" : "payment"}`}
+                                  >
+                                    {kind}
+                                  </span>
+                                </td>
+                                <td className="customer-amount">
+                                  {amount(item.balance, item.currency)}
+                                </td>
+                                <td>
+                                  <CustomerStatus status={item.status} />
+                                </td>
+                                <td>
+                                  <button
+                                    className="customer-account-view"
+                                    onClick={() => setSelected(item)}
+                                    aria-label={hidden ? "Chi tiết tài khoản" : `Chi tiết tài khoản ${item.accountnumber}`}
+                                  >
+                                    <span className="customer-account-view-full">
+                                      Xem chi tiết
+                                    </span>
+                                    <span className="customer-account-view-short">
+                                      Xem
+                                    </span>
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <CustomerEmpty>
+                      Bạn chưa có tài khoản tại D4 Bank.
+                    </CustomerEmpty>
+                  )}
+                  <CustomerPager
+                    page={list.page}
+                    pageSize={list.pageSize}
+                    total={accounts.length}
+                    onPage={list.setPage}
+                  />
+                </CustomerPanel>
+              ) : (
+                <CustomerPanel
+                  className="customer-accounts-analysis"
+                  title={tab}
+                >
+                  {tab === tabs[1] ? (
+                    transactions.isLoading ? (
+                      <CustomerLoading />
+                    ) : transactions.isError ? (
+                      <CustomerEmpty
+                        error
+                        retry={() => void transactions.refetch()}
+                      >
+                        Không thể tải biến động giao dịch.
+                      </CustomerEmpty>
+                    ) : (
+                      <div className="customer-account-activity">
+                        <p>Phát sinh tiền vào / tiền ra theo ngày</p>
+                        {hidden ? (
+                          <p className="customer-note">
+                            Đã ẩn giá trị giao dịch.
+                          </p>
+                        ) : activity.length ? (
+                          <div className="customer-account-activity-bars">
+                            {activity.map((row) => {
+                              const max = Math.max(
+                                1,
+                                ...activity.flatMap((item) => [
+                                  item.incoming,
+                                  item.outgoing,
+                                ]),
+                              );
+                              return (
+                                <div key={row.day}>
+                                  <span>
+                                    {row.day
+                                      .slice(5)
+                                      .split("-")
+                                      .reverse()
+                                      .join("/")}
+                                  </span>
+                                  <i
+                                    style={{
+                                      width: `${(row.incoming / max) * 100}%`,
+                                    }}
+                                    title={
+                                      hidden
+                                        ? "Đã ẩn tiền vào"
+                                        : `Tiền vào: ${amount(row.incoming)}`
+                                    }
+                                  />
+                                  <i
+                                    style={{
+                                      width: `${(row.outgoing / max) * 100}%`,
+                                    }}
+                                    title={
+                                      hidden
+                                        ? "Đã ẩn tiền ra"
+                                        : `Tiền ra: ${amount(row.outgoing)}`
+                                    }
+                                  />
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <p className="customer-note">
+                            Chưa có giao dịch tiền vào hoặc tiền ra thành công.
+                          </p>
+                        )}
+                        <small>
+                          Tiền vào (xanh), tiền ra (đỏ). Chỉ tính giao dịch VND
+                          thành công; đây là phát sinh theo ngày, không phải số
+                          dư cuối ngày.
+                        </small>
+                      </div>
+                    )
+                  ) : (
+                    <>
+                      {distribution}
+                      <p className="customer-note customer-accounts-analysis-note">
+                        Cơ cấu số dư VND của các tài khoản đang hoạt động.
+                      </p>
+                    </>
+                  )}
+                </CustomerPanel>
+              )}
+              <CustomerPanel
+                className="customer-list-panel customer-accounts-recent"
+                panelRef={recent.panelRef}
+                title="Giao dịch gần đây"
+                action={
+                  <Link
+                    className="customer-text-button"
+                    href="/customer/transactions"
+                  >
+                    Xem tất cả <ArrowRight size={16} />
+                  </Link>
+                }
+              >
+                {transactions.isLoading ? (
+                  <CustomerLoading />
+                ) : transactions.isError ? (
+                  <CustomerEmpty
+                    error
+                    retry={() => void transactions.refetch()}
+                  >
+                    Không thể tải giao dịch.
+                  </CustomerEmpty>
+                ) : (
+                  <CustomerTransactionTable
+                    transactions={recent.visibleItems}
+                    accounts={accounts}
+                    hidden={hidden}
+                    accountOverview
+                  />
+                )}
+                <CustomerPager
+                  page={recent.page}
+                  pageSize={recent.pageSize}
+                  total={transactions.data?.length ?? 0}
+                  onPage={recent.setPage}
+                />
+              </CustomerPanel>
+            </div>
+            <aside className="customer-accounts-aside">
+              <CustomerPanel
+                title="Thao tác nhanh"
+                className="customer-accounts-actions"
+              >
+                <div>
+                  <Link href="/customer/transfer">
+                    <i>
+                      <ArrowUpRight />
+                    </i>
+                    <span>Chuyển tiền</span>
+                    <ChevronRight size={17} />
+                  </Link>
+                  {(
+                    [
+                      { key: "deposit", label: "Nạp tiền", Icon: Smartphone },
+                      {
+                        key: "bills",
+                        label: "Thanh toán hóa đơn",
+                        Icon: FileText,
+                      },
+                      {
+                        key: "savings",
+                        label: "Mở tài khoản tiết kiệm",
+                        Icon: PiggyBank,
+                      },
+                    ] as const
+                  ).map(({ key, label, Icon }) => (
+                    <button key={key} onClick={() => setService(key)}>
+                      <i>
+                        <Icon />
+                      </i>
+                      <span>{label}</span>
+                      <ChevronRight size={17} />
+                    </button>
+                  ))}
+                </div>
+              </CustomerPanel>
+              <CustomerPanel
+                title="Cơ cấu số dư tài khoản"
+                className="customer-accounts-composition"
+              >
+                {distribution}
+                {!summary.total && (
+                  <p className="customer-note">
+                    Chưa có số dư VND đang hoạt động.
+                  </p>
+                )}
+              </CustomerPanel>
+              <section className="customer-box customer-accounts-security">
+                <ReferenceArtwork
+                  region="accountsSecurity"
+                  className="customer-accounts-security-art"
+                />
+                <h2>
+                  <ShieldCheck />
+                  <span>
+                    Tài khoản an toàn
+                    <br />
+                    Giao dịch an tâm
+                  </span>
+                </h2>
+                <ul>
+                  {[
+                    "Bảo vệ mật khẩu và mã OTP",
+                    "Kiểm tra thông báo giao dịch",
+                    "Báo ngay giao dịch bất thường",
+                  ].map((label) => (
+                    <li key={label}>
+                      <Check size={12} />
+                      {label}
+                    </li>
+                  ))}
+                </ul>
+                <Link href="/customer/profile">
+                  Hồ sơ và bảo mật <ArrowRight size={13} />
+                </Link>
+              </section>
+            </aside>
+          </div>
+        </>
+      )}
+      <Modal
+        open={!!selected}
+        onOpenChange={(open) => !open && setSelected(null)}
+        title="Chi tiết tài khoản"
+        description="Thông tin tài khoản của bạn tại D4 Bank."
+      >
+        {selected && (
+          <dl className="customer-record">
+            {[
+              ["Số tài khoản", hidden ? "••••••" : selected.accountnumber],
+              ["Loại tài khoản", selected.accounttypename],
+              ["Chi nhánh", selected.branchname],
+              ["Số dư", amount(selected.balance, selected.currency)],
+              [
+                "Số dư khả dụng",
+                amount(selected.availablebalance, selected.currency),
+              ],
+              [
+                "Số dư tối thiểu",
+                amount(selected.minbalance, selected.currency),
+              ],
+            ].map(([label, value]) => (
+              <div key={label}>
+                <dt>{label}</dt>
+                <dd>{value}</dd>
+              </div>
+            ))}
+            <div>
+              <dt>Trạng thái</dt>
+              <dd>
+                <CustomerStatus status={selected.status} />
+              </dd>
+            </div>
+          </dl>
+        )}
+      </Modal>
+      <Modal
+        open={!!service}
+        onOpenChange={(open) => !open && setService(null)}
+        title={service ? services[service].title : "Dịch vụ tài khoản"}
+        description="Hỗ trợ dịch vụ tài khoản D4 Bank."
+      >
+        {service && (
+          <div className="space-y-4 text-sm">
+            <p>{services[service].description}</p>
+            <Link
+              className="customer-button secondary"
+              href="/customer/profile"
+            >
+              Hồ sơ và thông tin liên hệ <ArrowRight size={15} />
+            </Link>
+          </div>
+        )}
+      </Modal>
+    </div>
+  );
 }

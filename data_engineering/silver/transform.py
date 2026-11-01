@@ -45,7 +45,13 @@ def _normalize(frame: DataFrame, contract: DatasetContract) -> DataFrame:
     return normalized
 
 
-def _merge_realtime_events(spark, batch_id: str) -> dict[str, int] | None:
+def _materialize_realtime_domain_events(spark, batch_id: str) -> dict[str, int] | None:
+    """Build an event-only Silver dataset without changing banking snapshots.
+
+    PostgreSQL Batch is authoritative for ``silver/bank_transaction``. Kafka
+    events are retained for event analytics and reconciliation only, so a
+    delayed or replayed event can never overwrite the OLTP-derived status.
+    """
     path = s3a("MINIO_BUCKET_BRONZE", "kafka/events")
     try:
         raw = spark.read.option("recursiveFileLookup", "true").json(path)
@@ -95,31 +101,6 @@ def _merge_realtime_events(spark, batch_id: str) -> dict[str, int] | None:
     canonical.write.mode("overwrite").parquet(
         s3a("MINIO_BUCKET_SILVER", "domain_event")
     )
-
-    completed = canonical.filter(F.col("event_type") == "TransactionCompleted").select(
-        F.col("aggregate_id").cast("long").alias("transaction_id"),
-        F.col("payload.status").alias("event_status"),
-        "occurred_at",
-        "_kafka_offset",
-    )
-    latest_window = Window.partitionBy("transaction_id").orderBy(
-        F.col("occurred_at").desc_nulls_last(), F.col("_kafka_offset").desc()
-    )
-    latest = completed.withColumn("_rank", F.row_number().over(latest_window)).filter(
-        "_rank = 1"
-    ).drop("_rank")
-    transaction_path = s3a("MINIO_BUCKET_SILVER", "bank_transaction")
-    transactions = spark.read.parquet(transaction_path).alias("batch")
-    merged = transactions.join(latest.alias("event"), "transaction_id", "left").select(
-        *[
-            F.coalesce(F.col("event.event_status"), F.col("batch.status")).alias("status")
-            if column == "status" else F.col(f"batch.{column}")
-            for column in transactions.columns
-        ]
-    )
-    staging = s3a("MINIO_BUCKET_SILVER", f"_staging/bank_transaction/batch_id={batch_id}")
-    merged.write.mode("overwrite").parquet(staging)
-    spark.read.parquet(staging).write.mode("overwrite").parquet(transaction_path)
     return {
         "input": raw.count(),
         "valid": canonical.count(),
@@ -170,7 +151,7 @@ def run(batch_id: str) -> dict[str, dict[str, int]]:
     if os.getenv("ENABLE_REALTIME_SILVER_MERGE", "false").lower() in {
         "1", "true", "yes"
     }:
-        realtime = _merge_realtime_events(spark, batch_id)
+        realtime = _materialize_realtime_domain_events(spark, batch_id)
     if realtime:
         metrics["domain_event"] = realtime
     PipelineState().record_stage(batch_id, "bronze_to_silver", metrics)

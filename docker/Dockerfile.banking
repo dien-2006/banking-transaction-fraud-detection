@@ -1,3 +1,5 @@
+# Operational image for demo bootstrap and Trino catalog registration.
+# This image is not an HTTP Banking Core; NestJS is the only web backend.
 FROM python:3.11-slim
 WORKDIR /workspace
 COPY docker/requirements-banking.txt /tmp/requirements.txt

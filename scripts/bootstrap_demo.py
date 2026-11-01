@@ -5,7 +5,7 @@ import json
 import psycopg
 from psycopg.rows import dict_row
 
-from banking.config import POSTGRES_SCHEMA, postgres_dsn
+from scripts.postgres_config import POSTGRES_SCHEMA, postgres_dsn
 
 
 def main() -> None:

@@ -1,27 +1,382 @@
 "use client";
 
-import { ArrowLeftRight, CalendarDays, Coins, Filter, ShieldAlert, UsersRound } from "lucide-react";
-import Image from "next/image";
-import { useState } from "react";
-import { Forecast, ProductGrowth, TransactionTrend } from "./insights-charts";
-import { CustomerAnalytics, CustomReports, ProductAnalytics, RiskAnalytics, TransactionAnalytics } from "./insights-tab-panels";
+import {
+  ArrowLeftRight,
+  Coins,
+  Filter,
+  HandCoins,
+  RefreshCw,
+  ShieldAlert,
+} from "lucide-react";
+import { StaffHero } from "@/components/staff-hero";
+import { useQueries } from "@tanstack/react-query";
+import { useMemo, useState, type FormEvent } from "react";
+import { apiRequest, toQuery } from "@/services/api.client";
+import { reviewLabels } from "@/lib/fraud-data";
+import {
+  analyticsDatasets,
+  dailyMetrics,
+  filterAnalyticsRows,
+  groupMetric,
+  sumMetric,
+  type AnalyticsDataset,
+  type AnalyticsRow,
+  type InsightsData,
+} from "@/lib/insights-data";
+import {
+  MetricChart,
+  ProductGrowth,
+  TransactionTrend,
+} from "./insights-charts";
+import {
+  CustomerAnalytics,
+  CustomReports,
+  ProductAnalytics,
+  RiskAnalytics,
+  TransactionAnalytics,
+} from "./insights-tab-panels";
+import {
+  AnalyticsBoundary,
+  InsightBars,
+  InsightDonut,
+  InsightPanel as Panel,
+  InsightTable,
+} from "./insights-widgets";
 
-const branches=[["Hội sở","12,450","1,250","18.5%"],["Đà Nẵng","8,320","850","15.2%"],["TP.HCM","7,890","780","12.7%"],["Hà Nội","6,540","620","10.3%"],["Cần Thơ","5,210","480","8.9%"]];
-const riskItems=[["bg-red-500","Giao dịch bất thường","35% (434)"],["bg-rose-300","Đăng nhập bất thường","20% (248)"],["bg-amber-400","Thẻ bị đánh cắp","15% (186)"],["bg-blue-400","Rửa tiền","12% (149)"],["bg-violet-500","Khác","18% (223)"]];
+const datasets = Object.keys(analyticsDatasets) as AnalyticsDataset[];
+const tabs = [
+  "Tổng quan phân tích",
+  "Phân tích khách hàng",
+  "Phân tích giao dịch",
+  "Phân tích sản phẩm",
+  "Phân tích rủi ro",
+  "Báo cáo tùy chỉnh",
+];
+const number = (value: unknown) => Number(value).toLocaleString("vi-VN");
+const money = (value: unknown) => number(value) + " ₫";
 
-function InsightHero(){return <section className="insights-hero relative overflow-hidden rounded-xl border border-red-100 bg-[#fff0f0]" aria-label="Phân tích dữ liệu toàn diện"><Image alt="D4 Insights - Phân tích dữ liệu toàn diện" className="insights-hero-source absolute max-w-none" height={1024} priority src="/insights-admin-reference.png" width={1536}/></section>}
-function Panel({title,children,className=""}:{title:string;children:React.ReactNode;className?:string}){return <article className={`card min-h-0 p-3 ${className}`}><h2 className="text-sm font-black">{title}</h2>{children}</article>}
+function InsightHero() {
+  return (
+    <StaffHero
+      kind="insights"
+      eyebrow="D4 INSIGHTS"
+      title="Phân tích"
+      accent="dữ liệu"
+      description="Theo dõi giao dịch, rủi ro và hiệu suất từ dữ liệu Gold."
+    />
+  );
+}
 
-export function InsightsPage({role="admin"}:{role?:"admin"|"employee"}){const[tab,setTab]=useState("Tổng quan phân tích");const kpis:Array<[typeof UsersRound,string,string,string]>=role==="employee"?[[UsersRound,"Khách hàng chi nhánh","12,430","5.2%"],[Coins,"Dư nợ chi nhánh","620 tỷ VNĐ","8.1%"],[ArrowLeftRight,"Giao dịch chi nhánh","28,450","12.7%"],[ShieldAlert,"Case được phân công","5","2 case mới"]]:[[UsersRound,"Tổng khách hàng","125,430","12.5%"],[Coins,"Tổng dư nợ","4,280 tỷ VNĐ","10.8%"],[ArrowLeftRight,"Tổng giao dịch","2,850,320","18.3%"],[ShieldAlert,"Cảnh báo rủi ro","1,240","25.0%"]];return <div className="insights-page-content flex flex-col gap-2.5 text-navy"><InsightHero/>
-  <section className="grid grid-cols-4 gap-3">{kpis.map(([Icon,label,value,change],index)=><article className="card flex items-center gap-3 p-3" key={label}><span className="grid size-11 place-items-center rounded-full bg-[#ffe9ec] text-coral"><Icon size={21}/></span><div><p className="text-xs">{label}</p><b className="text-2xl">{value}</b><small className={`block text-[9px] ${index===3?"text-red-500":"text-emerald-500"}`}>↑ &nbsp;{change} &nbsp;<span className="text-blue-700">so với tháng trước</span></small></div></article>)}</section>
-  <section className="card flex h-12 justify-between px-3"><div className="flex h-full gap-4">{(role==="employee"?["Tổng quan phân tích","Phân tích khách hàng","Phân tích giao dịch","Phân tích sản phẩm","Phân tích rủi ro"]:["Tổng quan phân tích","Phân tích khách hàng","Phân tích giao dịch","Phân tích sản phẩm","Phân tích rủi ro","Báo cáo tùy chỉnh"]).map(x=><button className={tab===x?"border-b-2 border-coral px-2 text-xs font-semibold text-coral":"px-2 text-xs"} key={x} onClick={()=>setTab(x)}>{x}</button>)}</div><div className="flex items-center gap-2"><button className="flex h-8 items-center gap-2 rounded-lg border px-3 text-[10px]"><CalendarDays size={13}/>01/09/2024 - 30/09/2024</button><button className="flex h-8 items-center gap-2 rounded-lg border border-coral px-4 text-[10px] text-coral"><Filter size={13}/>Lọc</button></div></section>
-  {tab==="Phân tích khách hàng"?<CustomerAnalytics/>:tab==="Phân tích giao dịch"?<TransactionAnalytics/>:tab==="Phân tích sản phẩm"?<ProductAnalytics/>:tab==="Phân tích rủi ro"?<RiskAnalytics/>:tab==="Báo cáo tùy chỉnh"?<CustomReports/>:<div className="grid min-h-0 flex-1 grid-cols-12 grid-rows-[1.25fr_1fr_1.05fr] gap-3">
-    <Panel title="Xu hướng giao dịch theo thời gian" className="col-span-7 flex flex-col"><div className="min-h-0 flex-1"><TransactionTrend/></div></Panel>
-    <Panel title="Cơ cấu khách hàng theo phân khúc" className="col-span-5"><div className="flex h-[calc(100%-1rem)] items-center justify-center gap-8"><div className="grid size-36 shrink-0 place-items-center rounded-full" style={{background:"conic-gradient(#f5223e 0 65%,#ff9aa6 65% 85%,#ffb83e 85% 95%,#45a7ee 95% 100%)"}}><div className="grid size-20 place-items-center rounded-full bg-white text-center"><b className="text-xl">125,430</b><span className="text-[9px]">khách hàng</span></div></div><div className="space-y-3 text-xs">{[["bg-red-500","Cá nhân","65% (81,530)"],["bg-rose-300","Doanh nghiệp","20% (25,086)"],["bg-amber-400","Hộ kinh doanh","10% (12,543)"],["bg-blue-400","Khác","5% (6,271)"]].map(([c,l,v])=><p className="flex items-center gap-3" key={l}><i className={`size-3 rounded-full ${c}`}/><span className="w-24">{l}</span><b>{v}</b></p>)}</div></div></Panel>
-    <Panel title="Tăng trưởng sản phẩm theo tháng" className="col-span-7 flex flex-col"><div className="min-h-0 flex-1"><ProductGrowth/></div></Panel>
-    <Panel title="Top 5 chi nhánh hiệu quả nhất" className="col-span-5"><button className="float-right -mt-5 text-[10px] text-coral">Xem tất cả →</button><table className="mt-1 w-full text-left text-[10px]"><thead className="bg-slate-50"><tr>{["#","Chi nhánh","Số KH mới","Tổng giao dịch (tỷ)","Tăng trưởng"].map(x=><th className="p-1" key={x}>{x}</th>)}</tr></thead><tbody>{branches.map((x,i)=><tr className="border-t" key={x[0]}><td className="p-1 text-coral">{i+1}</td><td className="p-1 font-semibold">{x[0]}</td><td className="p-1">{x[1]}</td><td className="p-1">{x[2]}</td><td className="p-1 text-emerald-600">↑ &nbsp;{x[3]}</td></tr>)}</tbody></table></Panel>
-    <Panel title="Phân tích rủi ro giao dịch" className="col-span-4"><div className="flex h-[calc(100%-1rem)] items-center gap-4"><div className="grid size-28 shrink-0 place-items-center rounded-full" style={{background:"conic-gradient(#f5223e 0 35%,#ff9aa6 35% 55%,#ffb83e 55% 70%,#45a7ee 70% 82%,#8257ed 82% 100%)"}}><div className="grid size-16 place-items-center rounded-full bg-white text-center"><b className="text-xl">1,240</b><span className="text-[9px]">cảnh báo</span></div></div><div className="space-y-1.5 text-[10px]">{riskItems.map(([c,l,v])=><p className="flex items-center gap-2" key={l}><i className={`size-2.5 rounded-full ${c}`}/><span className="w-28">{l}</span><b>{v}</b></p>)}</div></div></Panel>
-    <Panel title="Doanh thu theo sản phẩm" className="col-span-4"><div className="mt-3 space-y-2 text-[10px]">{[["Dịch vụ thẻ",73,"40% (520 tỷ)"],["Cho vay",55,"30% (390 tỷ)"],["Thanh toán",35,"15% (195 tỷ)"],["Dịch vụ khác",20,"10% (130 tỷ)"],["Bảo hiểm",10,"5% (65 tỷ)"]].map(([l,w,v],i)=><div className="grid grid-cols-[75px_1fr_72px] items-center gap-2" key={String(l)}><span>{l}</span><span className="h-3 rounded bg-slate-100"><i className={`block h-full rounded ${["bg-red-500","bg-rose-300","bg-amber-400","bg-blue-400","bg-violet-500"][i]}`} style={{width:`${w}%`}}/></span><span>{v}</span></div>)}</div></Panel>
-    <Panel title="Dự báo xu hướng" className="col-span-4 flex flex-col"><div className="min-h-0 flex-1"><Forecast/></div></Panel>
-  </div>}
-  </div>}
+export function InsightsPage({
+  role = "admin",
+}: {
+  role?: "admin" | "employee";
+}) {
+  const [tab, setTab] = useState(tabs[0]);
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [range, setRange] = useState({ from: "", to: "" });
+  const [dateError, setDateError] = useState("");
+  const queries = useQueries({
+    queries: datasets.map((dataset) => ({
+      queryKey: ["insights-gold", role, dataset],
+      queryFn: () =>
+        apiRequest<AnalyticsRow[]>(
+          "/analytics" + toQuery({ dataset, limit: 1000 }),
+        ),
+      staleTime: 60_000,
+      retry: 1,
+    })),
+  });
+  const data = useMemo(
+    () =>
+      Object.fromEntries(
+        datasets.map((dataset, index) => {
+          const query = queries[index];
+          const rows = query.data ?? [];
+          return [
+            dataset,
+            {
+              rows:
+                dataset === "models"
+                  ? rows
+                  : filterAnalyticsRows(rows, range.from, range.to),
+              loading: query.isPending,
+              error: query.isError ? query.error.message : null,
+              truncated: rows.length >= 1000,
+            },
+          ];
+        }),
+      ) as InsightsData,
+    [queries, range],
+  );
+  const applyRange = (event: FormEvent) => {
+    event.preventDefault();
+    if (from && to && from > to) {
+      setDateError("Ngày bắt đầu phải trước hoặc bằng ngày kết thúc.");
+      return;
+    }
+    setDateError("");
+    setRange({ from, to });
+  };
+  const metric = (
+    dataset: AnalyticsDataset,
+    field: string,
+    monetary = false,
+  ) => {
+    const state = data[dataset];
+    if (state.loading || state.error) return "—";
+    const value = sumMetric(state.rows, field);
+    return monetary
+      ? value.toLocaleString("vi-VN", {
+          notation: "compact",
+          maximumFractionDigits: 2,
+        }) + " ₫"
+      : number(value);
+  };
+  const kpis = [
+    {
+      Icon: ArrowLeftRight,
+      label: "Số giao dịch",
+      value: metric("transactions", "transaction_count"),
+    },
+    {
+      Icon: Coins,
+      label: "Giá trị giao dịch",
+      value: metric("transactions", "total_amount", true),
+    },
+    {
+      Icon: ShieldAlert,
+      label: "Đánh giá rủi ro",
+      value: metric("risk", "assessment_count"),
+    },
+    {
+      Icon: HandCoins,
+      label: "Đã trả khoản vay",
+      value: metric("loans", "total_paid", true),
+    },
+  ];
+  const limited = datasets.some((dataset) => data[dataset].truncated);
+  return (
+    <div className="d4-insights-page insights-page-content flex flex-col gap-2.5 text-navy">
+      <InsightHero />
+      <section className="grid grid-cols-4 gap-3">
+        {kpis.map(({ Icon, label, value }) => (
+          <article
+            className="card flex min-w-0 items-center gap-3 p-3"
+            key={label}
+          >
+            <span className="grid size-11 shrink-0 place-items-center rounded-full bg-[#ffe9ec] text-coral">
+              <Icon size={21} />
+            </span>
+            <div className="min-w-0">
+              <p className="truncate text-xs" title={label}>
+                {label}
+              </p>
+              <b className="block truncate text-2xl" title={value}>
+                {value}
+              </b>
+              <small className="block text-[9px] text-slate-500">
+                Trong dữ liệu Gold đã tải
+              </small>
+            </div>
+          </article>
+        ))}
+      </section>
+      <section className="insights-toolbar card flex flex-wrap items-center gap-2 px-3">
+        <nav
+          aria-label="Các mục D4 Insights"
+          className="insights-tabs flex min-w-0 flex-1 gap-2"
+        >
+          {tabs
+            .filter(
+              (label) => role !== "employee" || label !== "Báo cáo tùy chỉnh",
+            )
+            .map((label) => (
+              <button
+                key={label}
+                aria-current={tab === label ? "page" : undefined}
+                className={
+                  "shrink-0 border-b-2 px-2 py-2 text-xs " +
+                  (tab === label
+                    ? "border-coral font-semibold text-coral"
+                    : "border-transparent")
+                }
+                onClick={() => setTab(label)}
+              >
+                {label}
+              </button>
+            ))}
+        </nav>
+        <form
+          className="insights-dates flex flex-wrap items-center gap-2"
+          onSubmit={applyRange}
+        >
+          <input
+            type="date"
+            aria-label="Từ ngày"
+            title="Từ ngày"
+            value={from}
+            onChange={(event) => setFrom(event.target.value)}
+            className="h-8 rounded-lg border px-2 text-[10px]"
+          />
+          <span aria-hidden="true">–</span>
+          <input
+            type="date"
+            aria-label="Đến ngày"
+            title="Đến ngày"
+            value={to}
+            onChange={(event) => setTo(event.target.value)}
+            className="h-8 rounded-lg border px-2 text-[10px]"
+          />
+          <button type="submit" className="btn-secondary h-8 px-2 text-[10px]">
+            <Filter size={13} />
+            Lọc
+          </button>
+          <button
+            type="button"
+            aria-label="Làm mới dữ liệu Gold"
+            title="Làm mới dữ liệu Gold"
+            disabled={queries.some((query) => query.isFetching)}
+            onClick={() =>
+              queries.forEach((query) => {
+                void query.refetch();
+              })
+            }
+            className="btn-secondary h-8 px-2 disabled:opacity-40"
+          >
+            <RefreshCw size={13} />
+          </button>
+        </form>
+        <p
+          className={
+            "insights-coverage w-full pb-1 text-[10px] " +
+            (dateError || limited ? "text-amber-700" : "text-slate-500")
+          }
+          role={dateError ? "alert" : undefined}
+        >
+          {dateError ||
+            (limited
+              ? "Đã chạm giới hạn 1.000 bản ghi của ít nhất một tập Gold; thống kê có thể chưa đầy đủ."
+              : "Nguồn: MinIO Gold qua Trino · Thống kê trên dữ liệu đã tải, theo ngày đã chọn; model không lọc ngày.")}
+        </p>
+      </section>
+      {tab === "Phân tích khách hàng" ? (
+        <CustomerAnalytics data={data} />
+      ) : tab === "Phân tích giao dịch" ? (
+        <TransactionAnalytics data={data} />
+      ) : tab === "Phân tích sản phẩm" ? (
+        <ProductAnalytics data={data} />
+      ) : tab === "Phân tích rủi ro" ? (
+        <RiskAnalytics data={data} />
+      ) : tab === "Báo cáo tùy chỉnh" ? (
+        <CustomReports data={data} />
+      ) : (
+        <div className="insights-overview-grid grid min-h-0 grid-cols-3 grid-rows-[minmax(0,18fr)_minmax(0,11fr)_minmax(0,11fr)] gap-2">
+          <Panel title="Xu hướng giao dịch theo thời gian">
+            <AnalyticsBoundary state={data.transactions}>
+              <TransactionTrend rows={data.transactions.rows} />
+            </AnalyticsBoundary>
+          </Panel>
+          <Panel title="Thanh toán khoản vay theo ngày">
+            <AnalyticsBoundary state={data.loans}>
+              <ProductGrowth rows={data.loans.rows} />
+            </AnalyticsBoundary>
+          </Panel>
+          <Panel title="Lượt đăng nhập theo ngày">
+            <AnalyticsBoundary state={data.logins}>
+              <MetricChart
+                rows={data.logins.rows}
+                metrics={[
+                  {
+                    key: "login_count",
+                    name: "Lượt đăng nhập",
+                    color: "#45a7ee",
+                  },
+                ]}
+              />
+            </AnalyticsBoundary>
+          </Panel>
+          <Panel title="Trạng thái giao dịch">
+            <AnalyticsBoundary state={data.transactions}>
+              <InsightDonut
+                items={groupMetric(
+                  data.transactions.rows,
+                  "status",
+                  "transaction_count",
+                )}
+                label="giao dịch"
+              />
+            </AnalyticsBoundary>
+          </Panel>
+          <Panel title="Phân bố rủi ro giao dịch">
+            <AnalyticsBoundary state={data.risk}>
+              <InsightDonut
+                items={groupMetric(
+                  data.risk.rows,
+                  "risk_level",
+                  "assessment_count",
+                )}
+                label="đánh giá"
+              />
+            </AnalyticsBoundary>
+          </Panel>
+          <Panel title="Quyết định ALLOW / REVIEW / BLOCK">
+            <AnalyticsBoundary state={data.risk}>
+              <InsightBars
+                items={groupMetric(
+                  data.risk.rows,
+                  "decision",
+                  "assessment_count",
+                )}
+              />
+            </AnalyticsBoundary>
+          </Panel>
+          <Panel title="Hiệu suất xử lý Review">
+            <AnalyticsBoundary state={data.reviews}>
+              <InsightBars
+                items={groupMetric(
+                  data.reviews.rows,
+                  "status",
+                  "review_count",
+                ).map((item) => ({
+                  ...item,
+                  name: reviewLabels[item.name] ?? item.name,
+                }))}
+              />
+            </AnalyticsBoundary>
+          </Panel>
+          <Panel title="Giao dịch theo ngày">
+            <AnalyticsBoundary state={data.transactions}>
+              <InsightTable
+                rows={dailyMetrics(data.transactions.rows, [
+                  "transaction_count",
+                  "total_amount",
+                ]).reverse()}
+                columns={[
+                  { key: "day", label: "Ngày" },
+                  { key: "transaction_count", label: "Số GD", format: number },
+                  { key: "total_amount", label: "Giá trị", format: money },
+                ]}
+              />
+            </AnalyticsBoundary>
+          </Panel>
+          <Panel title="Phí giao dịch theo loại">
+            <AnalyticsBoundary state={data.transactions}>
+              <InsightBars
+                items={groupMetric(
+                  data.transactions.rows,
+                  "transaction_type_key",
+                  "total_fee",
+                ).map((item) => ({
+                  ...item,
+                  name: "Loại #" + item.name + " (₫)",
+                }))}
+              />
+            </AnalyticsBoundary>
+          </Panel>
+        </div>
+      )}
+    </div>
+  );
+}

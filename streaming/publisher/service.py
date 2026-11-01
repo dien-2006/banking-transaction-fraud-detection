@@ -11,7 +11,7 @@ import psycopg
 from confluent_kafka import Producer
 from psycopg.rows import dict_row
 
-from banking.config import POSTGRES_SCHEMA, postgres_dsn
+from scripts.postgres_config import POSTGRES_SCHEMA, postgres_dsn
 
 LOG = logging.getLogger("outbox-publisher")
 RUNNING = True

@@ -1,44 +1,376 @@
 "use client";
 
-import { BarChart3, Check, Download, FileText, Play, Save } from "lucide-react";
 import { useState } from "react";
-import { ProductGrowth, TransactionTrend } from "./insights-charts";
+import { Download, Play } from "lucide-react";
+import {
+  analyticsCsv,
+  analyticsDatasets,
+  dailyMetrics,
+  groupMetric,
+  type AnalyticsDataset,
+  type InsightsData,
+} from "@/lib/insights-data";
+import {
+  MetricChart,
+  ProductGrowth,
+  TransactionTrend,
+} from "./insights-charts";
+import {
+  AnalyticsBoundary,
+  InsightBars,
+  InsightDonut,
+  InsightPanel as Panel,
+  InsightTable,
+  UnsupportedInsight,
+} from "./insights-widgets";
 
-function Panel({title,children,className=""}:{title:string;children:React.ReactNode;className?:string}){return <article className={`card min-h-0 overflow-hidden p-3 ${className}`}><h2 className="text-sm font-black">{title}</h2>{children}</article>}
-function Donut({value,label,colors="conic-gradient(#f5223e 0 62%,#ff9aa6 62% 83%,#ffbd49 83% 100%)"}:{value:string;label:string;colors?:string}){return <div className="grid size-32 shrink-0 place-items-center rounded-full" style={{background:colors}}><div className="grid size-[76px] place-items-center rounded-full bg-white text-center"><b className="text-xl">{value}</b><span className="text-[9px]">{label}</span></div></div>}
-function Bars({rows}:{rows:[string,number,string,string][]}){return <div className="mt-3 space-y-2 text-[10px]">{rows.map(([label,width,value,color])=><div className="grid grid-cols-[115px_1fr_78px] items-center gap-2" key={label}><span>{label}</span><span className="h-3 overflow-hidden rounded bg-slate-100"><i className={`block h-full rounded ${color}`} style={{width:`${width}%`}}/></span><b>{value}</b></div>)}</div>}
-function MiniKpis({items}:{items:[string,string,string][]}){return <section className="col-span-12 grid grid-cols-4 gap-3">{items.map(([label,value,change])=><article className="card p-3" key={label}><p className="text-[10px] text-slate-500">{label}</p><b className="mt-1 block text-xl">{value}</b><span className="text-[9px] text-emerald-600">↑ {change}</span></article>)}</section>}
+const number = (value: unknown) => Number(value).toLocaleString("vi-VN");
+const money = (value: unknown) => number(value) + " ₫";
+const probability = (value: unknown) =>
+  (Number(value) * 100).toLocaleString("vi-VN", { maximumFractionDigits: 1 }) +
+  "%";
+const layout = "insights-tab-grid grid min-h-0 grid-cols-12 grid-rows-2 gap-2";
 
-export function CustomerAnalytics(){return <div className="grid min-h-0 flex-1 grid-cols-12 grid-rows-[auto_1fr_1fr] gap-3"><MiniKpis items={[["Khách hàng mới","12,450","14.2%"],["Khách hàng hoạt động","98,240","9.8%"],["Giá trị vòng đời TB","48.6 triệu ₫","6.4%"],["Tỷ lệ duy trì","92.8%","2.1%"]]}/>
-  <Panel title="Tăng trưởng khách hàng theo tháng" className="col-span-7 flex flex-col"><div className="min-h-0 flex-1"><ProductGrowth/></div></Panel>
-  <Panel title="Phân khúc khách hàng" className="col-span-5"><div className="flex h-full items-center justify-center gap-7"><Donut value="125,430" label="khách hàng"/><div className="space-y-3 text-xs">{[["Cá nhân","65%"],["Doanh nghiệp","20%"],["Hộ kinh doanh","10%"],["Khác","5%"]].map(([x,v],i)=><p className="flex w-44 justify-between" key={x}><span><i className={`mr-2 inline-block size-2 rounded-full ${["bg-red-500","bg-rose-300","bg-amber-400","bg-blue-400"][i]}`}/>{x}</span><b>{v}</b></p>)}</div></div></Panel>
-  <Panel title="Khách hàng theo khu vực" className="col-span-6"><Bars rows={[["TP. Hồ Chí Minh",78,"38,420","bg-red-500"],["Hà Nội",66,"32,680","bg-rose-400"],["Miền Trung",45,"22,310","bg-amber-400"],["Khu vực khác",34,"16,890","bg-blue-400"]]}/></Panel>
-  <Panel title="Top khách hàng theo tổng giá trị giao dịch" className="col-span-6"><table className="mt-2 w-full text-left text-[10px]"><thead className="bg-slate-50"><tr>{["Khách hàng","Phân khúc","Giao dịch","Tổng giá trị","Tăng trưởng"].map(x=><th className="p-1.5" key={x}>{x}</th>)}</tr></thead><tbody>{[["Công ty TNHH Minh Phát","Doanh nghiệp","1,284","8.4 tỷ","18.4%"],["Nguyễn Văn An","Cá nhân","426","2.1 tỷ","12.7%"],["Hộ KD Hoàng Gia","Hộ kinh doanh","685","1.8 tỷ","9.6%"],["Trần Thị Bình","Cá nhân","318","1.2 tỷ","8.2%"]].map(r=><tr className="border-t" key={r[0]}>{r.map((v,i)=><td className={`p-1.5 ${i===4?"text-emerald-600":""}`} key={v}>{i===4?`↑ ${v}`:v}</td>)}</tr>)}</tbody></table></Panel>
-  </div>}
+export function CustomerAnalytics({ data }: { data: InsightsData }) {
+  const state = data.logins;
+  return (
+    <div className={layout}>
+      <Panel title="Lượt đăng nhập theo ngày" className="col-span-7">
+        <AnalyticsBoundary state={state}>
+          <MetricChart
+            rows={state.rows}
+            metrics={[
+              { key: "login_count", name: "Lượt đăng nhập", color: "#f5223e" },
+            ]}
+          />
+        </AnalyticsBoundary>
+      </Panel>
+      <Panel title="Kết quả đăng nhập" className="col-span-5">
+        <AnalyticsBoundary state={state}>
+          <InsightDonut
+            items={groupMetric(state.rows, "status", "login_count")}
+            label="lượt"
+          />
+        </AnalyticsBoundary>
+      </Panel>
+      <Panel
+        title="Khách hàng đăng nhập theo ngày và trạng thái"
+        className="col-span-7"
+      >
+        <AnalyticsBoundary state={state}>
+          <InsightTable
+            rows={state.rows}
+            columns={[
+              { key: "full_date", label: "Ngày" },
+              { key: "status", label: "Trạng thái" },
+              { key: "login_count", label: "Lượt đăng nhập", format: number },
+              {
+                key: "customer_count",
+                label: "Số KH trong nhóm",
+                format: number,
+              },
+            ]}
+          />
+        </AnalyticsBoundary>
+      </Panel>
+      <Panel title="Phân khúc và khách hàng duy nhất" className="col-span-5">
+        <UnsupportedInsight>
+          API Gold chưa cung cấp phân khúc hoặc số khách hàng duy nhất cho toàn
+          kỳ. Số khách hàng theo từng ngày không được cộng thành số khách hàng
+          duy nhất.
+        </UnsupportedInsight>
+      </Panel>
+    </div>
+  );
+}
 
-export function TransactionAnalytics(){return <div className="grid min-h-0 flex-1 grid-cols-12 grid-rows-[auto_1.1fr_.9fr] gap-3"><MiniKpis items={[["Tổng giao dịch","2,850,320","18.3%"],["Giá trị giao dịch","42,680 tỷ ₫","12.5%"],["Giá trị trung bình","14.97 triệu ₫","4.8%"],["Tỷ lệ thành công","98.7%","0.6%"]]}/>
-  <Panel title="Số lượng và giá trị giao dịch" className="col-span-8 flex flex-col"><div className="min-h-0 flex-1"><TransactionTrend/></div></Panel>
-  <Panel title="Giao dịch theo kênh" className="col-span-4"><div className="flex h-full items-center justify-center gap-5"><Donut value="2.85M" label="giao dịch" colors="conic-gradient(#f5223e 0 48%,#ff8c9a 48% 76%,#ffbd49 76% 91%,#399ee8 91% 100%)"/><div className="space-y-2 text-[10px]">{[["Mobile Banking","48%"],["Internet Banking","28%"],["ATM/POS","15%"],["Tại quầy","9%"]].map(x=><p className="flex w-36 justify-between" key={x[0]}><span>{x[0]}</span><b>{x[1]}</b></p>)}</div></div></Panel>
-  <Panel title="Cơ cấu loại giao dịch" className="col-span-6"><Bars rows={[["Chuyển khoản",72,"1,425,160","bg-red-500"],["Thanh toán",55,"784,230","bg-rose-400"],["Rút tiền",32,"356,290","bg-amber-400"],["Nạp tiền",25,"284,640","bg-blue-400"]]}/></Panel>
-  <Panel title="Khung giờ giao dịch cao điểm" className="col-span-6"><Bars rows={[["08:00 - 11:00",65,"682,540","bg-red-500"],["11:00 - 14:00",42,"438,210","bg-rose-400"],["14:00 - 17:00",78,"816,320","bg-amber-400"],["17:00 - 22:00",61,"637,840","bg-blue-400"]]}/></Panel>
-  </div>}
+export function TransactionAnalytics({ data }: { data: InsightsData }) {
+  const state = data.transactions;
+  return (
+    <div className={layout}>
+      <Panel title="Số lượng và giá trị giao dịch" className="col-span-8">
+        <AnalyticsBoundary state={state}>
+          <TransactionTrend rows={state.rows} />
+        </AnalyticsBoundary>
+      </Panel>
+      <Panel title="Giao dịch theo kênh" className="col-span-4">
+        <AnalyticsBoundary state={state}>
+          <InsightDonut
+            items={groupMetric(
+              state.rows,
+              "channel_key",
+              "transaction_count",
+            ).map((item) => ({ ...item, name: "Kênh #" + item.name }))}
+            label="giao dịch"
+          />
+        </AnalyticsBoundary>
+      </Panel>
+      <Panel title="Loại giao dịch theo mã Gold" className="col-span-6">
+        <AnalyticsBoundary state={state}>
+          <InsightBars
+            items={groupMetric(
+              state.rows,
+              "transaction_type_key",
+              "transaction_count",
+            ).map((item) => ({ ...item, name: "Loại #" + item.name }))}
+          />
+        </AnalyticsBoundary>
+      </Panel>
+      <Panel title="Tổng hợp theo ngày" className="col-span-6">
+        <AnalyticsBoundary state={state}>
+          <InsightTable
+            rows={dailyMetrics(state.rows, [
+              "transaction_count",
+              "total_amount",
+              "total_fee",
+            ]).reverse()}
+            columns={[
+              { key: "day", label: "Ngày" },
+              {
+                key: "transaction_count",
+                label: "Số giao dịch",
+                format: number,
+              },
+              { key: "total_amount", label: "Giá trị", format: money },
+              { key: "total_fee", label: "Phí", format: money },
+            ]}
+          />
+        </AnalyticsBoundary>
+      </Panel>
+    </div>
+  );
+}
 
-export function ProductAnalytics(){return <div className="grid min-h-0 flex-1 grid-cols-12 grid-rows-[auto_1.15fr_.85fr] gap-3"><MiniKpis items={[["Tài khoản","18,250","8.2%"],["Thẻ đang hoạt động","21,340","7.8%"],["Khoản vay","3,560","11.3%"],["Doanh thu sản phẩm","1,300 tỷ ₫","15.6%"]]}/>
-  <Panel title="Tăng trưởng sản phẩm theo tháng" className="col-span-8 flex flex-col"><div className="min-h-0 flex-1"><ProductGrowth/></div></Panel>
-  <Panel title="Đóng góp doanh thu" className="col-span-4"><div className="flex h-full items-center justify-center gap-5"><Donut value="1,300" label="tỷ VNĐ"/><div className="space-y-2 text-[10px]">{[["Dịch vụ thẻ","40%"],["Cho vay","30%"],["Thanh toán","15%"],["Khác","15%"]].map(x=><p className="flex w-32 justify-between" key={x[0]}><span>{x[0]}</span><b>{x[1]}</b></p>)}</div></div></Panel>
-  <Panel title="Hiệu quả theo sản phẩm" className="col-span-7"><table className="mt-2 w-full text-left text-[10px]"><thead className="bg-slate-50"><tr>{["Sản phẩm","Khách hàng","Doanh thu","Chi phí","Lợi nhuận","Tăng trưởng"].map(x=><th className="p-1.5" key={x}>{x}</th>)}</tr></thead><tbody>{[["Thẻ tín dụng","8,420","520 tỷ","186 tỷ","334 tỷ","18.5%"],["Vay mua nhà","1,706","390 tỷ","142 tỷ","248 tỷ","14.2%"],["Tài khoản thanh toán","12,430","195 tỷ","82 tỷ","113 tỷ","10.8%"],["Bảo hiểm","2,184","65 tỷ","28 tỷ","37 tỷ","8.4%"]].map(r=><tr className="border-t" key={r[0]}>{r.map((v,i)=><td className={`p-1.5 ${i===5?"text-emerald-600":""}`} key={v}>{v}</td>)}</tr>)}</tbody></table></Panel>
-  <Panel title="Mức độ sử dụng sản phẩm" className="col-span-5"><Bars rows={[["Tài khoản",88,"88%","bg-red-500"],["Thẻ",76,"76%","bg-rose-400"],["Mobile Banking",69,"69%","bg-amber-400"],["Khoản vay",31,"31%","bg-blue-400"]]}/></Panel>
-  </div>}
+export function ProductAnalytics({ data }: { data: InsightsData }) {
+  const state = data.loans;
+  return (
+    <div className={layout}>
+      <Panel title="Thanh toán khoản vay theo ngày" className="col-span-8">
+        <AnalyticsBoundary state={state}>
+          <ProductGrowth rows={state.rows} />
+        </AnalyticsBoundary>
+      </Panel>
+      <Panel title="Thanh toán theo kênh" className="col-span-4">
+        <AnalyticsBoundary state={state}>
+          <InsightDonut
+            items={groupMetric(state.rows, "payment_channel", "payment_count")}
+            label="lượt"
+          />
+        </AnalyticsBoundary>
+      </Panel>
+      <Panel title="Chi tiết thanh toán khoản vay" className="col-span-8">
+        <AnalyticsBoundary state={state}>
+          <InsightTable
+            rows={state.rows}
+            columns={[
+              { key: "full_date", label: "Ngày" },
+              { key: "payment_channel", label: "Kênh" },
+              { key: "payment_count", label: "Số lượt", format: number },
+              { key: "total_paid", label: "Đã trả", format: money },
+              { key: "principal_paid", label: "Gốc", format: money },
+              { key: "interest_paid", label: "Lãi", format: money },
+            ]}
+          />
+        </AnalyticsBoundary>
+      </Panel>
+      <Panel title="Hiệu quả và doanh thu sản phẩm" className="col-span-4">
+        <UnsupportedInsight>
+          Chưa có dataset doanh thu, chi phí và lợi nhuận theo sản phẩm. Tiền
+          gốc khách hàng trả không được tính là doanh thu.
+        </UnsupportedInsight>
+      </Panel>
+    </div>
+  );
+}
 
-export function RiskAnalytics(){return <div className="grid min-h-0 flex-1 grid-cols-12 grid-rows-[auto_1fr_1fr] gap-3"><MiniKpis items={[["Đánh giá rủi ro","12,840","16.5%"],["Quyết định REVIEW","320","8.3%"],["Quyết định BLOCK","60","25.0%"],["Đã xử lý","860","15.7%"]]}/>
-  <Panel title="Phân bố RiskLevel" className="col-span-5"><div className="flex h-full items-center justify-center gap-6"><Donut value="12,840" label="đánh giá" colors="conic-gradient(#25b88a 0 72%,#ffbd49 72% 88%,#ff7181 88% 97%,#e31937 97% 100%)"/><div className="space-y-2 text-[10px]">{[["LOW (0–39)","72%"],["MEDIUM (40–59)","16%"],["HIGH (60–79)","9%"],["CRITICAL (80–100)","3%"]].map(x=><p className="flex w-40 justify-between" key={x[0]}><span>{x[0]}</span><b>{x[1]}</b></p>)}</div></div></Panel>
-  <Panel title="Kết quả Decision Engine" className="col-span-7"><Bars rows={[["ALLOW",92,"11,814 (92%)","bg-emerald-500"],["REVIEW",5,"642 (5%)","bg-amber-400"],["BLOCK",3,"384 (3%)","bg-red-500"]]}/><p className="mt-4 rounded-lg bg-slate-50 p-2 text-[9px] text-slate-500">BLOCK được ưu tiên khi ModelProbability ≥ 0.90 hoặc RuleScore ≥ 80. REVIEW áp dụng từ 0.60 hoặc 60 điểm khi chưa đạt điều kiện BLOCK.</p></Panel>
-  <Panel title="Các rule được kích hoạt nhiều nhất" className="col-span-6"><Bars rows={[["R01 HIGH_AMOUNT",76,"3,420","bg-red-500"],["R02 NEW_DEVICE",61,"2,748","bg-rose-400"],["R04 HIGH_VELOCITY",48,"2,164","bg-amber-400"],["R06 AMOUNT_ANOMALY",39,"1,758","bg-blue-400"]]}/></Panel>
-  <Panel title="Hiệu quả model theo phiên bản" className="col-span-6"><table className="mt-2 w-full text-left text-[10px]"><thead className="bg-slate-50"><tr>{["Model","Precision","Recall","F1-score","AUC","Trạng thái"].map(x=><th className="p-1.5" key={x}>{x}</th>)}</tr></thead><tbody>{[["fraud-v1.2","94.2%","91.8%","93.0%","0.972","Đang dùng"],["fraud-v1.1","92.6%","89.4%","91.0%","0.958","Đã lưu"],["fraud-v1.0","90.1%","87.2%","88.6%","0.941","Đã lưu"]].map(r=><tr className="border-t" key={r[0]}>{r.map((v,i)=><td className="p-1.5" key={v}>{i===5?<span className={v==="Đang dùng"?"rounded bg-emerald-50 px-2 py-1 text-emerald-600":"rounded bg-slate-100 px-2 py-1"}>{v}</span>:v}</td>)}</tr>)}</tbody></table></Panel>
-  </div>}
+export function RiskAnalytics({ data }: { data: InsightsData }) {
+  return (
+    <div className={layout}>
+      <Panel title="Phân bố mức rủi ro" className="col-span-5">
+        <AnalyticsBoundary state={data.risk}>
+          <InsightDonut
+            items={groupMetric(
+              data.risk.rows,
+              "risk_level",
+              "assessment_count",
+            )}
+            label="đánh giá"
+          />
+        </AnalyticsBoundary>
+      </Panel>
+      <Panel title="Quyết định ALLOW / REVIEW / BLOCK" className="col-span-7">
+        <AnalyticsBoundary state={data.risk}>
+          <InsightBars
+            items={groupMetric(data.risk.rows, "decision", "assessment_count")}
+          />
+        </AnalyticsBoundary>
+      </Panel>
+      <Panel
+        title="Model theo nhãn đã xác minh (không lọc ngày)"
+        className="col-span-7"
+      >
+        <AnalyticsBoundary state={data.models}>
+          <InsightTable
+            rows={data.models.rows}
+            columns={[
+              { key: "model_name", label: "Model" },
+              { key: "label", label: "Nhãn" },
+              {
+                key: "labeled_transactions",
+                label: "Số giao dịch",
+                format: number,
+              },
+              {
+                key: "average_probability",
+                label: "Xác suất TB",
+                format: probability,
+              },
+            ]}
+          />
+        </AnalyticsBoundary>
+      </Panel>
+      <Panel title="Hiệu suất review" className="col-span-5">
+        <AnalyticsBoundary state={data.reviews}>
+          <InsightTable
+            rows={data.reviews.rows}
+            columns={[
+              { key: "full_date", label: "Ngày" },
+              { key: "status", label: "Trạng thái" },
+              { key: "review_count", label: "Số review", format: number },
+              {
+                key: "average_resolution_seconds",
+                label: "Xử lý TB (giây)",
+                format: number,
+              },
+            ]}
+          />
+        </AnalyticsBoundary>
+      </Panel>
+    </div>
+  );
+}
 
-const metrics=["Tổng khách hàng","Số lượng giao dịch","Giá trị giao dịch","Tổng dư nợ","Cảnh báo rủi ro","Doanh thu sản phẩm"];
-export function CustomReports(){const[selected,setSelected]=useState(["Tổng khách hàng","Số lượng giao dịch","Cảnh báo rủi ro"]),[generated,setGenerated]=useState(false);const toggle=(x:string)=>setSelected(v=>v.includes(x)?v.filter(i=>i!==x):[...v,x]);return <div className="grid min-h-0 flex-1 grid-cols-[330px_1fr] gap-3"><Panel title="Cấu hình báo cáo" className="flex flex-col"><label className="mt-3 text-[10px] font-bold">Tên báo cáo<input className="mt-1 h-9 w-full rounded-lg border px-3 font-normal" defaultValue="Báo cáo tổng hợp kinh doanh"/></label><label className="mt-3 text-[10px] font-bold">Khoảng thời gian<select className="mt-1 h-9 w-full rounded-lg border px-3 font-normal"><option>Tháng này</option><option>Quý này</option><option>Năm nay</option><option>Tùy chỉnh</option></select></label><p className="mt-3 text-[10px] font-bold">Chỉ tiêu báo cáo</p><div className="mt-2 grid grid-cols-2 gap-2">{metrics.map(x=><button className={`flex items-center gap-2 rounded-lg border p-2 text-left text-[10px] ${selected.includes(x)?"border-coral bg-red-50 text-coral":""}`} key={x} onClick={()=>toggle(x)}><span className={`grid size-4 place-items-center rounded border ${selected.includes(x)?"border-coral bg-coral text-white":""}`}>{selected.includes(x)&&<Check size={10}/>}</span>{x}</button>)}</div><label className="mt-3 text-[10px] font-bold">Nhóm dữ liệu<select className="mt-1 h-9 w-full rounded-lg border px-3 font-normal"><option>Toàn hệ thống</option><option>Theo chi nhánh</option><option>Theo sản phẩm</option><option>Theo phân khúc khách hàng</option></select></label><button className="btn-primary mt-auto h-9" onClick={()=>setGenerated(true)}><Play size={14}/>Tạo báo cáo</button></Panel>
-  <div className="grid min-h-0 grid-rows-[auto_1fr] gap-3"><section className="card flex items-center justify-between p-3"><div className="flex items-center gap-3"><span className="grid size-9 place-items-center rounded-lg bg-red-50 text-coral"><FileText size={18}/></span><div><b className="text-sm">Báo cáo tổng hợp kinh doanh</b><p className="text-[9px] text-slate-500">Cập nhật theo dữ liệu gần nhất</p></div></div><div className="flex gap-2"><button className="btn-secondary h-8 px-3 text-[10px]"><Save size={13}/>Lưu mẫu</button><button className="btn-secondary h-8 px-3 text-[10px]"><Download size={13}/>Xuất Excel/PDF</button></div></section>
-  <Panel title="Xem trước báo cáo" className="flex flex-col">{generated?<><div className="mt-3 grid grid-cols-3 gap-3">{selected.map((x,i)=><div className="rounded-lg bg-slate-50 p-3" key={x}><p className="text-[9px] text-slate-500">{x}</p><b className="mt-1 block text-lg">{["125,430","2,850,320","1,240","4,280 tỷ ₫","1,300 tỷ ₫"][i%5]}</b><span className="text-[9px] text-emerald-600">↑ 12.5% so với kỳ trước</span></div>)}</div><div className="mt-3 min-h-0 flex-1"><TransactionTrend/></div></>:<div className="grid flex-1 place-items-center text-center text-slate-400"><div><BarChart3 className="mx-auto" size={42}/><p className="mt-3 text-sm font-bold text-navy">Chưa tạo báo cáo</p><p className="mt-1 text-xs">Chọn chỉ tiêu và nhấn “Tạo báo cáo” để xem kết quả.</p></div></div>}</Panel></div>
-  </div>}
+export function CustomReports({ data }: { data: InsightsData }) {
+  const [dataset, setDataset] = useState<AnalyticsDataset>("transactions");
+  const [name, setName] = useState("Báo cáo D4 Insights");
+  const [selected, setSelected] = useState<string[]>([]);
+  const [generated, setGenerated] = useState(false);
+  const state = data[dataset];
+  const columns = Array.from(
+    new Set(state.rows.flatMap((row) => Object.keys(row))),
+  );
+  const fields = selected.length
+    ? columns.filter((key) => selected.includes(key))
+    : columns;
+  const exportCsv = () => {
+    const blob = new Blob([analyticsCsv(state.rows, fields)], {
+      type: "text/csv;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download =
+      (name.trim().replace(/[^\p{L}\p{N} _-]/gu, "") || "d4-insights") + ".csv";
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  const toggle = (key: string) => {
+    setGenerated(false);
+    setSelected((current) =>
+      current.includes(key)
+        ? current.filter((field) => field !== key)
+        : [...current, key],
+    );
+  };
+  return (
+    <div className="insights-report-grid grid h-full min-h-0 grid-cols-[280px_minmax(0,1fr)] gap-2">
+      <Panel title="Cấu hình báo cáo">
+        <div className="flex h-full min-h-0 flex-col gap-3 pt-3">
+          <label className="text-xs">
+            Tên báo cáo
+            <input
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              className="mt-1 h-9 w-full rounded-lg border px-2"
+            />
+          </label>
+          <label className="text-xs">
+            Bộ dữ liệu
+            <select
+              value={dataset}
+              onChange={(event) => {
+                setDataset(event.target.value as AnalyticsDataset);
+                setSelected([]);
+                setGenerated(false);
+              }}
+              className="mt-1 h-9 w-full rounded-lg border px-2"
+            >
+              {Object.entries(analyticsDatasets).map(([key, label]) => (
+                <option key={key} value={key}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="text-[10px] text-slate-500">
+            Để trống lựa chọn cột để xuất toàn bộ cột. Model không có bộ lọc
+            ngày.
+          </p>
+          <div className="min-h-0 flex-1 overflow-auto">
+            {columns.map((key) => (
+              <label className="flex items-center gap-2 py-1 text-xs" key={key}>
+                <input
+                  type="checkbox"
+                  checked={selected.includes(key)}
+                  onChange={() => toggle(key)}
+                />
+                <span className="truncate" title={key}>
+                  {key}
+                </span>
+              </label>
+            ))}
+          </div>
+          <button
+            disabled={state.loading || !!state.error || !state.rows.length}
+            onClick={() => setGenerated(true)}
+            className="btn-primary h-9 shrink-0 disabled:opacity-40"
+          >
+            <Play size={14} />
+            Tạo báo cáo
+          </button>
+        </div>
+      </Panel>
+      <Panel title={name || "Xem trước báo cáo"}>
+        <div className="flex h-full min-h-0 flex-col">
+          <div className="flex shrink-0 justify-end py-2">
+            <button
+              disabled={!generated || !state.rows.length || !!state.error}
+              onClick={exportCsv}
+              className="btn-secondary h-8 disabled:opacity-40"
+            >
+              <Download size={14} />
+              Xuất CSV
+            </button>
+          </div>
+          <div className="min-h-0 flex-1">
+            <AnalyticsBoundary state={state}>
+              {generated ? (
+                <InsightTable
+                  rows={state.rows}
+                  columns={fields.map((key) => ({ key, label: key }))}
+                  pageSize={10}
+                />
+              ) : (
+                <UnsupportedInsight>
+                  Chọn bộ dữ liệu và nhấn “Tạo báo cáo” để xem trước.
+                </UnsupportedInsight>
+              )}
+            </AnalyticsBoundary>
+          </div>
+        </div>
+      </Panel>
+    </div>
+  );
+}

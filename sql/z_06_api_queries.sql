@@ -64,7 +64,7 @@ CREATE OR REPLACE FUNCTION banking_api.get_customer_loans (p_id bigint)
         customerid = p_id;
 $$;
 
-CREATE OR REPLACE FUNCTION banking_api.get_transaction (p_id bigint, p_customer bigint DEFAULT NULL)
+CREATE OR REPLACE FUNCTION banking_api.get_transaction (p_id bigint, p_customer bigint DEFAULT NULL, p_branch integer DEFAULT NULL)
     RETURNS jsonb
     LANGUAGE sql
     STABLE
@@ -93,7 +93,21 @@ CREATE OR REPLACE FUNCTION banking_api.get_transaction (p_id bigint, p_customer 
                 WHERE
                     p.transactionid = v.transactionid
                     AND h.customerid = p_customer
-                    AND h.status = 'Active'));
+                    AND h.status = 'Active'))
+        AND (p_branch IS NULL OR EXISTS (
+            SELECT 1
+            FROM transfer_request tr
+            JOIN bank_account ba
+              ON ba.accountid IN (tr.sourceaccountid, tr.destinationaccountid)
+            WHERE tr.transactionid = v.transactionid
+              AND ba.branchid = p_branch
+        ) OR p_branch IS NOT NULL AND EXISTS (
+            SELECT 1
+            FROM transaction_posting tp
+            JOIN bank_account ba USING (accountid)
+            WHERE tp.transactionid = v.transactionid
+              AND ba.branchid = p_branch
+        ));
 $$;
 
 CREATE OR REPLACE FUNCTION banking_api.resolve_transfer_destination (p_account_number text)
@@ -119,7 +133,7 @@ CREATE OR REPLACE FUNCTION banking_api.resolve_transfer_destination (p_account_n
     LIMIT 1;
 $$;
 
-CREATE OR REPLACE FUNCTION banking_api.list_transactions (p_customer bigint DEFAULT NULL, p_account bigint DEFAULT NULL, p_status text DEFAULT NULL, p_type text DEFAULT NULL, p_from timestamp DEFAULT NULL, p_to timestamp DEFAULT NULL, p_page integer DEFAULT 1, p_size integer DEFAULT 20)
+CREATE OR REPLACE FUNCTION banking_api.list_transactions (p_customer bigint DEFAULT NULL, p_account bigint DEFAULT NULL, p_status text DEFAULT NULL, p_type text DEFAULT NULL, p_from timestamp DEFAULT NULL, p_to timestamp DEFAULT NULL, p_page integer DEFAULT 1, p_size integer DEFAULT 20, p_branch integer DEFAULT NULL)
     RETURNS jsonb
     LANGUAGE sql
     STABLE
@@ -161,6 +175,20 @@ CREATE OR REPLACE FUNCTION banking_api.list_transactions (p_customer bigint DEFA
                     OR v.transactiondate >= p_from)
                 AND (p_to IS NULL
                     OR v.transactiondate < p_to)
+                AND (p_branch IS NULL OR EXISTS (
+                    SELECT 1
+                    FROM transfer_request tr
+                    JOIN bank_account ba
+                      ON ba.accountid IN (tr.sourceaccountid, tr.destinationaccountid)
+                    WHERE tr.transactionid = v.transactionid
+                      AND ba.branchid = p_branch
+                ) OR p_branch IS NOT NULL AND EXISTS (
+                    SELECT 1
+                    FROM transaction_posting tp
+                    JOIN bank_account ba USING (accountid)
+                    WHERE tp.transactionid = v.transactionid
+                      AND ba.branchid = p_branch
+                ))
 ),
 p AS (
     SELECT
@@ -217,7 +245,93 @@ SELECT
         FROM f));
 $$;
 
-CREATE OR REPLACE FUNCTION banking_api.list_fraud_reviews (p_status text DEFAULT NULL, p_page integer DEFAULT 1, p_size integer DEFAULT 20)
+CREATE OR REPLACE FUNCTION banking_api.get_employee_profile (p_user integer)
+    RETURNS jsonb
+    LANGUAGE sql
+    STABLE
+    SET search_path = banking, pg_temp
+    AS $$
+    SELECT to_jsonb(v) - 'salary'
+    FROM vw_employee_detail v
+    WHERE v.userid = p_user;
+$$;
+
+CREATE OR REPLACE FUNCTION banking_api.list_employee_notifications (
+    p_user integer,
+    p_page integer DEFAULT 1,
+    p_size integer DEFAULT 20
+)
+    RETURNS jsonb
+    LANGUAGE sql
+    STABLE
+    SET search_path = banking, pg_temp
+    AS $$
+    WITH actor AS (
+        SELECT e.branchid
+        FROM "system_user" su
+        JOIN employee e USING (employeeid)
+        WHERE su.userid = p_user
+          AND su.isactive
+          AND e.status = 'Active'
+    ), notices AS (
+        SELECT DISTINCT
+            'review-' || rc.reviewcaseid AS id,
+            'fraud'::text AS type,
+            'Giao dịch cần review'::text AS title,
+            concat(bt.transactioncode, ' đang chờ kiểm tra và đưa ra quyết định.') AS detail,
+            rc.createdat AS createdat,
+            CASE
+                WHEN ra.risklevel IN ('CRITICAL', 'HIGH') THEN 'Cao'
+                ELSE 'Ưu tiên'
+            END AS severity,
+            TRUE AS unread
+        FROM review_case rc
+        JOIN bank_transaction bt USING (transactionid)
+        JOIN transfer_request tr USING (transactionid)
+        JOIN bank_account ba
+          ON ba.accountid IN (tr.sourceaccountid, tr.destinationaccountid)
+        LEFT JOIN LATERAL (
+            SELECT r.risklevel
+            FROM risk_assessment r
+            WHERE r.transactionid = rc.transactionid
+            ORDER BY r.assessedat DESC, r.riskassessmentid DESC
+            LIMIT 1
+        ) ra ON TRUE
+        JOIN actor a ON a.branchid = ba.branchid
+        WHERE rc.status IN ('OPEN', 'IN_REVIEW')
+
+        UNION ALL
+
+        SELECT
+            'loan-' || l.loanid AS id,
+            'loan'::text AS type,
+            'Khoản vay chờ xử lý'::text AS title,
+            concat(l.loancode, ' của khách hàng #', l.customerid, ' đang chờ xử lý.') AS detail,
+            l.startdate::timestamp AS createdat,
+            'Bình thường'::text AS severity,
+            TRUE AS unread
+        FROM loan l
+        JOIN actor a ON a.branchid = l.branchid
+        WHERE l.status = 'Pending'
+    ), paged AS (
+        SELECT *
+        FROM notices
+        ORDER BY createdat DESC, id DESC
+        LIMIT LEAST(GREATEST(p_size, 1), 100)
+        OFFSET (GREATEST(p_page, 1) - 1) * LEAST(GREATEST(p_size, 1), 100)
+    )
+    SELECT jsonb_build_object(
+        'items', COALESCE(
+            (SELECT jsonb_agg(to_jsonb(p) ORDER BY p.createdat DESC, p.id DESC) FROM paged p),
+            '[]'::jsonb
+        ),
+        'page', GREATEST(p_page, 1),
+        'pageSize', LEAST(GREATEST(p_size, 1), 100),
+        'total', (SELECT count(*) FROM notices)
+    );
+$$;
+
+CREATE OR REPLACE FUNCTION banking_api.list_fraud_reviews (p_status text DEFAULT NULL, p_page integer DEFAULT 1, p_size integer DEFAULT 20, p_branch integer DEFAULT NULL)
     RETURNS jsonb
     LANGUAGE sql
     STABLE
@@ -232,6 +346,14 @@ CREATE OR REPLACE FUNCTION banking_api.list_fraud_reviews (p_status text DEFAULT
             reviewcaseid IS NOT NULL
             AND (p_status IS NULL
                 OR reviewstatus = p_status)
+            AND (p_branch IS NULL OR EXISTS (
+                SELECT 1
+                FROM transfer_request tr
+                JOIN bank_account ba
+                  ON ba.accountid IN (tr.sourceaccountid, tr.destinationaccountid)
+                WHERE tr.transactionid = vw_transaction_detail.transactionid
+                  AND ba.branchid = p_branch
+            ))
 ),
 p AS (
     SELECT
@@ -298,7 +420,7 @@ CREATE OR REPLACE FUNCTION banking_api.admin_dashboard ()
                     status IN ('PENDING', 'FAILED')));
 $$;
 
-CREATE OR REPLACE FUNCTION banking_api.list_customers (p_query text DEFAULT NULL, p_status text DEFAULT NULL, p_page integer DEFAULT 1, p_size integer DEFAULT 20)
+CREATE OR REPLACE FUNCTION banking_api.list_customers (p_query text DEFAULT NULL, p_status text DEFAULT NULL, p_page integer DEFAULT 1, p_size integer DEFAULT 20, p_branch integer DEFAULT NULL)
     RETURNS jsonb
     LANGUAGE sql
     STABLE
@@ -314,6 +436,14 @@ CREATE OR REPLACE FUNCTION banking_api.list_customers (p_query text DEFAULT NULL
         AND (p_query IS NULL
             OR concat_ws(' ', customercode, fullname, phone, email)
             ILIKE '%' || p_query || '%')
+        AND (p_branch IS NULL OR EXISTS (
+            SELECT 1
+            FROM account_holder ah
+            JOIN bank_account ba USING (accountid)
+            WHERE ah.customerid = vw_customer_detail.customerid
+              AND ah.status = 'Active'
+              AND ba.branchid = p_branch
+        ))
 ),
 p AS (
     SELECT
@@ -372,7 +502,7 @@ SELECT
         FROM f));
 $$;
 
-CREATE OR REPLACE FUNCTION banking_api.list_accounts (p_query text DEFAULT NULL, p_status text DEFAULT NULL, p_page integer DEFAULT 1, p_size integer DEFAULT 20)
+CREATE OR REPLACE FUNCTION banking_api.list_accounts (p_query text DEFAULT NULL, p_status text DEFAULT NULL, p_page integer DEFAULT 1, p_size integer DEFAULT 20, p_branch integer DEFAULT NULL)
     RETURNS jsonb
     LANGUAGE sql
     STABLE
@@ -388,6 +518,7 @@ CREATE OR REPLACE FUNCTION banking_api.list_accounts (p_query text DEFAULT NULL,
         AND (p_query IS NULL
             OR concat_ws(' ', accountnumber, branchname, accounttypename)
             ILIKE '%' || p_query || '%')
+        AND (p_branch IS NULL OR branchid = p_branch)
 ),
 p AS (
     SELECT
@@ -484,7 +615,7 @@ SELECT
         FROM f));
 $$;
 
-CREATE OR REPLACE FUNCTION banking_api.list_cards (p_customer bigint DEFAULT NULL, p_account bigint DEFAULT NULL, p_status text DEFAULT NULL, p_page integer DEFAULT 1, p_size integer DEFAULT 20)
+CREATE OR REPLACE FUNCTION banking_api.list_cards (p_customer bigint DEFAULT NULL, p_account bigint DEFAULT NULL, p_status text DEFAULT NULL, p_page integer DEFAULT 1, p_size integer DEFAULT 20, p_branch integer DEFAULT NULL)
     RETURNS jsonb
     LANGUAGE sql
     STABLE
@@ -501,6 +632,12 @@ CREATE OR REPLACE FUNCTION banking_api.list_cards (p_customer bigint DEFAULT NUL
             OR accountid = p_account)
         AND (p_status IS NULL
             OR status = p_status)
+        AND (p_branch IS NULL OR EXISTS (
+            SELECT 1
+            FROM bank_account ba
+            WHERE ba.accountid = vw_customer_cards.accountid
+              AND ba.branchid = p_branch
+        ))
 ),
 p AS (
     SELECT
@@ -666,7 +803,7 @@ CREATE OR REPLACE FUNCTION banking_api.customer_dashboard (p_customer bigint)
                     FROM notification_outbox
                 WHERE
                     customerid = p_customer
-                    AND status = 'PENDING'), 'recentTransactions', (banking_api.list_transactions (p_customer, NULL, NULL, NULL, NULL, NULL, 1, 5) -> 'items'));
+                    AND status = 'PENDING'), 'recentTransactions', (banking_api.list_transactions (p_customer, NULL, NULL, NULL, NULL, NULL, 1, 5, NULL) -> 'items'));
 $$;
 
 CREATE OR REPLACE FUNCTION banking_api.branch_dashboard (p_branch integer, p_from timestamp DEFAULT date_trunc('month', CURRENT_TIMESTAMP), p_to timestamp DEFAULT CURRENT_TIMESTAMP)
@@ -684,17 +821,30 @@ CREATE OR REPLACE FUNCTION banking_api.branch_dashboard (p_branch integer, p_fro
             branchid = p_branch
 ),
 tx AS (
-    SELECT DISTINCT
+    SELECT
         bt.transactionid,
         bt.amount,
         bt.status
     FROM
         bank_transaction bt
-        JOIN transaction_posting tp USING (transactionid)
-        JOIN branch_accounts ba USING (accountid)
     WHERE
         bt.transactiondate >= p_from
         AND bt.transactiondate < p_to
+        AND (
+            EXISTS (
+                SELECT 1
+                FROM transfer_request tr
+                JOIN branch_accounts ba
+                  ON ba.accountid IN (tr.sourceaccountid, tr.destinationaccountid)
+                WHERE tr.transactionid = bt.transactionid
+            )
+            OR EXISTS (
+                SELECT 1
+                FROM transaction_posting tp
+                JOIN branch_accounts ba USING (accountid)
+                WHERE tp.transactionid = bt.transactionid
+            )
+        )
 ),
 risky AS (
     SELECT DISTINCT
@@ -734,12 +884,19 @@ SELECT
             JOIN bank_transaction bt USING (transactionid)
         WHERE
             rc.status IN ('OPEN', 'IN_REVIEW')
-                AND EXISTS (
-                    SELECT
-                        1
-                    FROM transaction_posting tp
-                    JOIN branch_accounts ba USING (accountid)
-            WHERE
-                tp.transactionid = bt.transactionid)));
+            AND EXISTS (
+                SELECT 1
+                FROM tx
+                WHERE tx.transactionid = bt.transactionid
+            )));
 $$;
+
+-- Remove obsolete overloads left by earlier installations. These signatures
+-- were replaced by branch-aware versions above; no table data is affected.
+DROP FUNCTION IF EXISTS banking_api.get_transaction (bigint, bigint);
+DROP FUNCTION IF EXISTS banking_api.list_transactions (bigint, bigint, text, text, timestamp, timestamp, integer, integer);
+DROP FUNCTION IF EXISTS banking_api.list_fraud_reviews (text, integer, integer);
+DROP FUNCTION IF EXISTS banking_api.list_customers (text, text, integer, integer);
+DROP FUNCTION IF EXISTS banking_api.list_accounts (text, text, integer, integer);
+DROP FUNCTION IF EXISTS banking_api.list_cards (bigint, bigint, text, integer, integer);
 

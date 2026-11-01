@@ -492,7 +492,7 @@ BEGIN
         banking_api.raise_error ('FORBIDDEN', 'customer is not an active account holder');
 END IF;
 INSERT INTO card (cardnumber, accountid, issuedate, expirydate, cardtype, pinhash, status, dailylimit, customerid)
-    VALUES (p_number, p_account, p_issue, p_expiry, p_type, crypt(p_pin, gen_salt('bf', 12)), 'Active', p_limit, p_customer)
+        VALUES (p_number, p_account, p_issue, p_expiry, p_type, public.crypt(p_pin, public.gen_salt('bf', 12)), 'Active', p_limit, p_customer)
 RETURNING
     *
 INTO
@@ -584,14 +584,14 @@ BEGIN
         AND customerid = p_customer
         AND status = 'Active'
     FOR UPDATE;
-    IF p_old_pin IS NULL OR NOT FOUND OR COALESCE(crypt(p_old_pin, v_hash) <> v_hash, TRUE) THEN
+    IF p_old_pin IS NULL OR NOT FOUND OR COALESCE(public.crypt(p_old_pin, v_hash) <> v_hash, TRUE) THEN
         PERFORM
             banking_api.raise_error ('AUTH_INVALID', 'current PIN is invalid');
     END IF;
     UPDATE
         card
     SET
-        pinhash = crypt(p_new_pin, gen_salt('bf', 12))
+        pinhash = public.crypt(p_new_pin, public.gen_salt('bf', 12))
     WHERE
         cardid = p_card;
 END;

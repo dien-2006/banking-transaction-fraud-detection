@@ -1,0 +1,69 @@
+.dashboard-shell main .staff-hero {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 88px;
+  min-height: 0;
+  flex-shrink: 0;
+  overflow: hidden;
+  padding: 10px 16px;
+  border: 1px solid #ffe0e7;
+  border-radius: 12px;
+  background: linear-gradient(110deg, #fff4f6, #ffe3e9);
+  aspect-ratio: auto;
+}
+.staff-hero-copy {
+  position: relative;
+  z-index: 1;
+  max-width: 70%;
+}
+.staff-hero-copy small {
+  display: block;
+  line-height: 12px;
+  color: #ce1740;
+  font-size: 9px;
+  font-weight: 700;
+}
+.staff-hero-copy h1 {
+  margin: 2px 0;
+  color: #080d65;
+  font-size: 23px;
+  line-height: 1.2;
+  font-weight: 800;
+}
+.staff-hero-copy h1 span {
+  color: #ee1744;
+}
+.staff-hero-copy p {
+  color: #465d80;
+  font-size: 11px;
+  line-height: 1.4;
+}
+.staff-hero-art {
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 28%;
+  height: 100%;
+  overflow: hidden;
+}
+.staff-hero-art img {
+  position: absolute;
+  max-width: none;
+  object-fit: fill;
+}
+@media (max-width: 639px) {
+  .dashboard-shell main .staff-hero {
+    height: 110px;
+    padding: 12px;
+  }
+  .staff-hero-copy {
+    max-width: 100%;
+  }
+  .staff-hero-copy h1 {
+    font-size: 21px;
+  }
+  .staff-hero-art {
+    display: none;
+  }
+}

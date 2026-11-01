@@ -1,36 +1,531 @@
 "use client";
 
-import { Ellipsis, FileClock, Filter, LockKeyhole, Search, ShieldCheck, UserRoundCheck, UsersRound } from "lucide-react";
-import Image from "next/image";
-import { useMemo, useState } from "react";
+import {
+  FileClock,
+  Filter,
+  LockKeyhole,
+  Search,
+  ShieldCheck,
+  UserRoundCheck,
+  UsersRound,
+} from "lucide-react";
+import { StaffHero } from "@/components/staff-hero";
+import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useSessionUser } from "@/components/session-context";
+import {
+  ListPagination,
+  useListPagination,
+} from "@/components/list-pagination";
+import { RecordViewButton } from "@/components/record-view-button";
+import { bankService } from "@/services/bank.service";
+import { loadAuditLogs } from "@/lib/audit-data";
 
-type AuditLevel="Bình thường"|"Trung bình"|"Cao"|"Rất cao";
-type AuditStatus="Thành công"|"Thất bại";
-type AuditLog={time:string;user:string;ip:string;type:string;detail:string;target:string;level:AuditLevel;status:AuditStatus};
-const logs:AuditLog[]=[
-  {time:"12/09/2024 09:15:23",user:"nguyenminhanh",ip:"192.168.1.10",type:"Đăng nhập",detail:"Đăng nhập thành công",target:"Hệ thống",level:"Bình thường",status:"Thành công"},
-  {time:"12/09/2024 09:20:11",user:"tranthibinh",ip:"192.168.1.25",type:"Xem thông tin",detail:"Xem chi tiết khách hàng",target:"Khách hàng KH000123",level:"Bình thường",status:"Thành công"},
-  {time:"12/09/2024 09:32:45",user:"levancuong",ip:"192.168.1.32",type:"Cập nhật",detail:"Cập nhật thông tin tài khoản",target:"Tài khoản 0123456789",level:"Cao",status:"Thành công"},
-  {time:"12/09/2024 09:45:12",user:"phamthidung",ip:"192.168.1.18",type:"Tạo mới",detail:"Tạo khoản vay mới",target:"Khoản vay KV000456",level:"Cao",status:"Thành công"},
-  {time:"12/09/2024 10:03:27",user:"hoangvanem",ip:"192.168.1.27",type:"Xóa",detail:"Xóa dữ liệu tạm",target:"Tệp tin report_2024.pdf",level:"Rất cao",status:"Thành công"},
-  {time:"12/09/2024 10:15:38",user:"dothiphuong",ip:"192.168.1.14",type:"Phê duyệt",detail:"Duyệt giao dịch",target:"Giao dịch GD20240912001",level:"Cao",status:"Thành công"},
-  {time:"12/09/2024 10:28:56",user:"nguyenquanghuy",ip:"192.168.1.33",type:"Đăng xuất",detail:"Đăng xuất khỏi hệ thống",target:"Hệ thống",level:"Bình thường",status:"Thành công"},
-  {time:"12/09/2024 11:02:14",user:"vuthilan",ip:"192.168.1.40",type:"Xem báo cáo",detail:"Xem báo cáo giao dịch",target:"Báo cáo BCGD_2024",level:"Bình thường",status:"Thành công"},
-  {time:"12/09/2024 11:18:09",user:"tranducLong",ip:"192.168.1.21",type:"Cập nhật",detail:"Cập nhật hạn mức thẻ",target:"Thẻ 9704 **** 1234",level:"Trung bình",status:"Thành công"},
-  {time:"12/09/2024 11:35:47",user:"ngothimai",ip:"192.168.1.29",type:"Đăng nhập",detail:"Đăng nhập thất bại (sai mật khẩu)",target:"Hệ thống",level:"Bình thường",status:"Thất bại"},
-];
-const typeTone:Record<string,string>={"Đăng nhập":"bg-blue-50 text-blue-600","Đăng xuất":"bg-blue-50 text-blue-600","Xem thông tin":"bg-violet-50 text-violet-600","Xem báo cáo":"bg-violet-50 text-violet-600","Cập nhật":"bg-orange-50 text-orange-500","Tạo mới":"bg-rose-50 text-red-500","Xóa":"bg-red-50 text-red-500","Phê duyệt":"bg-emerald-50 text-emerald-600"};
-const levelTone:Record<AuditLevel,string>={"Bình thường":"bg-slate-100 text-slate-600","Trung bình":"bg-amber-50 text-orange-500","Cao":"bg-rose-50 text-red-500","Rất cao":"bg-red-100 text-red-600"};
+const typeTone: Record<string, string> = {
+  "Tạo mới": "bg-rose-50 text-red-500",
+  "Cập nhật": "bg-orange-50 text-orange-600",
+  Xóa: "bg-red-50 text-red-600",
+  "Đổi trạng thái": "bg-blue-50 text-blue-600",
+};
 
-function AuditHero(){return <section className="audit-hero relative overflow-hidden rounded-xl border border-red-100 bg-[#fff0f0]" aria-label="Nhật ký hoạt động"><Image alt="Nhật ký hoạt động D4 Bank" className="audit-hero-source absolute max-w-none" height={725} priority src="/audit-hero-v2.png" width={2170}/></section>}
+function AuditHero() {
+  return (
+    <StaffHero
+      kind="audit"
+      eyebrow="GIÁM SÁT HỆ THỐNG"
+      title="Nhật ký"
+      accent="hoạt động"
+      description="Theo dõi và truy vết hoạt động của người dùng trong hệ thống."
+    />
+  );
+}
 
-export function AuditLogsPage({role="admin"}:{role?:"admin"|"employee"}){const[q,setQ]=useState(""),[type,setType]=useState(""),[level,setLevel]=useState(""),[tab,setTab]=useState("Danh sách hoạt động");const scopedLogs=role==="employee"?logs.slice(0,5).map(x=>({...x,user:"nguyenhoangan"})):logs;const data=useMemo(()=>scopedLogs.filter(x=>(!q||Object.values(x).join(" ").toLowerCase().includes(q.toLowerCase()))&&(!type||x.type===type)&&(!level||x.level===level)),[q,type,level,role]);const kpis:Array<[typeof FileClock,string,string,string]>=role==="employee"?[[FileClock,"Hoạt động của tôi","248","Hôm nay"],[UsersRound,"Phiên làm việc","8","Trong tháng"],[LockKeyhole,"Thao tác nhạy cảm","3","Đã xác nhận"],[ShieldCheck,"Đăng nhập thành công","42","100%"]]:[[FileClock,"Tổng số hoạt động","56,720","12.5%"],[UsersRound,"Người dùng hoạt động","320","8.3%"],[LockKeyhole,"Hoạt động nhạy cảm","1,240","25.0%"],[ShieldCheck,"Đăng nhập thành công","54,880","10.8%"]];return <div className="customers-page-content flex flex-col gap-2.5 text-navy"><AuditHero/>
-  <section className="grid grid-cols-4 gap-3">{kpis.map(([Icon,label,value,change],i)=><article className="card flex items-center gap-3 p-3" key={label}><span className="grid size-11 place-items-center rounded-full bg-[#ffe9ec] text-coral"><Icon size={21}/></span><div><p className="text-xs">{label}</p><b className="text-2xl">{value}</b><small className={`block text-[9px] ${i===2?"text-red-500":"text-emerald-500"}`}>↑ &nbsp;{change} &nbsp;<span className="text-blue-700">so với tháng trước</span></small></div></article>)}</section>
-  <section className="card flex h-12 px-3"><div className="flex h-full gap-4">{(role==="employee"?["Danh sách hoạt động","Thống kê hoạt động","Đăng nhập hệ thống"]:["Danh sách hoạt động","Thống kê hoạt động","Hoạt động nhạy cảm","Đăng nhập hệ thống","Lịch sử thay đổi"]).map(x=><button className={tab===x?"border-b-2 border-coral px-2 text-xs font-semibold text-coral":"px-2 text-xs"} key={x} onClick={()=>setTab(x)}>{x}</button>)}</div></section>
-  {tab!=="Danh sách hoạt động"?<section className="grid min-h-0 flex-1 grid-cols-3 gap-3"><article className="card col-span-2 p-5"><h2 className="text-lg font-black">{tab}</h2><p className="mt-2 text-sm text-slate-500">Tổng hợp audit theo khoảng thời gian và phạm vi truy cập đã chọn.</p><div className="mt-6 grid grid-cols-4 gap-4">{["Đăng nhập","Xem thông tin","Cập nhật","Phê duyệt"].map((x,i)=><div className="rounded-xl bg-slate-50 p-4" key={x}><p className="text-xs text-slate-500">{x}</p><b className="mt-2 block text-2xl">{["25,524","11,344","8,508","5,672"][i]}</b></div>)}</div></article><article className="card p-5"><h2 className="text-lg font-black">Lưu ý bảo mật</h2><p className="mt-3 text-xs leading-5 text-slate-500">Nhật ký chỉ hiển thị metadata cần thiết để truy vết. Mật khẩu, token và dữ liệu bí mật không được ghi hoặc hiển thị.</p></article></section>:<section className="grid min-h-0 flex-1 grid-cols-[2.05fr_.62fr] gap-3"><article className="card flex min-h-0 flex-col p-3">
-    <div className="grid grid-cols-[1.4fr_.58fr_.58fr_.55fr_.75fr_.3fr] gap-2"><label className="relative"><Search className="absolute left-3 top-2.5 text-slate-400" size={15}/><input aria-label="Tìm nhật ký" className="h-9 w-full rounded-lg border pl-9 text-[10px]" value={q} onChange={e=>setQ(e.target.value)} placeholder="Tìm kiếm theo người dùng, hành động, mô tả, địa chỉ IP..."/></label><select aria-label="Người dùng" className="rounded-lg border px-2 text-[10px]"><option>Tất cả người dùng</option></select><select aria-label="Loại hoạt động" className="rounded-lg border px-2 text-[10px]" value={type} onChange={e=>setType(e.target.value)}><option value="">Tất cả loại hoạt động</option>{Object.keys(typeTone).map(x=><option key={x}>{x}</option>)}</select><select aria-label="Mức độ" className="rounded-lg border px-2 text-[10px]" value={level} onChange={e=>setLevel(e.target.value)}><option value="">Tất cả mức độ</option>{Object.keys(levelTone).map(x=><option key={x}>{x}</option>)}</select><button className="rounded-lg border text-[10px]">▣ &nbsp;01/09/2024 - 30/09/2024</button><button className="rounded-lg border border-coral text-[10px] text-coral"><Filter className="inline" size={13}/> Lọc</button></div>
-    <div className="mt-2 min-h-0 overflow-auto"><table className="w-full table-fixed text-left text-[10px]"><thead className="bg-slate-50"><tr>{["Thời gian","Người dùng","IP Address","Loại hoạt động","Mô tả chi tiết","Đối tượng","Mức độ","Trạng thái","Thao tác"].map(x=><th className="p-2 font-medium" key={x}>{x}</th>)}</tr></thead><tbody>{data.map((x,i)=><tr className="border-t" key={`${x.time}-${x.user}`}><td className="p-1.5">{x.time}</td><td className="p-1.5">{x.user}</td><td className="p-1.5">{x.ip}</td><td className="p-1.5"><span className={`inline-block min-w-20 rounded px-2 py-1 text-center ${typeTone[x.type]}`}>{x.type}</span></td><td className="p-1.5">{x.detail}</td><td className="p-1.5">{x.target}</td><td className="p-1.5"><span className={`inline-block min-w-20 rounded px-2 py-1 text-center ${levelTone[x.level]}`}>{x.level}</span></td><td className="p-1.5"><span className={x.status==="Thành công"?"rounded bg-emerald-50 px-2 py-1 text-emerald-600":"rounded bg-red-50 px-2 py-1 text-red-500"}>{x.status}</span></td><td className="p-1.5 text-center"><button aria-label={`Thao tác nhật ký ${i+1}`}><Ellipsis size={16}/></button></td></tr>)}</tbody></table></div><p className="mt-auto border-t pt-2 text-[10px] text-slate-500">Hiển thị 1 - {data.length} của 56,720 hoạt động <span className="float-right font-semibold text-navy">‹ &nbsp; [ 1 ] &nbsp; 2 &nbsp; 3 &nbsp; 4 &nbsp; 5 &nbsp; … &nbsp; 5,672 &nbsp; › &nbsp; 10 / trang⌄</span></p>
-  </article><aside className="grid min-h-0 grid-rows-[1.15fr_1fr_1.1fr] gap-3"><article className="card p-3"><h2 className="text-sm font-black">Cơ cấu hoạt động theo loại</h2><div className="flex h-full items-center gap-4"><div className="grid size-28 shrink-0 place-items-center rounded-full" style={{background:"conic-gradient(#f5223e 0 45%,#ff9aa6 45% 65%,#ffbd49 65% 80%,#3aa3e8 80% 90%,#5869dd 90% 95%,#9354e7 95% 100%)"}}><div className="grid size-16 place-items-center rounded-full bg-white text-center"><b className="text-xl">56,720</b><span className="text-[9px]">hoạt động</span></div></div><div className="space-y-1.5 text-[10px]">{[["Đăng nhập","45%"],["Xem thông tin","20%"],["Cập nhật","15%"],["Tạo mới","10%"],["Xóa","5%"],["Khác","5%"]].map(x=><p className="flex w-32 justify-between" key={x[0]}><span>{x[0]}</span><b>{x[1]}</b></p>)}</div></div></article>
-    <article className="card p-3"><h2 className="text-sm font-black">Hoạt động theo mức độ rủi ro</h2><div className="mt-3 space-y-2 text-[10px]">{[["Bình thường",65,"65% (36,868)","bg-emerald-500"],["Trung bình",20,"20% (11,344)","bg-amber-400"],["Cao",10,"10% (5,672)","bg-red-400"],["Rất cao",5,"5% (2,836)","bg-red-600"]].map(([l,w,v,c])=><div className="grid grid-cols-[72px_1fr_72px] gap-2" key={String(l)}><span>{l}</span><span className="h-3 rounded bg-slate-100"><i className={`block h-full rounded ${c}`} style={{width:`${w}%`}}/></span><b>{v}</b></div>)}</div></article>
-    <article className="card p-3"><div className="flex justify-between"><h2 className="text-sm font-black">Top người dùng hoạt động nhiều nhất</h2><button className="text-[9px] text-coral">Xem tất cả →</button></div><div className="mt-2 space-y-2">{[["Nguyễn Minh Anh","12,450"],["Trần Thị Bình","8,320"],["Lê Văn Cường","7,890"],["Phạm Thị Dung","6,540"],["Hoàng Văn Em","5,210"]].map(([name,value],i)=><div className="flex items-center gap-2 text-[10px]" key={name}><b className="text-coral">{i+1}</b><span className="grid size-7 place-items-center rounded-full bg-red-50 text-coral"><UserRoundCheck size={14}/></span><span className="flex-1 font-semibold">{name}</span><span>{value} hoạt động</span></div>)}</div></article></aside></section>}
-  </div>}
+export function AuditLogsPage({
+  role = "admin",
+}: {
+  role?: "admin" | "employee";
+}) {
+  const session = useSessionUser();
+  const auditQuery = useQuery({
+    queryKey: ["admin-audit-old-ui", role, session.id, session.branchId],
+    queryFn: () => loadAuditLogs(bankService.auditLogs),
+    staleTime: 60_000,
+  });
+  const logs = useMemo(() => auditQuery.data ?? [], [auditQuery.data]);
+  const [user, setUser] = useState("");
+  const [day, setDay] = useState("");
+  const [q, setQ] = useState(""),
+    [type, setType] = useState(""),
+    [level, setLevel] = useState(""),
+    [tab, setTab] = useState("Danh sách hoạt động");
+  const data = useMemo(
+    () =>
+      logs.filter(
+        (x) =>
+          (!q ||
+            Object.values(x)
+              .join(" ")
+              .toLowerCase()
+              .includes(q.toLowerCase())) &&
+          (!type || x.type === type) &&
+          (!level || x.entity === level) &&
+          (!user || x.userKey === user) &&
+          (!day || x.day === day),
+      ),
+    [q, type, level, user, day, logs],
+  );
+  const pagination = useListPagination(data, { fitViewportOnly: true });
+  useEffect(() => pagination.setPage(1), [q, type, level, user, day]);
+  const users = Array.from(
+    new Map(logs.map((x) => [x.userKey, x.user])).entries(),
+  );
+  const actions = Array.from(new Set(logs.map((x) => x.type))).sort();
+  const entities = Array.from(
+    new Map(logs.map((x) => [x.entity, x.target])).entries(),
+  );
+  const kpis: Array<[typeof FileClock, string, string]> = [
+    [FileClock, "Tổng số hoạt động", String(logs.length)],
+    [
+      UsersRound,
+      "Người thực hiện",
+      String(users.filter(([id]) => id !== "__system").length),
+    ],
+    [
+      LockKeyhole,
+      "Thao tác cập nhật",
+      String(logs.filter((x) => x.action === "UPDATE").length),
+    ],
+    [
+      ShieldCheck,
+      "Thay đổi trạng thái",
+      String(logs.filter((x) => x.action === "STATUS_CHANGE").length),
+    ],
+  ];
+  const percent = (count: number) =>
+    logs.length ? Math.round((count / logs.length) * 100) : 0;
+  const actionCounts = actions.map((label) => ({
+    label,
+    count: logs.filter((x) => x.type === label).length,
+  }));
+  const entityCounts = entities
+    .map(([id, label]) => ({
+      label,
+      count: logs.filter((x) => x.entity === id).length,
+    }))
+    .sort((a, b) => b.count - a.count);
+  const entityPreview =
+    entityCounts.length > 4
+      ? [
+          ...entityCounts.slice(0, 3),
+          {
+            label: "Khác",
+            count: entityCounts
+              .slice(3)
+              .reduce((sum, item) => sum + item.count, 0),
+          },
+        ]
+      : entityCounts;
+  const topUsers = users
+    .map(([id, name]) => ({
+      id,
+      name,
+      count: logs.filter((x) => x.userKey === id).length,
+    }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 3);
+  const colors = ["#f5223e", "#ff9aa6", "#ffbd49", "#3aa3e8"];
+  let boundary = 0;
+  const gradient = actionCounts
+    .map((item, index) => {
+      const start = boundary;
+      boundary += (item.count / Math.max(logs.length, 1)) * 100;
+      return `${colors[index % colors.length]} ${start}% ${boundary}%`;
+    })
+    .join(", ");
+  return (
+    <div className="staff-data-page customers-page-content flex flex-col gap-2.5 text-navy">
+      <AuditHero />
+      <section className="grid grid-cols-4 gap-3">
+        {kpis.map(([Icon, label, value], i) => (
+          <article className="card flex items-center gap-3 p-3" key={label}>
+            <span className="grid size-11 place-items-center rounded-full bg-[#ffe9ec] text-coral">
+              <Icon size={21} />
+            </span>
+            <div>
+              <p className="text-xs">{label}</p>
+              <b className="text-2xl">{auditQuery.data ? value : "—"}</b>
+              <small
+                className={`block text-[9px] ${i === 2 ? "text-red-500" : "text-emerald-500"}`}
+              >
+                {auditQuery.isError
+                  ? "Không tải được dữ liệu"
+                  : auditQuery.isPending
+                    ? "Đang tải…"
+                    : "Theo nhật ký trong hệ thống"}
+              </small>
+            </div>
+          </article>
+        ))}
+      </section>
+      <section className="d4-page-toolbar card flex h-12 px-3">
+        <div className="flex h-full gap-4">
+          {(role === "employee"
+            ? [
+                "Danh sách hoạt động",
+                "Thống kê hoạt động",
+                "Đăng nhập hệ thống",
+              ]
+            : [
+                "Danh sách hoạt động",
+                "Thống kê hoạt động",
+                "Hoạt động nhạy cảm",
+                "Đăng nhập hệ thống",
+                "Lịch sử thay đổi",
+              ]
+          ).map((x) => (
+            <button
+              className={
+                tab === x
+                  ? "border-b-2 border-coral px-2 text-xs font-semibold text-coral"
+                  : "px-2 text-xs"
+              }
+              key={x}
+              onClick={() => setTab(x)}
+              disabled={
+                !["Danh sách hoạt động", "Thống kê hoạt động"].includes(x)
+              }
+              title={
+                !["Danh sách hoạt động", "Thống kê hoạt động"].includes(x)
+                  ? "API chưa có dữ liệu cho chức năng này"
+                  : undefined
+              }
+            >
+              {x}
+            </button>
+          ))}
+        </div>
+      </section>
+      {tab !== "Danh sách hoạt động" ? (
+        <section className="grid min-h-0 flex-1 grid-cols-3 gap-3">
+          <article className="card p-5 lg:col-span-2">
+            <h2 className="text-lg font-black">{tab}</h2>
+            <p className="mt-2 text-sm text-slate-500">
+              Tổng hợp audit theo khoảng thời gian và phạm vi truy cập đã chọn.
+            </p>
+            <div className="mt-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+              {["Tạo mới", "Cập nhật", "Xóa", "Đổi trạng thái"].map((x) => (
+                <div className="rounded-xl bg-slate-50 p-4" key={x}>
+                  <p className="text-xs text-slate-500">{x}</p>
+                  <b className="mt-2 block text-2xl">
+                    {auditQuery.data
+                      ? logs.filter((row) => row.type === x).length
+                      : "—"}
+                  </b>
+                </div>
+              ))}
+            </div>
+          </article>
+          <article className="card p-5">
+            <h2 className="text-lg font-black">Lưu ý bảo mật</h2>
+            <p className="mt-3 text-xs leading-5 text-slate-500">
+              Nhật ký chỉ hiển thị metadata cần thiết để truy vết. Mật khẩu,
+              token và dữ liệu bí mật không được ghi hoặc hiển thị.
+            </p>
+          </article>
+        </section>
+      ) : (
+        <section className="grid min-h-0 flex-1 grid-cols-[2.05fr_.62fr] gap-3">
+          <article
+            ref={pagination.panelRef}
+            className="d4-list-panel card flex min-h-0 flex-col p-3"
+          >
+            <div className="grid grid-cols-[1.4fr_.58fr_.58fr_.55fr_.75fr_.3fr] gap-2">
+              <label className="relative">
+                <Search
+                  className="absolute left-3 top-2.5 text-slate-400"
+                  size={15}
+                />
+                <input
+                  aria-label="Tìm nhật ký"
+                  className="h-9 w-full rounded-lg border pl-9 text-[10px]"
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  placeholder="Tìm kiếm theo người dùng, hành động, mô tả, địa chỉ IP..."
+                />
+              </label>
+              <select
+                aria-label="Người dùng"
+                className="rounded-lg border px-2 text-[10px]"
+                value={user}
+                onChange={(event) => setUser(event.target.value)}
+              >
+                <option value="">Tất cả người thực hiện</option>
+                {users.map(([id, name]) => (
+                  <option value={id} key={id}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+              <select
+                aria-label="Loại hoạt động"
+                className="rounded-lg border px-2 text-[10px]"
+                value={type}
+                onChange={(e) => setType(e.target.value)}
+              >
+                <option value="">Tất cả loại hoạt động</option>
+                {actions.map((x) => (
+                  <option key={x}>{x}</option>
+                ))}
+              </select>
+              <select
+                aria-label="Loại đối tượng"
+                className="rounded-lg border px-2 text-[10px]"
+                value={level}
+                onChange={(e) => setLevel(e.target.value)}
+              >
+                <option value="">Tất cả đối tượng</option>
+                {entities.map(([id, name]) => (
+                  <option key={id} value={id}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="date"
+                aria-label="Ngày ghi nhật ký"
+                className="h-9 min-w-0 rounded-lg border px-2 text-[10px]"
+                value={day}
+                onChange={(event) => setDay(event.target.value)}
+              />
+              <button
+                onClick={() => pagination.setPage(1)}
+                className="rounded-lg border border-coral text-[10px] text-coral"
+              >
+                <Filter className="inline" size={13} /> Lọc
+              </button>
+            </div>
+            <div className="staff-table-scroll mt-2 min-h-0 overflow-auto">
+              <table className="w-full table-fixed text-left text-[10px]">
+                <thead className="bg-slate-50">
+                  <tr>
+                    {[
+                      "Mã nhật ký",
+                      "Thời gian",
+                      "Người thực hiện",
+                      "Địa chỉ IP",
+                      "Hành động",
+                      "Đối tượng",
+                      "Mã đối tượng",
+                      "Trường thay đổi",
+                      "Chi tiết",
+                    ].map((x) => (
+                      <th className="p-2 font-medium" key={x}>
+                        {x}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {auditQuery.isPending && (
+                    <tr>
+                      <td
+                        colSpan={9}
+                        className="p-3 text-center text-slate-500"
+                      >
+                        Đang tải nhật ký…
+                      </td>
+                    </tr>
+                  )}
+                  {auditQuery.isError && (
+                    <tr>
+                      <td colSpan={9} className="p-3 text-center text-red-600">
+                        Không thể tải nhật ký.{" "}
+                        <button
+                          onClick={() => {
+                            void auditQuery.refetch();
+                          }}
+                        >
+                          Thử lại
+                        </button>
+                      </td>
+                    </tr>
+                  )}
+                  {auditQuery.isSuccess && !data.length && (
+                    <tr>
+                      <td
+                        colSpan={9}
+                        className="p-3 text-center text-slate-500"
+                      >
+                        Không có nhật ký phù hợp.
+                      </td>
+                    </tr>
+                  )}
+                  {pagination.visibleItems.map((x) => (
+                    <tr className="border-t" key={x.id}>
+                      <td className="p-1.5">{x.id}</td>
+                      <td className="p-1.5">{x.time}</td>
+                      <td className="p-1.5">{x.user}</td>
+                      <td className="p-1.5">{x.ip}</td>
+                      <td className="p-1.5">
+                        <span
+                          className={`inline-block rounded px-1 text-center ${typeTone[x.type] ?? "bg-slate-100 text-slate-600"}`}
+                        >
+                          {x.type}
+                        </span>
+                      </td>
+                      <td className="p-1.5">{x.target}</td>
+                      <td className="p-1.5">{x.entityId}</td>
+                      <td className="p-1.5">{x.changes}</td>
+                      <td className="p-1.5 text-center">
+                        <RecordViewButton
+                          record={{
+                            "Mã nhật ký": x.id,
+                            "Thời gian": x.time,
+                            "Người thực hiện": x.user,
+                            "Địa chỉ IP": x.ip,
+                            "Hành động": x.type,
+                            "Mã hành động": x.action,
+                            "Đối tượng": x.target,
+                            "Mã đối tượng": x.entityId,
+                            "Trường thay đổi": x.changes,
+                          }}
+                          title={`Chi tiết nhật ký #${x.id}`}
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <ListPagination {...pagination} noun="hoạt động" />
+          </article>
+          <aside className="staff-secondary-panels grid min-h-0 grid-rows-[1.15fr_1fr_1.1fr] gap-3">
+            <article className="card p-3">
+              <h2 className="text-sm font-black">Cơ cấu hoạt động theo loại</h2>
+              <div className="flex min-w-0 items-center gap-3 pt-2">
+                <div
+                  className="grid size-20 shrink-0 place-items-center rounded-full"
+                  style={{
+                    background: logs.length
+                      ? `conic-gradient(${gradient})`
+                      : "#edf0f5",
+                  }}
+                >
+                  <div className="grid size-12 place-items-center rounded-full bg-white text-center">
+                    <b className="text-sm" title={String(logs.length)}>
+                      {auditQuery.data
+                        ? logs.length.toLocaleString("vi-VN", {
+                            notation: "compact",
+                            maximumFractionDigits: 1,
+                          })
+                        : "—"}
+                    </b>
+                    <span className="text-[9px]">hoạt động</span>
+                  </div>
+                </div>
+                <div className="min-w-0 flex-1 space-y-1.5 text-[10px]">
+                  {actionCounts.map((item, index) => (
+                    <p
+                      className="flex min-w-0 items-center gap-2"
+                      key={item.label}
+                    >
+                      <i
+                        className="size-2 shrink-0 rounded-full"
+                        style={{ background: colors[index % colors.length] }}
+                      />
+                      <span
+                        className="min-w-0 flex-1 truncate"
+                        title={item.label}
+                      >
+                        {item.label}
+                      </span>
+                      <b>{percent(item.count)}%</b>
+                    </p>
+                  ))}
+                </div>
+              </div>
+            </article>
+            <article className="card p-3">
+              <h2 className="text-sm font-black">Hoạt động theo đối tượng</h2>
+              <div className="mt-3 space-y-2 text-[10px]">
+                {entityPreview.map((item, index) => (
+                  <div
+                    className="grid grid-cols-[minmax(0,1fr)_minmax(24px,.7fr)_auto] items-center gap-2"
+                    key={item.label}
+                  >
+                    <span className="truncate" title={item.label}>
+                      {item.label}
+                    </span>
+                    <span className="h-3 rounded bg-slate-100">
+                      <i
+                        className="block h-full rounded"
+                        style={{
+                          width: `${percent(item.count)}%`,
+                          background: colors[index % colors.length],
+                        }}
+                      />
+                    </span>
+                    <b>
+                      {percent(item.count)}% ({item.count})
+                    </b>
+                  </div>
+                ))}
+              </div>
+            </article>
+            <article className="card p-3">
+              <div className="flex justify-between">
+                <h2 className="text-sm font-black">
+                  Người thực hiện nhiều nhất
+                </h2>
+                <button
+                  onClick={() => {
+                    setQ("");
+                    setType("");
+                    setLevel("");
+                    setUser("");
+                    setDay("");
+                    pagination.setPage(1);
+                  }}
+                  className="shrink-0 text-[9px] text-coral"
+                >
+                  Xem tất cả →
+                </button>
+              </div>
+              <div className="mt-2 space-y-2">
+                {auditQuery.isSuccess && !topUsers.length && (
+                  <p className="text-xs text-slate-500">Chưa có hoạt động.</p>
+                )}
+                {topUsers.map((item, i) => (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setQ("");
+                      setType("");
+                      setLevel("");
+                      setDay("");
+                      setUser(item.id);
+                      pagination.setPage(1);
+                    }}
+                    className="flex w-full min-w-0 items-center gap-2 text-left text-[10px]"
+                    key={item.id}
+                  >
+                    <b className="text-coral">{i + 1}</b>
+                    <span className="grid size-7 place-items-center rounded-full bg-red-50 text-coral">
+                      <UserRoundCheck size={14} />
+                    </span>
+                    <span className="min-w-0 flex-1 truncate font-semibold">
+                      {item.name}
+                    </span>
+                    <span className="shrink-0">
+                      {item.count.toLocaleString("vi-VN")}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </article>
+          </aside>
+        </section>
+      )}
+    </div>
+  );
+}

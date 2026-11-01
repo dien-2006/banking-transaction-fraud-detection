@@ -2,6 +2,7 @@ import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from
 import { JwtService } from '@nestjs/jwt';
 import { Reflector } from '@nestjs/core';
 import { Request } from 'express';
+import { employeeBranch } from './branch-access';
 
 export interface AuthUser {
   sub: string; role: 'customer' | 'employee' | 'admin'; actorType: 'customer' | 'employee';
@@ -18,7 +19,18 @@ export class AuthGuard implements CanActivate {
     const request = context.switchToHttp().getRequest<AuthRequest>();
     const token = request.headers.authorization?.match(/^Bearer (.+)$/i)?.[1];
     if (!token) throw new UnauthorizedException('Missing bearer token');
-    try { request.user = await this.jwt.verifyAsync<AuthUser>(token); return true; }
+    try {
+      const user = await this.jwt.verifyAsync<AuthUser>(token);
+      const positive = (value: unknown) => Number.isSafeInteger(Number(value)) && Number(value) > 0;
+      if (!['admin', 'employee', 'customer'].includes(user.role)
+        || (user.role === 'customer' ? user.actorType !== 'customer' || !positive(user.customerId)
+          : user.actorType !== 'employee' || !positive(user.userId) || !positive(user.employeeId))) {
+        throw new Error('Invalid actor identity');
+      }
+      employeeBranch(user);
+      request.user = user;
+      return true;
+    }
     catch { throw new UnauthorizedException('Invalid or expired token'); }
   }
 }

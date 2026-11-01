@@ -64,6 +64,16 @@ WITH latest_label AS (
             fraud_label_event_id DESC) AS rn
     FROM
         hive.gold.fact_fraud_label_event
+),
+latest_risk AS (
+    SELECT
+        r.*,
+        row_number() OVER (
+            PARTITION BY transaction_id
+            ORDER BY assessed_at DESC, risk_assessment_id DESC
+        ) AS rn
+    FROM
+        hive.gold.fact_risk_assessment r
 )
 SELECT
     m.model_key,
@@ -73,10 +83,12 @@ SELECT
     count(*) AS labeled_transactions,
     avg(r.model_probability) AS average_probability
 FROM
-    hive.gold.fact_risk_assessment r
+    latest_risk r
     JOIN hive.gold.dim_model m ON m.model_key = r.model_key
     JOIN latest_label l ON l.transaction_id = r.transaction_id
         AND l.rn = 1
+WHERE
+    r.rn = 1
 GROUP BY
     m.model_key,
     m.model_name,

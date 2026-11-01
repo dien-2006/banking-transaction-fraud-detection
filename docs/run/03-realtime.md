@@ -10,7 +10,7 @@ PostgreSQL EVENT_OUTBOX
   -> MinIO bronze/kafka/events/*.json
 ```
 
-Realtime hiện dừng ở durable Bronze. `ENABLE_REALTIME_SILVER_MERGE=false` là chủ ý; không tự bật merge Silver và không training model.
+Realtime mặc định dừng ở durable Bronze. `ENABLE_REALTIME_SILVER_MERGE=false` là chủ ý; PostgreSQL Batch là nguồn duy nhất tạo các bảng Silver nghiệp vụ. Nếu chủ động bật cờ này, Batch chỉ materialize `silver/domain_event` để phân tích/đối soát và không ghi đè `silver/bank_transaction`. Luồng realtime không tự training model.
 
 ## 1. Chuẩn bị Kafka cluster ID
 

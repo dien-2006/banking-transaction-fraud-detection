@@ -1,6 +1,852 @@
-.loans-customer-page{height:100%;overflow:hidden;color:#001080}.loans-customer-content{display:flex;min-width:0;flex-direction:column;gap:10px;transform-origin:top left}.loans-customer-hero{position:relative;min-height:166px;overflow:hidden;border:1px solid #ffe1e6;border-radius:12px;background:#fff0f2}.loans-customer-hero>img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.loans-customer-hero:after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,#fff0f2 0 43%,transparent 65%)}.loans-customer-hero>div{position:relative;z-index:1;padding:22px 27px}.loans-customer-hero p{display:flex;align-items:center;gap:7px;color:#4772bd}.loans-customer-hero p svg{width:14px}.loans-customer-hero h1{margin-top:9px;font-size:47px;font-weight:800;line-height:1}.loans-customer-hero h1 span{color:#f80820}.loans-customer-hero strong{display:block;margin-top:11px;font-size:15px;font-weight:400}
-.loans-customer-stats{display:grid;grid-template-columns:1.05fr 1fr 1fr .9fr;gap:8px}.loans-customer-stats article{display:flex;align-items:center;gap:15px;min-height:104px;padding:13px 16px;border:1px solid #e3e8f0;border-radius:9px;background:#fff}.loans-customer-stats article>i{display:grid;place-items:center;flex:0 0 57px;width:57px;height:57px;border-radius:50%;color:#f80820;background:#fff0f2}.loans-customer-stats article>div{min-width:0;flex:1}.loans-customer-stats p{font-size:12px}.loans-customer-stats b{display:block;white-space:nowrap;font-size:22px}.loans-customer-stats b small{font-size:12px;font-weight:400}.loans-customer-stats em{color:#4772bd;font-size:11px;font-style:normal}.loans-customer-stats article:first-child em{color:#f80820}.loans-customer-stats article>svg{width:20px;color:#4772bd}.loan-register-card button{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;height:49px;border-radius:7px;color:#fff;background:#f80820;font-weight:700}.loan-register-card button svg{width:19px}
-.loans-customer-workspace{display:grid;grid-template-columns:minmax(0,1fr) 350px;gap:12px;min-height:0}.loan-list,.loans-customer-side section{border:1px solid #e3e8f0;border-radius:10px;background:#fff}.loan-list{padding:14px}.loan-list>h2,.loans-customer-side h2{font-size:18px;font-weight:800}.loan-card{margin-top:11px;padding:13px 15px;border:1px solid #e1e7f0;border-radius:9px}.loan-card header{display:flex;align-items:center;gap:13px}.loan-card header>i{display:grid;place-items:center;flex:0 0 45px;width:45px;height:45px;border-radius:50%;color:#f80820;background:#fff0f2}.loan-card header>p{min-width:0;flex:1}.loan-card header b,.loan-card header small{display:block}.loan-card header small{color:#4772bd}.loan-card header>span{min-width:93px;padding:6px 10px;border-radius:7px;color:#009d50;background:#dcf8ec;text-align:center}.loan-card header>span.paid{color:#4772bd;background:#eaf0f9}.loan-card header>button{min-width:114px;padding:8px 12px;border:1px solid #f80820;border-radius:7px;color:#f80820}.loan-card header>button:last-child{min-width:30px;padding:5px;border:0;color:#001080}.loan-card header>button svg{width:19px}.loan-metrics{display:grid;grid-template-columns:1.1fr 1.1fr .8fr .8fr 1fr;margin-top:12px}.loan-metrics p{padding-right:12px;color:#4772bd;font-size:11px}.loan-metrics p+p{border-left:1px solid #e8edf4;padding-left:16px}.loan-metrics b,.loan-metrics strong{display:block;margin-top:4px;color:#001080;font-size:14px}.loan-metrics strong{color:#f80820}.loan-card footer{display:flex;align-items:center;gap:12px;margin-top:12px}.loan-card footer>div{flex:1;height:10px;overflow:hidden;border-radius:99px;background:#e9eef6}.loan-card footer>div i{display:block;height:100%;border-radius:99px;background:#f80820}.loan-card footer>div i.complete{background:#16bd73}.loan-card footer>span{color:#4772bd;font-size:11px}
-.loans-customer-side{display:flex;flex-direction:column;gap:10px}.loans-customer-side section{padding:12px 15px}.loans-customer-side header{display:flex;align-items:center;justify-content:space-between}.loans-customer-side header h2{display:flex;align-items:center;gap:8px}.loans-customer-side header h2 svg{width:19px}.loans-customer-side header button{display:flex;align-items:center;gap:5px;color:#f80820;font-size:11px}.loans-customer-side header button svg{width:14px}.loan-schedule>div{display:flex;align-items:center;gap:13px;min-height:51px;border-bottom:1px solid #e8edf4}.loan-schedule>div>i{width:8px;height:8px;border-radius:50%;background:#f80820}.loan-schedule>div>i.later{background:#5f83bd}.loan-schedule>div p{flex:1}.loan-schedule>div b,.loan-schedule>div small{display:block}.loan-schedule>div small{color:#4772bd}.loan-schedule>div strong{color:#f80820;font-size:12px}.loan-products>button{display:flex;align-items:center;gap:12px;width:100%;min-height:60px;border-bottom:1px solid #e8edf4;text-align:left}.loan-products>button>i{display:grid;place-items:center;flex:0 0 48px;width:48px;height:48px;border-radius:50%;color:#f80820;background:#fff0f2}.loan-products>button p{flex:1}.loan-products>button b,.loan-products>button small{display:block}.loan-products>button small{color:#4772bd}.loan-products>button>svg{width:17px;color:#326cc1}.loan-safe{display:flex;align-items:center;gap:16px;color:#f80820;background:linear-gradient(110deg,#fff0f2,#ffe2e7)!important}.loan-safe>svg{width:100px;height:100px}.loan-safe h2{color:#f80820}.loan-safe p{display:flex;align-items:center;gap:6px;margin-top:7px;color:#4772bd;font-size:11px}.loan-safe p svg{width:15px;color:#f80820;fill:#f80820}
-.loan-dialog-backdrop{position:fixed;inset:0;z-index:60;display:grid;place-items:center;padding:20px;background:#00006440}.loan-dialog-backdrop>section{position:relative;width:min(480px,100%);padding:25px;border-radius:15px;background:#fff;box-shadow:0 20px 60px #00006433}.loan-dialog-backdrop h2{font-size:22px}.loan-dialog-backdrop section>p{margin-top:7px;color:#64748b}.loan-dialog-close{position:absolute;top:12px;right:14px;font-size:25px}.loan-dialog-backdrop label{display:block;margin-top:16px;font-weight:700}.loan-dialog-backdrop select,.loan-dialog-backdrop input{display:block;width:100%;height:44px;margin-top:6px;padding:0 12px;border:1px solid #dbe3ef;border-radius:8px}.loan-dialog-primary{width:100%;height:44px;margin-top:20px;border-radius:8px;color:#fff;background:#f80820;font-weight:700}.loan-dialog-backdrop dl{margin-top:18px;padding:0 15px;border-radius:10px;background:#f8fafc}.loan-dialog-backdrop dl div{display:flex;justify-content:space-between;padding:12px 0;border-bottom:1px solid #e2e8f0}.loan-dialog-backdrop dt{color:#64748b}
-@media(max-width:1023px){.loans-customer-page{overflow-y:auto}.loans-customer-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.loans-customer-workspace{grid-template-columns:1fr}.loans-customer-side{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}.loans-customer-hero h1{font-size:38px}}@media(max-width:720px){.loans-customer-stats,.loans-customer-side{grid-template-columns:1fr}.loan-card header{flex-wrap:wrap}.loan-metrics{grid-template-columns:repeat(2,1fr);gap:10px}.loan-metrics p+p{border:0;padding-left:0}.loans-customer-hero>div{padding:18px}.loans-customer-hero strong{max-width:70%}}
+.customer-loans-screen .loans-hero {
+  position: relative;
+  background: linear-gradient(110deg, #fff5f6, #ffe1e8);
+}
+.loans-hero-copy {
+  position: relative;
+  z-index: 1;
+  max-width: 68%;
+}
+.loans-hero h1 span {
+  color: #ff153f;
+}
+.loans-hero > .loans-art {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  height: 100%;
+  width: auto;
+}
+.loans-hero-slogan {
+  position: absolute;
+  right: 26%;
+  top: 50%;
+  transform: translateY(-50%) rotate(-5deg);
+  color: #eb2146 !important;
+  text-align: center;
+  font: italic 700 clamp(14px, 1.4vw, 21px)/1.25 cursive !important;
+}
+.loans-metrics {
+  grid-template-columns: 1.15fr 1fr 1.1fr 1fr;
+}
+.loans-metrics .customer-metric {
+  padding: 14px;
+  gap: 12px;
+}
+.loans-metrics .customer-metric > i {
+  border-radius: 50%;
+  width: 48px;
+  height: 48px;
+  flex: 0 0 48px;
+  color: #ff143d;
+  background: #fff0f3;
+}
+.loans-metrics .customer-metric > div {
+  min-width: 0;
+}
+.loans-metrics .customer-metric strong {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: clamp(16px, 1.5vw, 23px);
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.loans-metrics .customer-metric small {
+  color: #7b91b4;
+  line-height: 1.4;
+  font-size: 10px;
+}
+.loans-visibility {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  width: 24px;
+  color: #416db5;
+}
+.loans-new {
+  display: grid;
+  place-items: center;
+  padding: 12px;
+  border: 1px solid #e5eaf4;
+  border-radius: 12px;
+  background: white;
+}
+.loans-new > button {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px;
+  font-size: 12px;
+  white-space: nowrap;
+  background: linear-gradient(110deg, #ff123d, #ff4c70);
+}
+.loans-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 27%);
+  gap: 12px;
+  min-height: 0;
+}
+.customer-loans-screen .loans-list-panel > header {
+  min-height: 42px;
+  padding: 6px 14px;
+  border: 0;
+}
+.customer-loans-screen .loans-list-panel > header select {
+  min-height: 28px;
+  height: 28px;
+  max-width: 155px;
+  width: auto;
+  border: 1px solid #dde5f3;
+  border-radius: 6px;
+  padding: 0 7px;
+  color: #5479b5;
+  background: white;
+  font-size: 11px;
+}
+.loans-filter-tag {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 12px 7px;
+  font-size: 11px;
+  color: #6e85ab;
+}
+.loans-filter-tag button {
+  color: #ee214c;
+}
+.loans-list-body {
+  min-width: 0;
+}
+.loans-record-list {
+  display: grid;
+  gap: 10px;
+  padding: 0 12px 12px;
+}
+.loans-record {
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  min-width: 0;
+  border: 1px solid #e6ecf6;
+  border-radius: 9px;
+  background: linear-gradient(115deg, #fff, #fcfdff);
+}
+.loans-record > header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.loans-record-icon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  color: #ff1945;
+  background: #fff0f3;
+}
+.loans-record-name {
+  min-width: 0;
+}
+.loans-record-name h3 {
+  color: #062073;
+  font-size: 14px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.loans-record-name small {
+  display: block;
+  color: #718ab8;
+  font-size: 11px;
+}
+.loans-record > header .customer-state {
+  margin-left: 10px;
+  flex-shrink: 0;
+}
+.customer-shell .customer-loans-screen .loans-view {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+  height: 30px;
+  min-height: 30px;
+  flex-shrink: 0;
+  padding: 4px 12px;
+  border: 1px solid #ff4165;
+  border-radius: 6px;
+  color: #f2204a;
+  font-size: 11px;
+}
+.loans-record-values {
+  display: grid;
+  grid-template-columns: 1.3fr 1.4fr 0.8fr 0.7fr 1.2fr;
+  gap: 10px;
+  margin-top: 10px;
+}
+.loans-record-values > div {
+  min-width: 0;
+}
+.loans-record-values > div + div {
+  padding-left: 10px;
+  border-left: 1px solid #eff2f8;
+}
+.loans-record-values dt {
+  color: #7c90b3;
+  font-size: 10px;
+  line-height: 1.4;
+}
+.loans-record-values dd {
+  margin-top: 4px;
+  color: #09378f;
+  font-size: clamp(11px, 1vw, 14px);
+  font-weight: 650;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.loans-next-due dd {
+  font-size: 11px;
+  font-weight: 400;
+}
+.loans-next-due strong {
+  display: block;
+  color: #ff1741;
+  font-size: 11px;
+  font-weight: 600;
+}
+.loans-progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: auto;
+  padding-top: 10px;
+}
+.loans-progress > div {
+  height: 9px;
+  flex: 1;
+  overflow: hidden;
+  border-radius: 12px;
+  background: #eaf0f9;
+}
+.loans-progress > div > span {
+  display: block;
+  height: 100%;
+  border-radius: 12px;
+  background: linear-gradient(90deg, #ff0939, #ff5272);
+}
+.loans-progress > small {
+  color: #6983ad;
+  font-size: 10px;
+  line-height: 1.4;
+}
+.loans-record[data-status="Paid"] .loans-progress > div > span {
+  background: #04c491;
+}
+.loans-record[data-status="Paid"] .loans-progress small {
+  color: #00a77c;
+}
+.loans-aside {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+.customer-loans-screen .loans-aside .customer-box > header {
+  gap: 5px;
+  min-height: 38px;
+  padding: 7px 12px;
+  border: 0;
+}
+.customer-loans-screen .loans-aside .customer-box h2 {
+  font-size: 14px;
+  line-height: 1.3;
+}
+.loans-see-all {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  flex-shrink: 0;
+  font-size: 10px;
+  color: #ff1a43;
+}
+.loans-timeline {
+  padding: 0 12px 7px;
+}
+.loans-timeline > button {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 0;
+  text-align: left;
+  border-bottom: 1px solid #eff2f8;
+}
+.loans-timeline > button:last-child {
+  border: 0;
+}
+.loans-timeline-dot {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #7b9bd0;
+}
+.loans-timeline > button::before {
+  position: absolute;
+  content: "";
+  top: calc(50% + 5px);
+  left: 3px;
+  height: calc(100% - 10px);
+  width: 1px;
+  background: #e7edf7;
+}
+.loans-timeline > button:last-child::before {
+  display: none;
+}
+.loans-timeline > button[data-overdue="true"] .loans-timeline-dot {
+  background: #ff1942;
+}
+.loans-timeline b {
+  display: block;
+  color: #1e478f;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+.loans-timeline small {
+  display: block;
+  color: #7d91b5;
+  font-size: 10px;
+  line-height: 1.3;
+}
+.loans-timeline > button > span:nth-child(2) {
+  min-width: 0;
+  flex: 1;
+}
+.loans-timeline strong {
+  color: #ff1843;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: right;
+  max-width: 48%;
+  overflow-wrap: anywhere;
+}
+.loans-aside-note {
+  padding: 10px 12px 14px;
+  color: #7e91ae;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.loans-product-list {
+  padding: 0 12px 7px;
+}
+.loans-product-list > button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 0;
+  text-align: left;
+  border-bottom: 1px solid #edf1f7;
+}
+.loans-product-list > button:last-child {
+  border: 0;
+}
+.loans-product-list i {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  color: #ff1b43;
+  background: #fff0f3;
+}
+.loans-product-list > button > span {
+  flex: 1;
+  min-width: 0;
+}
+.loans-product-list b {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+.loans-product-list small {
+  display: block;
+  color: #7c91b5;
+  font-size: 10px;
+  line-height: 1.4;
+}
+.loans-product-list svg {
+  flex-shrink: 0;
+  color: #6283bc;
+}
+.loans-product-list i svg {
+  color: #ff1b43;
+}
+.loans-safety {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: 115px;
+  padding: 12px;
+  background: linear-gradient(110deg, #fff3f5, #ffe6ec);
+}
+.loans-safety > .loans-art {
+  position: absolute;
+  left: -18px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 42%;
+  height: auto;
+}
+.loans-safety > div {
+  position: relative;
+  width: 64%;
+}
+.customer-loans-screen .loans-safety h2 {
+  margin-bottom: 6px;
+  color: #f5234c;
+  font-size: 14px;
+  line-height: 1.4;
+}
+.loans-safety p,
+.loans-safety button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  line-height: 1.5;
+  color: #385fa3;
+}
+.loans-safety p + p {
+  margin-top: 3px;
+}
+.loans-safety p svg {
+  flex-shrink: 0;
+  color: #fb345c;
+}
+.loans-safety button {
+  margin-top: 7px;
+  color: #ec214c;
+}
+.loans-schedule-title {
+  margin: 18px 0 10px;
+  font-size: 15px;
+  font-weight: 700;
+}
+.loans-schedule-scroll {
+  overflow: auto;
+  max-height: 340px;
+}
+.loans-schedule-table {
+  width: 100%;
+  min-width: 590px;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.loans-schedule-table th {
+  padding: 10px 8px;
+  background: #f2f5fa;
+  text-align: left;
+  color: #6584b5;
+  font-weight: 500;
+}
+.loans-schedule-table td {
+  padding: 9px 8px;
+  border-bottom: 1px solid #edf1f7;
+}
+.loans-schedule-table td small {
+  display: block;
+  color: #7f92b2;
+  font-size: 10px;
+}
+.loans-detail-note {
+  margin-top: 12px;
+  color: #8090ad;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.loans-all-schedule {
+  display: grid;
+  gap: 6px;
+}
+.loans-all-schedule button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid #edf1f7;
+  text-align: left;
+  font-size: 12px;
+}
+.loans-all-schedule button > span {
+  flex: 1;
+}
+.loans-all-schedule small {
+  display: block;
+  margin-top: 3px;
+  color: #7d90b2;
+}
+.loans-all-schedule strong {
+  color: #f5294c;
+  font-weight: 500;
+}
+.loans-guide {
+  display: grid;
+  gap: 14px;
+  color: #5c7197;
+  font-size: 14px;
+  line-height: 1.65;
+}
+.loans-guide a {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #f0204c;
+}
+@media (min-width: 1100px) and (min-height: 640px) {
+  .dashboard-shell.customer-shell .customer-screen.customer-loans-screen {
+    grid-template-rows: clamp(80px, 13vh, 140px) minmax(78px, auto) minmax(
+        0,
+        1fr
+      ) !important;
+    gap: 10px;
+  }
+  .customer-loans-screen .loans-hero {
+    padding: 10px 24px;
+  }
+  .customer-loans-screen .loans-hero h1 {
+    font-size: clamp(28px, 2.8vw, 44px);
+    line-height: 1.1;
+  }
+  .customer-loans-screen .loans-hero p:not(.loans-hero-slogan) {
+    font-size: clamp(11px, 1vw, 14px);
+  }
+  .customer-shell .loans-metrics {
+    min-height: 0;
+    grid-template-columns: 1.15fr 1fr 1.1fr 1fr;
+  }
+  .customer-shell .loans-metrics .customer-metric {
+    padding: 10px;
+    gap: 9px;
+  }
+  .customer-shell .loans-metrics .customer-metric > i {
+    width: 38px;
+    height: 38px;
+    flex-basis: 38px;
+  }
+  .customer-shell .loans-metrics .customer-metric p {
+    font-size: 11px;
+  }
+  .customer-shell .loans-metrics .customer-metric strong {
+    font-size: clamp(15px, 1.35vw, 21px);
+  }
+  .customer-shell .loans-metrics .customer-metric small {
+    font-size: 9px;
+  }
+  .loans-workspace {
+    height: 100%;
+  }
+  .customer-shell .customer-loans-screen .loans-list-panel {
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .loans-list-body {
+    flex: 1;
+    overflow: auto;
+  }
+  .loans-record-list {
+    --loan-record-height: clamp(120px, 14vh, 150px);
+    height: 100%;
+    grid-auto-rows: minmax(var(--loan-record-height), 1fr);
+  }
+  .loans-record {
+    min-height: var(--loan-record-height);
+    padding: 10px;
+  }
+  .loans-record > header {
+    gap: 8px;
+  }
+  .loans-record-icon {
+    width: 34px;
+    height: 34px;
+  }
+  .loans-record-name h3 {
+    font-size: 13px;
+  }
+  .loans-record-name small {
+    font-size: 10px;
+  }
+  .loans-record > header .customer-state {
+    margin-left: 8px;
+    font-size: 10px;
+  }
+  .loans-record-values {
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .loans-record-values > div + div {
+    padding-left: 8px;
+  }
+  .loans-progress {
+    gap: 10px;
+    padding-top: 6px;
+  }
+  .loans-progress > small {
+    font-size: 9px;
+    white-space: nowrap;
+  }
+  .dashboard-shell.customer-shell
+    main
+    .loans-list-panel
+    > .customer-pagination {
+    min-height: 38px;
+    height: 38px;
+    padding: 4px 12px;
+    font-size: 10px;
+  }
+  .customer-shell .loans-list-panel .customer-pagination nav button {
+    width: 28px;
+    height: 28px;
+  }
+  .loans-aside {
+    display: grid;
+    grid-template-rows: minmax(0, 1.2fr) minmax(0, 1fr) minmax(105px, 0.7fr);
+    height: 100%;
+    gap: 8px;
+  }
+  .loans-upcoming,
+  .loans-products {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: auto;
+  }
+  .loans-timeline,
+  .loans-product-list {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+  }
+  .loans-timeline > button,
+  .loans-product-list > button {
+    flex: 1;
+    min-height: 38px;
+  }
+  .loans-safety {
+    min-height: 0;
+    overflow: auto;
+  }
+  .loans-aside .customer-empty-state {
+    min-height: 90px;
+    font-size: 11px;
+    padding: 12px;
+  }
+}
+@media (min-width: 1100px) and (max-width: 1279px) and (min-height: 640px) {
+  .loans-record-list {
+    --loan-record-height: 174px;
+  }
+  .loans-record-values {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .loans-record-values > div:nth-child(4) {
+    padding-left: 0;
+    border: 0;
+  }
+  .loans-record > header .customer-state {
+    margin-left: 0;
+  }
+  .loans-record-name h3 {
+    max-width: 140px;
+  }
+}
+@media (min-width: 1100px) and (min-height: 640px) and (max-height: 719px) {
+  .dashboard-shell.customer-shell .customer-screen.customer-loans-screen {
+    grid-template-rows: 76px 78px minmax(0, 1fr) !important;
+    gap: 8px;
+  }
+  .customer-loans-screen .loans-hero {
+    padding: 7px 16px;
+  }
+  .customer-loans-screen .loans-hero h1 {
+    font-size: 26px;
+    margin: 2px 0;
+  }
+  .loans-hero-slogan {
+    font-size: 14px !important;
+  }
+  .customer-shell .loans-metrics .customer-metric {
+    gap: 6px;
+    padding: 7px;
+  }
+  .customer-shell .loans-metrics .customer-metric > i {
+    width: 30px;
+    height: 30px;
+    flex-basis: 30px;
+  }
+  .customer-shell .loans-metrics .customer-metric strong {
+    font-size: 14px;
+  }
+  .loans-new {
+    padding: 8px;
+  }
+  .loans-new > button {
+    font-size: 10px;
+  }
+  .customer-loans-screen .loans-aside .customer-box > header {
+    min-height: 32px;
+    padding-block: 5px;
+  }
+  .customer-loans-screen .loans-aside .customer-box h2 {
+    font-size: 12px;
+  }
+  .loans-timeline > button {
+    padding-block: 5px;
+  }
+  .loans-product-list > button {
+    padding-block: 4px;
+  }
+  .loans-safety {
+    min-height: 100px;
+  }
+}
+@media (max-width: 1099px), (max-height: 639px) {
+  .loans-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .loans-aside {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .loans-safety {
+    grid-column: 1/-1;
+  }
+  .loans-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .loans-record-values {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .loans-record-values > div:nth-child(4) {
+    padding-left: 0;
+    border: 0;
+  }
+  .loans-record {
+    min-height: 175px;
+  }
+  .loans-hero-slogan {
+    display: none;
+  }
+  .loans-hero > .loans-art {
+    opacity: 0.45;
+  }
+}
+@media (max-width: 639px) {
+  .loans-hero-copy {
+    max-width: 100%;
+  }
+  .loans-hero > .loans-art {
+    opacity: 0.2;
+  }
+  .loans-metrics .customer-metric {
+    position: relative;
+    display: block;
+    padding: 10px;
+  }
+  .loans-metrics .customer-metric > i {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 22px;
+    height: 22px;
+  }
+  .loans-metrics .customer-metric > i svg {
+    width: 15px;
+    height: 15px;
+  }
+  .loans-metrics .customer-metric p {
+    font-size: 10px;
+    padding-right: 22px;
+  }
+  .loans-metrics .customer-metric strong {
+    font-size: 13px;
+    white-space: nowrap;
+    overflow-wrap: normal;
+    gap: 3px;
+  }
+  .loans-metrics .loans-visibility {
+    width: 20px;
+    min-height: 20px;
+  }
+  .loans-metrics .customer-metric small {
+    font-size: 9px;
+  }
+  .loans-new {
+    padding: 8px;
+  }
+  .loans-new > button {
+    font-size: 11px;
+    min-height: 48px;
+    white-space: normal;
+  }
+  .loans-aside {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .loans-record > header {
+    flex-wrap: wrap;
+    gap: 7px;
+  }
+  .loans-record-name {
+    flex: 1;
+  }
+  .loans-record-name h3 {
+    font-size: 13px;
+  }
+  .loans-record > header .customer-state {
+    margin-left: 0;
+  }
+  .customer-shell .customer-loans-screen .loans-view {
+    width: 100%;
+    margin-top: 2px;
+  }
+  .loans-record-values {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .loans-record-values > div:nth-child(odd) {
+    padding-left: 0;
+    border: 0;
+  }
+  .loans-record-values > div:nth-child(even) {
+    padding-left: 8px;
+    border-left: 1px solid #eff2f8;
+  }
+  .loans-record-values dd {
+    font-size: 12px;
+  }
+  .loans-progress {
+    flex-wrap: wrap;
+    margin-top: 8px;
+  }
+  .loans-progress > div {
+    flex-basis: 100%;
+  }
+  .loans-progress > small {
+    margin-left: auto;
+  }
+  .loans-all-schedule button {
+    flex-wrap: wrap;
+  }
+}
