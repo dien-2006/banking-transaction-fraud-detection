@@ -93,7 +93,7 @@ test("counter transfers preserve core status/risk flow, use Counter and record e
     const { service, calls } = fixture({ status });
     const result = await service.create(user, input, "127.0.0.1");
     assert.equal(result.status, status);
-    assert.deepEqual(calls[0].context, { userId: 1, ipAddress: "127.0.0.1" });
+    assert.deepEqual(calls[0].context, { userId: 1, ipAddress: "127.0.0.1", risk: true });
     const core = calls.find((c) =>
       c.sql?.includes("banking_api.create_transfer"),
     );

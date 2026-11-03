@@ -9,7 +9,7 @@
     "typecheck": "tsc --noEmit",
     "test:customer": "node --test tests/customer-data.test.mjs",
     "test:web": "node --test tests/*.test.mjs",
-    "test:browser": "node tests/browser/audit.mjs && node tests/browser/interactions.mjs && node tests/browser/counter-transfer.mjs && node tests/browser/transaction-results.mjs"
+    "test:browser": "node tests/browser/audit.mjs && node tests/browser/interactions.mjs && node tests/browser/counter-transfer.mjs && node tests/browser/transaction-results.mjs && node tests/browser/review-flow.mjs && node tests/browser/gold-release.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "3.9.1",

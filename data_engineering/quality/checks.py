@@ -2,14 +2,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from pyspark.sql import DataFrame, Window, functions as F
+from pyspark.sql import DataFrame, functions as F
 
 from data_engineering.common.config import s3a
 from data_engineering.common.contracts import CONTRACTS
 from data_engineering.gold.catalog import GOLD_DATASETS, GOLD_RELATIONSHIPS
 from data_engineering.common.spark import session
 from data_engineering.common.state import PipelineState
-from data_engineering.quality.quarantine import quarantine_business_violations
+from data_engineering.silver.release import configure_silver_release
+from data_engineering.quality.quarantine import quarantine_business_violations, _transaction_violations
 
 
 
@@ -89,36 +90,9 @@ def _silver_quality(spark, batch_id: str) -> dict[str, Any]:
     ).select("transaction_id").join(
         postings.select("transaction_id").distinct(), "transaction_id", "left_anti"
     ).count()
-    posting_totals = postings.groupBy("transaction_id").agg(
-        F.sum(F.when(F.col("posting_type") == "DEBIT", F.col("amount")).otherwise(0)).alias("debit"),
-        F.sum(F.when(F.col("posting_type") == "CREDIT", F.col("amount")).otherwise(0)).alias("credit"),
-    )
-    successful_transfers = transactions.filter(F.col("status") == "Success").join(
-        frames["transfer_request"].select("transaction_id"), "transaction_id"
-    )
-    unbalanced = successful_transfers.select("transaction_id").join(
-        posting_totals, "transaction_id", "left"
-    ).filter(
-        F.col("debit").isNull() | F.col("credit").isNull() | (F.col("debit") != F.col("credit"))
-    ).count()
-    risk_window = Window.partitionBy("transaction_id").orderBy(
-        F.col("assessed_at").desc(), F.col("risk_assessment_id").desc()
-    )
-    latest_risk = frames["risk_assessment"].withColumn(
-        "_rank", F.row_number().over(risk_window)
-    ).filter("_rank = 1").drop("_rank")
-    approved_reviews = frames["review_case"].filter(F.col("status") == "APPROVED").select(
-        "transaction_id"
-    ).distinct().withColumn("review_approved", F.lit(True))
-    invalid_gate = transactions.filter(F.col("status") == "Success").join(
-        latest_risk.select("transaction_id", "decision"), "transaction_id", "left"
-    ).join(approved_reviews, "transaction_id", "left").filter(
-        ~F.coalesce(
-            (F.col("decision") == "ALLOW")
-            | ((F.col("decision") == "REVIEW") & F.coalesce(F.col("review_approved"), F.lit(False))),
-            F.lit(False),
-        )
-    ).count()
+    violations = _transaction_violations(frames)
+    unbalanced = violations.filter(F.col("error_code").contains("UNBALANCED_SUCCESSFUL_TRANSFER")).count()
+    invalid_gate = violations.filter(F.col("error_code").contains("SUCCESS_WITHOUT_RISK_APPROVAL")).count()
     payment = frames["loan_payment"]
     bad_payments = payment.filter(
         F.col("amount_paid") != F.col("principal_paid") + F.col("interest_paid") + F.col("penalty_fee")
@@ -135,11 +109,12 @@ def _silver_quality(spark, batch_id: str) -> dict[str, Any]:
             failures.append(f"{name}={count}")
     metrics["failures"] = failures
     if failures:
+        PipelineState().record_stage(batch_id, "silver_dq_failed", metrics)
         raise ValueError("Silver DQ failed: " + "; ".join(failures))
     return metrics
 
 
-def _gold_quality(spark) -> dict[str, Any]:
+def _gold_quality(spark, batch_id: str = "manual") -> dict[str, Any]:
     metrics: dict[str, Any] = {}
     failures: list[str] = []
     frames = {
@@ -177,6 +152,7 @@ def _gold_quality(spark) -> dict[str, Any]:
     metrics["references"] = reference_metrics
     metrics["failures"] = failures
     if failures:
+        PipelineState().record_stage(batch_id, "gold_dq_failed", metrics)
         raise ValueError("Gold DQ failed: " + "; ".join(failures))
     return metrics
 
@@ -184,9 +160,21 @@ def _gold_quality(spark) -> dict[str, Any]:
 def run(layer: str = "silver", batch_id: str = "manual") -> dict[str, Any]:
     if layer not in {"silver", "gold"}:
         raise ValueError(f"unsupported DQ layer: {layer}")
+    prefix = configure_silver_release(batch_id)
+    state = PipelineState()
+    completed = state.get_json(f'runs/{batch_id}/{layer}_dq.json')
+    if layer == 'silver' and completed and completed.get('silver_prefix') == prefix:
+        return completed['metrics']
     spark = session(f"{layer}-quality")
     metrics = (
-        _silver_quality(spark, batch_id) if layer == "silver" else _gold_quality(spark)
+        _silver_quality(spark, batch_id) if layer == "silver" else _gold_quality(spark, batch_id)
     )
-    PipelineState().record_stage(batch_id, f"{layer}_dq", metrics)
+    state.record_stage(batch_id, f"{layer}_dq", metrics)
+    if layer == 'silver':
+        # Training explicitly pins one validated batch; Gold never uses this pointer.
+        previous = state.get_json('silver/active_release.json')
+        extracted = state.get_json(f'runs/{batch_id}/postgres_to_bronze.json')
+        source_time = extracted['recorded_at'] if extracted else ''
+        if not previous or source_time > previous.get('source_recorded_at', ''):
+            state.put_json('silver/active_release.json', {'batch_id': batch_id, 'prefix': prefix, 'source_recorded_at': source_time})
     return metrics

@@ -23,7 +23,7 @@ def _stop(*_: object) -> None:
 def durable_object_name(message, prefix: str = "kafka/events") -> str:
     digest = hashlib.sha256(message.value()).hexdigest()[:16]
     return (
-        f"{prefix}/date={datetime.now(timezone.utc):%Y-%m-%d}/"
+        f"{prefix}/date={datetime.fromtimestamp(max(message.timestamp()[1], 0) / 1000, timezone.utc):%Y-%m-%d}/"
         f"topic={message.topic()}/partition={message.partition()}/"
         f"offset={message.offset()}-{digest}.json"
     )
@@ -37,6 +37,12 @@ def _validate_envelope(envelope: dict) -> None:
     missing = [field for field in required if envelope.get(field) is None]
     if missing:
         raise ValueError(f"missing envelope fields: {missing}")
+    for field in ("event_id", "event_type", "event_version", "occurred_at", "aggregate_type", "aggregate_id", "source_system"):
+        if not str(envelope[field]).strip():
+            raise ValueError(f"empty envelope field: {field}")
+    if not isinstance(envelope["payload"], dict):
+        raise ValueError("event payload must be a JSON object")
+    datetime.fromisoformat(str(envelope["occurred_at"]).replace("Z", "+00:00"))
 
 
 def persist_message(client: Minio, bucket: str, message) -> str:
@@ -74,6 +80,17 @@ def persist_rejected(client: Minio, bucket: str, message, error: Exception) -> s
     return name
 
 
+def process_message(consumer, client: Minio, bucket: str, quarantine_bucket: str, message) -> str:
+    try:
+        object_name = persist_message(client, bucket, message)
+    except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as exc:
+        object_name = persist_rejected(client, quarantine_bucket, message, exc)
+        LOG.warning("event_quarantined object=%s", object_name)
+    consumer.commit(message=message, asynchronous=False)
+    LOG.info("bronze_event_written object=%s", object_name)
+    return object_name
+
+
 def main() -> None:
     logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
     signal.signal(signal.SIGTERM, _stop)
@@ -91,6 +108,7 @@ def main() -> None:
             "bootstrap.servers": os.environ["KAFKA_BOOTSTRAP_SERVERS"],
             "group.id": os.getenv("KAFKA_CONSUMER_GROUP", "bronze-transaction-writer-v1"),
             "enable.auto.commit": False,
+            "enable.auto.offset.store": False,
             "auto.offset.reset": "earliest",
         }
     )
@@ -104,21 +122,9 @@ def main() -> None:
                 if message.error().code() != KafkaError._PARTITION_EOF:
                     raise KafkaException(message.error())
                 continue
-            try:
-                object_name = persist_message(minio, bucket, message)
-                consumer.commit(message=message, asynchronous=False)
-                LOG.info("bronze_event_written object=%s", object_name)
-            except (json.JSONDecodeError, ValueError) as exc:
-                try:
-                    object_name = persist_rejected(
-                        minio, quarantine_bucket, message, exc
-                    )
-                    consumer.commit(message=message, asynchronous=False)
-                    LOG.warning("event_quarantined object=%s", object_name)
-                except Exception:
-                    LOG.exception("quarantine_write_failed offset=%s", message.offset())
-            except Exception:
-                LOG.exception("bronze_write_failed offset=%s", message.offset())
+            # Fail the process if either durable storage or offset commit fails.
+            # Polling the next message could later commit past this failed offset.
+            process_message(consumer, minio, bucket, quarantine_bucket, message)
     finally:
         consumer.close()
 

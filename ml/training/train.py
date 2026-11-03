@@ -13,6 +13,7 @@ from data_engineering.common.config import s3a
 from data_engineering.common.spark import session
 from data_engineering.common.state import PipelineState
 from ml.features import FEATURES
+from data_engineering.silver.release import configure_silver_release
 
 
 def _fit(rows: list, iterations: int = 500, rate: float = 0.1):
@@ -64,12 +65,15 @@ def _write_json(client, bucket: str, key: str, value: object) -> None:
 
 
 def run(batch_id: str) -> dict[str, object]:
+    active = PipelineState().get_json('silver/active_release.json')
+    if not active:
+        raise ValueError('training requires a validated Silver release')
+    configure_silver_release(active['batch_id'])
     spark = session("fraud-model-training")
     transaction = spark.read.parquet(s3a("MINIO_BUCKET_SILVER", "bank_transaction"))
     labels = spark.read.parquet(s3a("MINIO_BUCKET_SILVER", "fraud_label_event"))
     latest_labels = (
-        labels.filter(F.col("label").isin("FRAUD", "LEGITIMATE"))
-        .withColumn(
+        labels.withColumn(
             "_rank",
             F.row_number().over(
                 Window.partitionBy("transaction_id").orderBy(
@@ -78,72 +82,37 @@ def run(batch_id: str) -> dict[str, object]:
             ),
         )
         .filter("_rank = 1")
+        .filter(F.col("label").isin("FRAUD", "LEGITIMATE"))
         .select(
             "transaction_id",
             F.when(F.col("label") == "FRAUD", 1.0).otherwise(0.0).alias("label"),
         )
     )
-    devices = spark.read.parquet(s3a("MINIO_BUCKET_SILVER", "customer_device")).select(
-        "device_id", "is_trusted"
-    )
-    current = transaction.select(
-        F.col("transaction_id").alias("current_id"),
-        F.col("initiated_by_customer_id").alias("customer_id"),
-        F.col("transaction_at").alias("current_at"),
-        F.col("amount").alias("current_amount"),
-    )
-    prior = transaction.select(
-        F.col("transaction_id").alias("prior_id"),
-        F.col("initiated_by_customer_id").alias("prior_customer_id"),
-        F.col("transaction_at").alias("prior_at"),
-        F.col("amount").alias("prior_amount"),
-        F.col("status").alias("prior_status"),
-    )
-    same_customer_prior = (
-        (F.col("customer_id") == F.col("prior_customer_id"))
-        & (F.col("prior_at") < F.col("current_at"))
-    )
-    velocity = current.join(
-        prior,
-        same_customer_prior
-        & (F.col("prior_at") >= F.col("current_at") - F.expr("INTERVAL 10 MINUTES")),
-        "left",
-    ).groupBy("current_id").agg(F.count("prior_id").alias("transactions_last_10m"))
-    average = current.join(
-        prior,
-        same_customer_prior
-        & (F.col("prior_status") == "Success")
-        & (F.col("prior_at") >= F.col("current_at") - F.expr("INTERVAL 30 DAYS")),
-        "left",
-    ).groupBy("current_id").agg(F.avg("prior_amount").alias("average_amount_30d"))
-    login = spark.read.parquet(s3a("MINIO_BUCKET_SILVER", "login_event")).select(
-        F.col("customer_id").alias("login_customer_id"), "login_at",
-        F.col("status").alias("login_status"),
-    )
-    failed = current.join(
-        login,
-        (F.col("customer_id") == F.col("login_customer_id"))
-        & F.col("login_status").isin("Failed", "Blocked")
-        & (F.col("login_at") < F.col("current_at"))
-        & (F.col("login_at") >= F.col("current_at") - F.expr("INTERVAL 30 MINUTES")),
-        "left",
-    ).groupBy("current_id").agg(F.count("login_at").alias("failed_logins_last_30m"))
+    # Use the feature snapshot captured by online inference. Current device trust
+    # and reconstructed history can change after the transaction was assessed.
+    assessments = spark.read.parquet(s3a("MINIO_BUCKET_SILVER", "risk_assessment"))
+    assessments = assessments.withColumn("_rank", F.row_number().over(
+        Window.partitionBy("transaction_id").orderBy(F.col("assessed_at").asc(), F.col("risk_assessment_id").asc())
+    )).filter("_rank = 1").select("transaction_id", "reason_json")
     feature_mart = (
         transaction.join(latest_labels, "transaction_id")
-        .join(devices, "device_id", "left")
-        .join(velocity, F.col("transaction_id") == F.col("current_id"), "left").drop("current_id")
-        .join(average, F.col("transaction_id") == F.col("current_id"), "left").drop("current_id")
-        .join(failed, F.col("transaction_id") == F.col("current_id"), "left").drop("current_id")
+        .join(assessments, "transaction_id")
         .select(
             "transaction_id", "label",
             (F.log1p(F.col("amount").cast("double")) / 20).alias("amount_log"),
-            F.when(F.coalesce(F.col("is_trusted"), F.lit(False)), 0.0).otherwise(1.0).alias("is_new_device"),
-            F.when(F.hour("transaction_at").between(0, 4), 1.0).otherwise(0.0).alias("is_unusual_time"),
-            F.coalesce(F.col("transactions_last_10m"), F.lit(0)).cast("double").alias("transactions_last_10m"),
-            F.coalesce(F.col("failed_logins_last_30m"), F.lit(0)).cast("double").alias("failed_logins_last_30m"),
-            F.when(F.col("average_amount_30d") > 0, F.col("amount") / F.col("average_amount_30d")).otherwise(1.0).cast("double").alias("amount_to_average_ratio"),
+            F.get_json_object("reason_json", "$.features.isNewDevice").cast("boolean").cast("double").alias("is_new_device"),
+            F.when(F.hour(F.from_utc_timestamp("transaction_at", os.getenv("SOURCE_TIMEZONE", "Asia/Ho_Chi_Minh"))).between(0, 4), 1.0).otherwise(0.0).alias("is_unusual_time"),
+            F.get_json_object("reason_json", "$.features.transactionsLast10m").cast("double").alias("transactions_last_10m"),
+            F.get_json_object("reason_json", "$.features.failedLoginsLast30m").cast("double").alias("failed_logins_last_30m"),
+            F.get_json_object("reason_json", "$.features.amountToAverageRatio").cast("double").alias("amount_to_average_ratio"),
         )
     )
+    from functools import reduce
+    missing = reduce(lambda a, b: a | b, [F.col(name).isNull() for name in FEATURES])
+    missing_feature_samples = feature_mart.filter(missing).count()
+    # Legacy assessments without point-in-time features are explicitly reported,
+    # never reconstructed using today's device trust or later history.
+    feature_mart = feature_mart.filter(~missing)
     feature_path = s3a("MINIO_BUCKET_ML", "fraud_detection/feature-mart")
     feature_mart.write.mode("overwrite").parquet(feature_path)
     total_samples = feature_mart.count()
@@ -160,6 +129,7 @@ def run(batch_id: str) -> dict[str, object]:
         "samples": len(rows),
         "sample_limit": max_samples,
         "classes": classes,
+        "excluded_missing_feature_samples": missing_feature_samples,
     }
     state = PipelineState()
     if len(rows) < 4 or classes != [0, 1]:

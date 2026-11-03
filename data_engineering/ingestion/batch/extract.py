@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import os
+from data_engineering.ingestion.batch.snapshot import source_snapshot
 from typing import Any
 
 from pyspark.sql import functions as F
+from pyspark import StorageLevel
 
 from data_engineering.common.config import load_yaml, s3a
 from data_engineering.common.contracts import contract_for
@@ -22,15 +24,10 @@ def _source_query(
     qualified = f'"{schema}"."{table}"'
     if source["strategy"] != "INCREMENTAL" or not previous:
         return f"SELECT {projection} FROM {qualified}"
-    timestamp_column, key_column = source["watermark"]
-    timestamp = str(previous["timestamp"]).replace("'", "''")
-    primary_key = int(previous["primary_key"])
-    return (
-        f"SELECT {projection} FROM {qualified} "
-        f"WHERE (\"{timestamp_column}\" > TIMESTAMP '{timestamp}') "
-        f"OR (\"{timestamp_column}\" = TIMESTAMP '{timestamp}' "
-        f"AND \"{key_column}\" > {primary_key})"
-    )
+    raise ValueError("incremental event-time watermarks are unsafe for late commits; use SNAPSHOT")
+
+
+
 
 
 def run(batch_id: str) -> dict[str, dict[str, Any]]:
@@ -42,54 +39,65 @@ def run(batch_id: str) -> dict[str, dict[str, Any]]:
         f"{os.getenv('POSTGRES_INTERNAL_PORT', '5432')}/{os.getenv('POSTGRES_DB', 'bank_fraud')}"
     )
     state = PipelineState()
+    completed = state.get_json(f"runs/{batch_id}/postgres_to_bronze.json")
+    if completed is not None:
+        # A completed raw batch is immutable. Re-extracting it after watermark
+        # commit could replace the original delta with an empty/newer one.
+        return completed["metrics"]
     metrics: dict[str, dict[str, Any]] = {}
-    for table, source in sources.items():
-        previous = state.watermark(table) if source["strategy"] == "INCREMENTAL" else None
-        query = _source_query(schema, table, source, previous)
-        frame = (
-            spark.read.format("jdbc")
-            .option("url", jdbc_url)
-            .option("dbtable", f"({query}) AS source_data")
-            .option("user", os.environ["POSTGRES_USER"])
-            .option("password", os.environ["POSTGRES_PASSWORD"])
-            .option("driver", "org.postgresql.Driver")
-            .load()
-        )
-        input_count = frame.count()
-        enriched = (
-            frame
-            .withColumn("_ingested_at", F.current_timestamp())
-            .withColumn("_source_system", F.lit("postgresql"))
-            .withColumn("_source_table", F.lit(table))
-            .withColumn("_batch_id", F.lit(batch_id))
-            .withColumn("_ingestion_mode", F.lit("BATCH"))
-            .withColumn("_source_pk", F.col(source["primary_key"]).cast("string"))
-        )
-        target = s3a("MINIO_BUCKET_BRONZE", f"postgres/{table}/batch_id={batch_id}")
-        enriched.write.mode("overwrite").parquet(target)
-        output_count = spark.read.parquet(target).count()
-        if output_count != input_count:
-            raise RuntimeError(
-                f"Bronze count mismatch table={table} input={input_count} output={output_count}"
+    with source_snapshot() as snapshot:
+        for table, source in sources.items():
+            previous = state.watermark(table) if source["strategy"] == "INCREMENTAL" else None
+            query = _source_query(schema, table, source, previous)
+            frame = (
+                spark.read.format("jdbc")
+                .option("url", jdbc_url)
+                .option("dbtable", f"({query}) AS source_data")
+                .option("user", os.getenv("ETL_DB_USER") or os.environ["POSTGRES_USER"])
+                .option("password", os.getenv("ETL_DB_PASSWORD") or os.environ["POSTGRES_PASSWORD"])
+                .option("driver", "org.postgresql.Driver")
+                .option("sessionInitStatement", f"BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY; SET TRANSACTION SNAPSHOT '{snapshot}'")
+                .load()
             )
-        candidate = None
-        if input_count and source.get("watermark"):
-            timestamp_column, key_column = source["watermark"]
-            last = frame.orderBy(
-                F.col(timestamp_column).desc(), F.col(key_column).desc()
-            ).select(timestamp_column, key_column).first()
-            candidate = {
-                "timestamp": str(last[timestamp_column]),
-                "primary_key": int(last[key_column]),
+            # JDBC is lazy: count, write and watermark must see the same rows even
+            # while new OLTP commits arrive between these Spark actions.
+            frame = frame.persist(StorageLevel.MEMORY_AND_DISK)
+            input_count = frame.count()
+            enriched = (
+                frame
+                .withColumn("_ingested_at", F.current_timestamp())
+                .withColumn("_source_system", F.lit("postgresql"))
+                .withColumn("_source_table", F.lit(table))
+                .withColumn("_batch_id", F.lit(batch_id))
+                .withColumn("_ingestion_mode", F.lit("BATCH"))
+                .withColumn("_source_pk", F.col(source["primary_key"]).cast("string"))
+            )
+            target = s3a("MINIO_BUCKET_BRONZE", f"postgres/{table}/batch_id={batch_id}")
+            enriched.write.mode("overwrite").parquet(target)
+            output_count = spark.read.parquet(target).count()
+            if output_count != input_count:
+                raise RuntimeError(
+                    f"Bronze count mismatch table={table} input={input_count} output={output_count}"
+                )
+            candidate = None
+            if input_count and source.get("watermark"):
+                timestamp_column, key_column = source["watermark"]
+                last = frame.orderBy(
+                    F.col(timestamp_column).desc(), F.col(key_column).desc()
+                ).select(timestamp_column, key_column).first()
+                candidate = {
+                    "timestamp": str(last[timestamp_column]),
+                    "primary_key": int(last[key_column]),
+                }
+                state.save_candidate(batch_id, table, **candidate)
+            metrics[table] = {
+                "strategy": source["strategy"],
+                "input": input_count,
+                "output": output_count,
+                "watermark_start": previous,
+                "watermark_candidate": candidate,
+                "target": target,
             }
-            state.save_candidate(batch_id, table, **candidate)
-        metrics[table] = {
-            "strategy": source["strategy"],
-            "input": input_count,
-            "output": output_count,
-            "watermark_start": previous,
-            "watermark_candidate": candidate,
-            "target": target,
-        }
+            frame.unpersist()
     state.record_stage(batch_id, "postgres_to_bronze", metrics)
     return metrics

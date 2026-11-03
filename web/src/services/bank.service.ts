@@ -127,6 +127,7 @@ export type TransferOtpContext = Pick<
   | "amount"
   | "idempotencyKey"
   | "channel"
+  | "description"
 >;
 
 export interface TransferDestination {
@@ -342,6 +343,15 @@ export const bankService = {
   },
   counterTransfer(input: CounterTransferInput) {
     return apiRequest<ApiTransaction>("/transactions/counter-transfers", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }).then(requireTransactionResult);
+  },
+  resolveReview(
+    id: number,
+    input: { action: "APPROVE" | "REJECT"; reason?: string },
+  ) {
+    return apiRequest<ApiTransaction>(`/transactions/reviews/${id}`, {
       method: "POST",
       body: JSON.stringify(input),
     }).then(requireTransactionResult);

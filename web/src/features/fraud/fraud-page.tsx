@@ -18,7 +18,7 @@ import {
   ListPagination,
   useListPagination,
 } from "@/components/list-pagination";
-import { RecordViewButton } from "@/components/record-view-button";
+import { ReviewDialog } from "./review-dialog";
 import { bankService } from "@/services/bank.service";
 import { loadFraudReviews } from "@/lib/fraud-data";
 import "./fraud-page.css";
@@ -69,7 +69,8 @@ export function FraudPage({ role = "admin" }: { role?: "admin" | "employee" }) {
   const reviewsQuery = useQuery({
     queryKey: ["fraud-reviews-old-ui", role, user.id, user.branchId],
     queryFn: () => loadFraudReviews(bankService.fraudCases),
-    staleTime: 60_000,
+    staleTime: 15_000,
+    refetchInterval: 15_000,
   });
   const alerts = useMemo(() => reviewsQuery.data ?? [], [reviewsQuery.data]);
   const [type, setType] = useState("");
@@ -389,24 +390,7 @@ export function FraudPage({ role = "admin" }: { role?: "admin" | "employee" }) {
                       </td>
                       <td className="p-1.5">{x.assignee}</td>
                       <td className="p-1.5 text-center">
-                        <RecordViewButton
-                          record={{
-                            "Mã review": x.id,
-                            "Mã giao dịch": x.transaction,
-                            "Thời gian": x.time,
-                            "Khách hàng": x.customer,
-                            "Tài khoản nguồn": x.account,
-                            "Loại giao dịch": x.type,
-                            "Chi tiết": x.detail,
-                            "Mức độ rủi ro": x.risk,
-                            RuleScore: x.ruleScore,
-                            "Xác suất ML": x.mlProbability,
-                            "Quyết định": x.decision,
-                            "Trạng thái review": x.status,
-                            "Người xử lý": x.assignee,
-                          }}
-                          title={`Chi tiết cảnh báo ${x.id}`}
-                        />
+                        <ReviewDialog review={x} />
                       </td>
                     </tr>
                   ))}

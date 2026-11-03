@@ -9,18 +9,19 @@ import {
   ShieldAlert,
 } from "lucide-react";
 import { StaffHero } from "@/components/staff-hero";
-import { useQueries } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState, type FormEvent } from "react";
 import { apiRequest, toQuery } from "@/services/api.client";
+import { formatDateTime } from "@/lib/presentation";
 import { reviewLabels } from "@/lib/fraud-data";
 import {
   analyticsDatasets,
+  validateAnalyticsSnapshot,
   dailyMetrics,
   filterAnalyticsRows,
   groupMetric,
   sumMetric,
   type AnalyticsDataset,
-  type AnalyticsRow,
   type InsightsData,
 } from "@/lib/insights-data";
 import {
@@ -77,17 +78,21 @@ export function InsightsPage({
   const [to, setTo] = useState("");
   const [range, setRange] = useState({ from: "", to: "" });
   const [dateError, setDateError] = useState("");
-  const queries = useQueries({
-    queries: datasets.map((dataset) => ({
-      queryKey: ["insights-gold", role, dataset],
-      queryFn: () =>
-        apiRequest<AnalyticsRow[]>(
-          "/analytics" + toQuery({ dataset, limit: 1000 }),
-        ),
-      staleTime: 60_000,
-      retry: 1,
-    })),
+  const snapshot = useQuery({
+    queryKey: ["insights-gold", role, range.from, range.to],
+    queryFn: () =>
+      apiRequest<unknown>(
+        "/analytics/snapshot" +
+          toQuery({ limit: 1000, from: range.from, to: range.to }),
+      ).then(validateAnalyticsSnapshot),
+    staleTime: 60_000,
+    refetchInterval: 60_000,
+    retry: 1,
   });
+  const queries = datasets.map((dataset) => ({
+    ...snapshot,
+    data: snapshot.data?.datasets[dataset],
+  }));
   const data = useMemo(
     () =>
       Object.fromEntries(
@@ -160,6 +165,11 @@ export function InsightsPage({
   return (
     <div className="d4-insights-page insights-page-content flex flex-col gap-2.5 text-navy">
       <InsightHero />
+      <p className="px-1 text-xs text-slate-500" role="note">
+        Dữ liệu Gold được cập nhật sau mỗi lần batch hoàn tất. Sự kiện stream
+        được lưu vào Bronze để đối soát; biểu đồ này không cập nhật trực tiếp từ
+        Kafka.
+      </p>
       <section className="grid grid-cols-4 gap-3">
         {kpis.map(({ Icon, label, value }) => (
           <article
@@ -183,6 +193,14 @@ export function InsightsPage({
           </article>
         ))}
       </section>
+      {snapshot.data?.release.published_at && (
+        <p className="px-1 text-xs text-slate-500">
+          Bản dữ liệu đã kiểm tra · Cập nhật:{" "}
+          {formatDateTime(
+            snapshot.data.release.published_at.replace(" ", "T") + "Z",
+          )}
+        </p>
+      )}
       <section className="insights-toolbar card flex flex-wrap items-center gap-2 px-3">
         <nav
           aria-label="Các mục D4 Insights"
@@ -238,11 +256,7 @@ export function InsightsPage({
             aria-label="Làm mới dữ liệu Gold"
             title="Làm mới dữ liệu Gold"
             disabled={queries.some((query) => query.isFetching)}
-            onClick={() =>
-              queries.forEach((query) => {
-                void query.refetch();
-              })
-            }
+            onClick={() => void snapshot.refetch()}
             className="btn-secondary h-8 px-2 disabled:opacity-40"
           >
             <RefreshCw size={13} />

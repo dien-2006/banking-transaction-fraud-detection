@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
+import re
 import time
 import urllib.error
 import urllib.request
@@ -29,11 +31,17 @@ def execute(sql: str) -> list[list[object]]:
             result = json.loads(response.read())
 
 
-def main() -> None:
-    bucket = os.getenv("GOLD_BUCKET", "gold")
+def register_catalog(bucket: str, schema: str, prefix: str = "") -> None:
+    if not re.fullmatch(r"[a-z][a-z0-9_]*", schema):
+        raise ValueError("invalid Gold Trino schema")
+    if not re.fullmatch(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]", bucket):
+        raise ValueError("invalid Gold bucket")
+    if prefix and not re.fullmatch(r"[a-zA-Z0-9_/-]+", prefix):
+        raise ValueError("invalid Gold prefix")
+    prefix = prefix.strip("/") + "/" if prefix else ""
     for attempt in range(30):
         try:
-            execute("CREATE SCHEMA IF NOT EXISTS hive.gold")
+            execute(f"CREATE SCHEMA IF NOT EXISTS hive.{schema}")
             break
         except (urllib.error.URLError, RuntimeError):
             if attempt == 29:
@@ -41,10 +49,20 @@ def main() -> None:
             time.sleep(2)
     for table, (group, columns) in TABLES.items():
         execute(
-            f"CREATE TABLE IF NOT EXISTS hive.gold.{table} ({columns}) "
-            f"WITH (format='PARQUET', external_location='s3a://{bucket}/{group}/{table}/')"
+            f"CREATE TABLE IF NOT EXISTS hive.{schema}.{table} ({columns}) "
+            f"WITH (format='PARQUET', external_location='s3a://{bucket}/{prefix}{group}/{table}/')"
         )
-    print(f"registered {len(TABLES)} Gold tables in hive.gold")
+    analytics = Path(__file__).resolve().parents[1] / "sql/trino/gold_analytics.sql"
+    # This versioned file contains simple CREATE VIEW statements, no procedure bodies.
+    script = re.sub(r"--[^\n]*", "", analytics.read_text(encoding="utf-8"))
+    views = [statement.strip() for statement in script.split(";") if statement.strip()]
+    for statement in views:
+        execute(statement.replace("hive.gold.", f"hive.{schema}."))
+    print(f"registered {len(TABLES)} Gold tables and {len(views)} analytics views in hive.{schema}")
+
+
+def main() -> None:
+    register_catalog(os.getenv("GOLD_BUCKET", "gold"), os.getenv("GOLD_SCHEMA", "gold"), os.getenv("GOLD_VERSION_PREFIX", ""))
 
 
 if __name__ == "__main__":

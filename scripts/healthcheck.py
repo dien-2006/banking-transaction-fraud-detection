@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import socket
+from dotenv import load_dotenv
 import urllib.request
 
 
@@ -23,6 +24,7 @@ def check_tcp(name: str, host: str, port: int) -> tuple[str, bool, str]:
 
 
 def main() -> None:
+    load_dotenv()
     checks = [
         check_tcp("postgres", "localhost", int(os.getenv("POSTGRES_PORT", "5432"))),
         check_tcp("kafka", "localhost", int(os.getenv("KAFKA1_PORT", "9092"))),
@@ -30,7 +32,7 @@ def main() -> None:
         check_http("spark", f"http://localhost:{os.getenv('SPARK_MASTER_UI_PORT', '8082')}/json/"),
         check_http("airflow", f"http://localhost:{os.getenv('AIRFLOW_PORT', '8081')}/health"),
         check_http("trino", f"http://localhost:{os.getenv('TRINO_PORT', '8084')}/v1/info"),
-        check_http("banking_api", f"http://localhost:{os.getenv('BANKING_API_PORT', '8000')}/health"),
+        check_http("banking_api", f"http://localhost:{os.getenv('BANKING_API_PORT', '8000')}/api/v1/health"),
     ]
     print(json.dumps({name: {"ok": ok, "detail": detail} for name, ok, detail in checks}, indent=2))
     if not all(ok for _, ok, _ in checks):

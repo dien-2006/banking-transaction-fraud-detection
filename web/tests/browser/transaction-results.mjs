@@ -26,6 +26,7 @@ const cases = (values) =>
 async function fixture(role, status, viewport = { width: 1366, height: 768 }) {
   const page = await browser.newPage({ viewport, acceptDownloads: true }),
     writes = [];
+  let otpContext;
   page.on("pageerror", (e) => errors.push(e.message));
   await page.addInitScript((role) => {
     localStorage.setItem("d4-access-token", "test-only");
@@ -73,6 +74,7 @@ async function fixture(role, status, viewport = { width: 1366, height: 768 }) {
         return;
       }
       if (url.pathname.endsWith("/security/otp/request")) {
+        otpContext = req.postDataJSON();
         await route.fulfill({
           json: {
             challengeId: "mock-challenge-1234567890",
@@ -83,6 +85,9 @@ async function fixture(role, status, viewport = { width: 1366, height: 768 }) {
         return;
       }
       if (url.pathname.endsWith("/security/otp/verify")) {
+        const { challengeId, code, ...context } = req.postDataJSON();
+        assert.ok(challengeId && code);
+        assert.deepEqual(context, otpContext);
         await route.fulfill({
           json: {
             authorizationToken: "mock-authorization-1234567890",
@@ -99,6 +104,11 @@ async function fixture(role, status, viewport = { width: 1366, height: 768 }) {
             "/api/v1/transactions/account-movements",
           ].includes(url.pathname),
         );
+        if (url.pathname.endsWith("/transactions/transfers")) {
+          const { otpAuthorizationToken, ...context } = req.postDataJSON();
+          assert.ok(otpAuthorizationToken);
+          assert.deepEqual(context, otpContext);
+        }
         writes.push(req.postDataJSON());
         if (status === "MALFORMED") {
           await route.fulfill({ json: null });

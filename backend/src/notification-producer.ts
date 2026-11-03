@@ -1,10 +1,12 @@
 import { Pool, PoolClient } from 'pg';
+import { DeliveryRetry } from './delivery-retry';
+const retries = new DeliveryRetry();
 
 interface Notification {notificationoutboxid:number;customerid:number;transactionid?:number;notificationtype:string}
 interface Customer {email?:string;fullname?:string}
 interface Transaction {transactioncode?:string;amount?:string;currency?:string;status?:string}
 
-const pool=new Pool({host:process.env.POSTGRES_HOST??'localhost',port:Number(process.env.POSTGRES_INTERNAL_PORT??process.env.POSTGRES_PORT??5432),database:process.env.POSTGRES_DB,user:process.env.POSTGRES_USER,password:process.env.POSTGRES_PASSWORD,max:2,application_name:'d4-bank-notification-sender'});
+const pool=new Pool({host:process.env.POSTGRES_HOST??'localhost',port:Number(process.env.POSTGRES_INTERNAL_PORT??process.env.POSTGRES_PORT??5432),database:process.env.POSTGRES_DB,user:process.env.NOTIFICATION_DB_USER||process.env.POSTGRES_USER,password:process.env.NOTIFICATION_DB_PASSWORD||process.env.POSTGRES_PASSWORD,max:2,application_name:'d4-bank-notification-sender'});
 const interval=Number(process.env.NOTIFICATION_POLL_INTERVAL_MS??3000);
 
 async function sendEmail(notification:Notification,customer:Customer,transaction:Transaction|null):Promise<void>{
@@ -23,14 +25,15 @@ async function processBatch():Promise<number>{
   const client=await pool.connect();
   try{
     await client.query('BEGIN');
-    const claimed=await client.query<Notification>('SELECT * FROM banking_api.claim_notifications($1)',[Number(process.env.NOTIFICATION_BATCH_SIZE??20)]);
+    const claimed=await client.query<Notification>('SELECT * FROM banking_api.claim_ready_notifications($1,$2::bigint[])',[Number(process.env.NOTIFICATION_BATCH_SIZE??20),retries.excluded()]);
     for(const notification of claimed.rows){
       try{
         const customer=await value<Customer>(client,'SELECT banking_api.get_customer_profile($1) AS result',[notification.customerid]);
         const transaction=notification.transactionid?await value<Transaction|null>(client,'SELECT banking_api.get_transaction($1, NULL::BIGINT) AS result',[notification.transactionid]):null;
         await sendEmail(notification,customer,transaction);
         await client.query('SELECT banking_api.mark_notification_sent($1)',[notification.notificationoutboxid]);
-      }catch(error){await client.query('SELECT banking_api.mark_notification_failed($1)',[notification.notificationoutboxid]);console.error('notification_delivery_failed',{notificationId:notification.notificationoutboxid,error});}
+        retries.succeeded(notification.notificationoutboxid);
+      }catch(error){await client.query('SELECT banking_api.mark_notification_failed($1)',[notification.notificationoutboxid]);const paused=retries.failed(notification.notificationoutboxid);console.error('notification_delivery_failed',{notificationId:notification.notificationoutboxid,paused,errorType:error instanceof Error?error.name:'UnknownError'});}
     }
     await client.query('COMMIT');return claimed.rowCount??0;
   }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}

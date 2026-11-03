@@ -11,6 +11,7 @@ from data_engineering.common.config import load_yaml, s3a
 from data_engineering.common.contracts import DatasetContract, contract_for
 from data_engineering.common.spark import session
 from data_engineering.common.state import PipelineState
+from data_engineering.silver.release import configure_silver_release
 
 
 def _validate(frame: DataFrame, expressions: list[str]) -> tuple[DataFrame, DataFrame]:
@@ -76,6 +77,9 @@ def _materialize_realtime_domain_events(spark, batch_id: str) -> dict[str, int] 
         F.col("event_id").isNotNull()
         & F.col("event_type").isNotNull()
         & F.col("aggregate_id").isNotNull()
+        & F.col("occurred_at").isNotNull()
+        & F.col("_ingested_at").isNotNull()
+        & (F.length(F.trim(F.col("event_id"))) > 0)
     )
     invalid = events.filter(~required)
     invalid_count = invalid.count()
@@ -93,7 +97,8 @@ def _materialize_realtime_domain_events(spark, batch_id: str) -> dict[str, int] 
         )
     valid_events = events.filter(required)
     window = Window.partitionBy("event_id").orderBy(
-        F.col("_ingested_at").desc(), F.col("_kafka_offset").desc()
+        F.col("_ingested_at").desc(), F.col("_kafka_topic").desc(),
+        F.col("_kafka_partition").desc(), F.col("_kafka_offset").desc()
     )
     canonical = valid_events.withColumn(
         "_rank", F.row_number().over(window)
@@ -109,14 +114,25 @@ def _materialize_realtime_domain_events(spark, batch_id: str) -> dict[str, int] 
 
 
 def run(batch_id: str) -> dict[str, dict[str, int]]:
+    prefix = configure_silver_release(batch_id)
+    state = PipelineState()
+    validated = state.get_json(f"runs/{batch_id}/silver_dq.json")
+    built = state.get_json(f"runs/{batch_id}/bronze_to_silver.json")
+    if validated and built and validated.get('silver_prefix') == prefix and built.get('silver_prefix') == prefix:
+        return built['metrics']
     spark = session("bronze-to-silver")
     sources = load_yaml("config/sources.yaml")["sources"]
     rules = load_yaml("config/data_quality.yaml").get("rules", {})
     metrics: dict[str, dict[str, int]] = {}
     for table in sources:
         contract = contract_for(table)
+        # A snapshot is a complete replacement, including deletions. Only
+        # append-only incremental sources need historical Bronze batches.
+        suffix = f"postgres/{table}"
+        if sources[table]["strategy"] == "SNAPSHOT":
+            suffix += f"/batch_id={batch_id}"
         frame = spark.read.option("recursiveFileLookup", "true").parquet(
-            s3a("MINIO_BUCKET_BRONZE", f"postgres/{table}")
+            s3a("MINIO_BUCKET_BRONZE", suffix)
         )
         input_count = frame.count()
         normalized = _normalize(frame, contract)

@@ -26,7 +26,7 @@ def validate_candidate(
     if tuple(features.get("features", ())) != FEATURES:
         raise ValueError("candidate feature order does not match the online contract")
     weights = model.get("weights")
-    if not isinstance(weights, dict) or tuple(weights) != FEATURES:
+    if not isinstance(weights, dict) or set(weights) != set(FEATURES):
         raise ValueError("candidate weights do not match the online feature contract")
     numeric_values = [model.get("intercept"), *weights.values()]
     try:

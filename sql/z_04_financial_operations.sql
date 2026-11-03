@@ -5,6 +5,21 @@
 
 SET search_path TO banking;
 
+-- One policy function shared by scoring and boundary tests.
+CREATE OR REPLACE FUNCTION banking_api.risk_decision(p_score integer, p_probability numeric)
+RETURNS text LANGUAGE plpgsql IMMUTABLE AS $$
+BEGIN
+    IF p_score IS NULL OR p_score NOT BETWEEN 0 AND 100
+       OR p_probability IS NULL OR p_probability::text IN ('NaN','Infinity','-Infinity')
+       OR p_probability NOT BETWEEN 0 AND 1 THEN
+        RAISE EXCEPTION 'VALIDATION:invalid risk inputs';
+    END IF;
+    RETURN CASE WHEN p_probability >= 0.90 OR p_score >= 80 THEN 'BLOCK'
+                WHEN p_probability >= 0.60 OR p_score >= 60 THEN 'REVIEW'
+                ELSE 'ALLOW' END;
+END;
+$$;
+
 -- Risk feature calculation and ALLOW / REVIEW / BLOCK decision.
 CREATE OR REPLACE FUNCTION banking_api.calculate_risk (p_customer_id bigint, p_device_id bigint, p_amount numeric(19, 2), p_at timestamp DEFAULT clock_timestamp())
     RETURNS jsonb
@@ -24,6 +39,8 @@ DECLARE
     v_probability numeric(8, 6);
     v_level text;
     v_decision text;
+    v_model jsonb;
+    v_weights jsonb;
 BEGIN
     IF p_amount <= 0 THEN
         PERFORM
@@ -95,15 +112,21 @@ BEGIN
         v_rules := v_rules || '"R06_AMOUNT_ANOMALY"'::jsonb;
     END IF;
     v_score := LEAST (100, v_score);
-    v_logit := - 3.5 + 0.15 * (ln(1 + p_amount::double PRECISION) / 20.0) + 1.10 * CASE WHEN v_new THEN
-        1
-    ELSE
-        0
-    END +0.70 * CASE WHEN extract(hour FROM p_at) < 5 THEN
-        1
-    ELSE
-        0
-    END +0.18 * v_velocity + 0.22 * v_failed + 0.25 * v_ratio::double PRECISION;
+    v_model := NULLIF(current_setting('app.fraud_model', true), '')::jsonb;
+    v_weights := v_model -> 'weights';
+    IF v_model IS NULL OR v_weights IS NULL THEN
+        PERFORM banking_api.raise_error('CONFIGURATION', 'validated model context is required');
+    END IF;
+    v_logit := (v_model->>'intercept')::double precision
+        + (v_weights->>'amount_log')::double precision * (ln(1+p_amount::double precision)/20.0)
+        + (v_weights->>'is_new_device')::double precision * CASE WHEN v_new THEN 1 ELSE 0 END
+        + (v_weights->>'is_unusual_time')::double precision * CASE WHEN extract(hour FROM p_at)<5 THEN 1 ELSE 0 END
+        + (v_weights->>'transactions_last_10m')::double precision * v_velocity
+        + (v_weights->>'failed_logins_last_30m')::double precision * v_failed
+        + (v_weights->>'amount_to_average_ratio')::double precision * v_ratio::double precision;
+    IF v_logit IS NULL OR v_logit::text IN ('NaN','Infinity','-Infinity') THEN
+        PERFORM banking_api.raise_error('CONFIGURATION', 'invalid model coefficients');
+    END IF;
     v_probability := round((1 / (1 + exp(- GREATEST (-40.0, LEAST (40.0, v_logit)))))::numeric, 6);
     v_level := CASE WHEN v_score >= 80 THEN
         'CRITICAL'
@@ -114,16 +137,8 @@ BEGIN
     ELSE
         'LOW'
     END;
-    v_decision := CASE WHEN v_probability >= 0.90
-        OR v_score >= 80 THEN
-        'BLOCK'
-    WHEN v_probability >= 0.60
-        OR v_score >= 60 THEN
-        'REVIEW'
-    ELSE
-        'ALLOW'
-    END;
-    RETURN jsonb_build_object('ruleScore', v_score, 'riskLevel', v_level, 'modelProbability', v_probability, 'decision', v_decision, 'triggeredRules', v_rules, 'features', jsonb_build_object('isNewDevice', v_new, 'transactionsLast10m', v_velocity, 'failedLoginsLast30m', v_failed, 'averageAmount30d', COALESCE(v_avg, 0), 'amountToAverageRatio', v_ratio));
+    v_decision := banking_api.risk_decision(v_score, v_probability);
+    RETURN jsonb_build_object('ruleScore', v_score, 'riskLevel', v_level, 'modelProbability', v_probability, 'decision', v_decision, 'triggeredRules', v_rules, 'modelArtifactVersion', v_model->>'version', 'features', jsonb_build_object('isNewDevice', v_new, 'transactionsLast10m', v_velocity, 'failedLoginsLast30m', v_failed, 'averageAmount30d', COALESCE(v_avg, 0), 'amountToAverageRatio', v_ratio));
 END;
 $$;
 
@@ -163,8 +178,12 @@ CREATE OR REPLACE FUNCTION banking_api.assess_transaction (p_transaction_id bigi
 DECLARE
     v jsonb;
     v_model bigint;
+    v_artifact jsonb;
+    v_at timestamp;
 BEGIN
-    v := banking_api.calculate_risk (p_customer_id, p_device_id, p_amount);
+    SELECT transactiondate INTO STRICT v_at FROM bank_transaction WHERE transactionid=p_transaction_id;
+    v := banking_api.calculate_risk (p_customer_id, p_device_id, p_amount, v_at);
+    v_artifact := NULLIF(current_setting('app.fraud_model',true),'')::jsonb;
     SELECT
         modelversionid
     INTO
@@ -172,7 +191,7 @@ BEGIN
     FROM
         model_version
     WHERE
-        status = 'ACTIVE'
+        status = 'ACTIVE' AND modelversionid=(v_artifact->>'modelVersionId')::bigint
     ORDER BY
         createdat DESC,
         modelversionid DESC
@@ -182,7 +201,7 @@ BEGIN
             banking_api.raise_error ('CONFIGURATION', 'no ACTIVE model');
     END IF;
     INSERT INTO risk_assessment (transactionid, modelversionid, rulescore, risklevel, modelprobability, decision, reasonjson)
-        VALUES (p_transaction_id, v_model, (v ->> 'ruleScore')::smallint, v ->> 'riskLevel', (v ->> 'modelProbability')::numeric, v ->> 'decision', jsonb_build_object('triggered_rules', v -> 'triggeredRules', 'features', v -> 'features'));
+        VALUES (p_transaction_id, v_model, (v ->> 'ruleScore')::smallint, v ->> 'riskLevel', (v ->> 'modelProbability')::numeric, v ->> 'decision', jsonb_build_object('triggered_rules', v -> 'triggeredRules', 'features', v -> 'features', 'model_artifact_version', v_artifact->>'version'));
     RETURN v;
 END;
 $$;
@@ -196,6 +215,8 @@ DECLARE
     vd RECORD;
     vc RECORD;
     vt RECORD;
+    v_decision text;
+    v_type text;
 BEGIN
     IF p_amount <= 0 OR p_debit = p_credit THEN
         PERFORM
@@ -217,6 +238,20 @@ BEGIN
     IF vt.status <> 'Pending' THEN
         RETURN vt.status;
     END IF;
+    SELECT typecode INTO v_type FROM transaction_type WHERE transactiontypeid=vt.transactiontypeid;
+    IF v_type = 'REVERSAL' THEN
+        IF NOT EXISTS (SELECT 1 FROM bank_transaction WHERE transactionid=vt.originaltransactionid AND status='Success') THEN
+            PERFORM banking_api.raise_error('FORBIDDEN','reversal requires a successful original transaction');
+        END IF;
+    ELSE
+        SELECT decision INTO v_decision FROM risk_assessment
+        WHERE transactionid=p_transaction_id ORDER BY assessedat DESC,riskassessmentid DESC LIMIT 1;
+        IF v_decision IS DISTINCT FROM 'ALLOW' AND NOT (
+            COALESCE(v_decision='REVIEW',FALSE) AND EXISTS (SELECT 1 FROM review_case WHERE transactionid=p_transaction_id AND status='APPROVED')
+        ) THEN
+            PERFORM banking_api.raise_error('FORBIDDEN','financial posting requires ALLOW or approved REVIEW');
+        END IF;
+    END IF;
     PERFORM
         accountid
     FROM
@@ -225,7 +260,7 @@ BEGIN
         accountid IN (p_debit, p_credit)
     ORDER BY
         accountid
-    FOR UPDATE;
+    FOR NO KEY UPDATE;
     SELECT
         ba.accountid,
         ba.balance,
@@ -334,28 +369,39 @@ CREATE OR REPLACE FUNCTION banking_api.create_transfer (p_customer bigint, p_sou
     SET search_path = banking, pg_temp
     AS $$
 DECLARE
-    v_existing bigint;
+    v_existing RECORD;
     v_type integer;
     v_id bigint;
     v_risk jsonb;
     v_code text;
 BEGIN
-    IF p_amount <= 0 OR p_source = p_destination OR NULLIF (trim(p_idempotency), '') IS NULL THEN
+    IF p_amount IS NULL OR p_amount::text IN ('NaN', 'Infinity', '-Infinity')
+       OR p_amount <= 0 OR p_amount <> round(p_amount, 2)
+       OR p_source = p_destination OR NULLIF (trim(p_idempotency), '') IS NULL THEN
         PERFORM
             banking_api.raise_error ('VALIDATION', 'invalid transfer or idempotency key');
     END IF;
     PERFORM
         pg_advisory_xact_lock(hashtextextended(p_idempotency, 0));
-    SELECT
-        transactionid
-    INTO
-        v_existing
-    FROM
-        transfer_request
-    WHERE
-        idempotencykey = p_idempotency;
-    IF v_existing IS NOT NULL THEN
-        RETURN banking_api.transaction_result (v_existing);
+    SELECT tr.*, bt.description, bt.channel, tt.typecode
+    INTO v_existing
+    FROM transfer_request tr
+    JOIN bank_transaction bt USING (transactionid)
+    JOIN transaction_type tt USING (transactiontypeid)
+    WHERE tr.idempotencykey = p_idempotency;
+    IF FOUND THEN
+        IF v_existing.customerid IS DISTINCT FROM p_customer THEN
+            PERFORM banking_api.raise_error('FORBIDDEN', 'idempotency key belongs to another customer');
+        END IF;
+        IF v_existing.sourceaccountid IS DISTINCT FROM p_source
+           OR v_existing.destinationaccountid IS DISTINCT FROM p_destination
+           OR v_existing.amount IS DISTINCT FROM p_amount
+           OR v_existing.channel IS DISTINCT FROM p_channel
+           OR v_existing.description IS DISTINCT FROM p_description
+           OR v_existing.typecode <> 'TRANSFER' THEN
+            PERFORM banking_api.raise_error('CONFLICT', 'idempotency key has a different transfer payload');
+        END IF;
+        RETURN banking_api.transaction_result(v_existing.transactionid);
     END IF;
     IF NOT EXISTS (
         SELECT
@@ -383,6 +429,19 @@ END IF;
     PERFORM
         banking_api.raise_error ('FORBIDDEN', 'customer does not own source account');
 END IF;
+    IF (SELECT count(*) FROM bank_account
+        WHERE accountid IN (p_source, p_destination)
+          AND status = 'Active' AND accountcategory = 'CUSTOMER' AND currency = 'VND') <> 2 THEN
+        PERFORM banking_api.raise_error('VALIDATION', 'transfer requires two active VND customer accounts');
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM account_holder h JOIN customer c USING (customerid)
+        WHERE h.accountid = p_destination AND h.holdertype = 'PRIMARY_OWNER'
+          AND h.status = 'Active' AND c.status = 'Active'
+          AND h.startdate <= CURRENT_DATE AND (h.enddate IS NULL OR h.enddate >= CURRENT_DATE)
+    ) THEN
+        PERFORM banking_api.raise_error('VALIDATION', 'recipient account has no active primary owner');
+    END IF;
     SELECT
         transactiontypeid
     INTO
@@ -446,27 +505,49 @@ DECLARE
     v_customer bigint := p_customer;
     v_risk jsonb;
     v_owner boolean;
+    v_existing RECORD;
 BEGIN
     IF p_type_code NOT IN ('DEPOSIT', 'WITHDRAWAL', 'OPENING_BALANCE') THEN
         PERFORM
             banking_api.raise_error ('VALIDATION', 'unsupported movement type');
     END IF;
-    IF p_amount <= 0 OR p_debit = p_credit OR NULLIF (trim(p_transaction_code), '') IS NULL THEN
+    IF p_amount IS NULL OR p_amount::text IN ('NaN', 'Infinity', '-Infinity')
+       OR p_amount <= 0 OR p_amount <> round(p_amount, 2) OR p_debit = p_credit OR NULLIF (trim(p_transaction_code), '') IS NULL THEN
         PERFORM
             banking_api.raise_error ('VALIDATION', 'invalid movement');
     END IF;
     PERFORM
         pg_advisory_xact_lock(hashtextextended(p_transaction_code, 0));
-    SELECT
-        transactionid
-    INTO
-        v_id
-    FROM
-        bank_transaction
-    WHERE
-        transactioncode = p_transaction_code;
-    IF v_id IS NOT NULL THEN
-        RETURN banking_api.transaction_result (v_id);
+    SELECT bt.*, tr.sourceaccountid, tr.destinationaccountid, tt.typecode
+    INTO v_existing
+    FROM bank_transaction bt
+    JOIN transfer_request tr USING (transactionid)
+    JOIN transaction_type tt USING (transactiontypeid)
+    WHERE bt.transactioncode = p_transaction_code OR tr.idempotencykey = p_transaction_code;
+    IF FOUND THEN
+        IF p_customer IS NOT NULL AND v_existing.initiatedbycustomerid IS DISTINCT FROM p_customer THEN
+            PERFORM banking_api.raise_error('FORBIDDEN', 'transaction code belongs to another customer');
+        END IF;
+        IF v_existing.typecode IS DISTINCT FROM p_type_code
+           OR v_existing.sourceaccountid IS DISTINCT FROM p_debit
+           OR v_existing.destinationaccountid IS DISTINCT FROM p_credit
+           OR v_existing.amount IS DISTINCT FROM p_amount
+           OR v_existing.employeeid IS DISTINCT FROM p_employee
+           OR v_existing.channel IS DISTINCT FROM p_channel
+           OR v_existing.description IS DISTINCT FROM p_description THEN
+            PERFORM banking_api.raise_error('CONFLICT', 'transaction code has a different movement payload');
+        END IF;
+        RETURN banking_api.transaction_result(v_existing.transactionid);
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM bank_account d CROSS JOIN bank_account c
+        WHERE d.accountid = p_debit AND c.accountid = p_credit
+          AND d.status = 'Active' AND c.status = 'Active'
+          AND d.currency = 'VND' AND c.currency = 'VND'
+          AND d.accountcategory = CASE WHEN p_type_code = 'WITHDRAWAL' THEN 'CUSTOMER' ELSE 'INTERNAL' END
+          AND c.accountcategory = CASE WHEN p_type_code = 'WITHDRAWAL' THEN 'INTERNAL' ELSE 'CUSTOMER' END
+    ) THEN
+        PERFORM banking_api.raise_error('VALIDATION', 'invalid customer/internal movement account direction');
     END IF;
     IF v_customer IS NULL THEN
         SELECT
@@ -673,10 +754,6 @@ BEGIN
         PERFORM
             banking_api.raise_error ('NOT_FOUND', 'review case not found');
     END IF;
-    IF vc.status NOT IN ('OPEN', 'IN_REVIEW') THEN
-        PERFORM
-            banking_api.raise_error ('CONFLICT', 'review already resolved');
-    END IF;
     IF lower(vu.rolename) NOT LIKE '%admin%'
        AND vu.rolename <> 'Quản trị hệ thống'
        AND NOT EXISTS (
@@ -691,6 +768,15 @@ BEGIN
             'FORBIDDEN',
             'review case is outside employee branch scope'
         );
+    END IF;
+    IF vc.status NOT IN ('OPEN', 'IN_REVIEW') THEN
+        IF vc.revieweruserid = p_reviewer
+           AND vc.reason IS NOT DISTINCT FROM p_reason
+           AND ((vc.status = 'APPROVED' AND upper(p_action) = 'APPROVE')
+                OR (vc.status = 'REJECTED' AND upper(p_action) = 'REJECT')) THEN
+            RETURN banking_api.transaction_result(vc.transactionid);
+        END IF;
+        PERFORM banking_api.raise_error('CONFLICT', 'review already resolved');
     END IF;
     UPDATE
         review_case
@@ -793,23 +879,33 @@ DECLARE
     v_id bigint;
     v_result text;
     v_risk jsonb;
+    v_existing RECORD;
 BEGIN
-    IF p_amount <= 0 OR p_source = p_internal
+    IF p_amount IS NULL OR p_amount::text IN ('NaN', 'Infinity', '-Infinity')
+       OR p_amount <= 0 OR p_amount <> round(p_amount, 2) OR p_source = p_internal
        OR NULLIF(trim(p_code), '') IS NULL
        OR p_channel NOT IN ('Counter', 'Account', 'Online') THEN
         PERFORM banking_api.raise_error('VALIDATION', 'invalid loan payment');
     END IF;
     PERFORM pg_advisory_xact_lock(hashtextextended(p_code, 0));
-    SELECT
-        transactionid
-    INTO
-        v_id
-    FROM
-        bank_transaction
-    WHERE
-        transactioncode = p_code;
-    IF v_id IS NOT NULL THEN
-        RETURN banking_api.transaction_result (v_id);
+    SELECT bt.*, tr.sourceaccountid, tr.destinationaccountid, tt.typecode
+    INTO v_existing
+    FROM bank_transaction bt
+    JOIN transfer_request tr USING (transactionid)
+    JOIN transaction_type tt USING (transactiontypeid)
+    WHERE bt.transactioncode = p_code OR tr.idempotencykey = p_code;
+    IF FOUND THEN
+        IF v_existing.initiatedbycustomerid IS DISTINCT FROM p_customer THEN
+            PERFORM banking_api.raise_error('FORBIDDEN', 'transaction code belongs to another customer');
+        END IF;
+        IF v_existing.typecode <> 'LOAN_PAYMENT'
+           OR v_existing.sourceaccountid IS DISTINCT FROM p_source
+           OR v_existing.destinationaccountid IS DISTINCT FROM p_internal
+           OR v_existing.amount IS DISTINCT FROM p_amount
+           OR v_existing.description IS DISTINCT FROM concat('LOAN_PAYMENT|', p_loan, '|', p_schedule, '|', p_channel) THEN
+            PERFORM banking_api.raise_error('CONFLICT', 'transaction code has a different loan payment payload');
+        END IF;
+        RETURN banking_api.transaction_result(v_existing.transactionid);
     END IF;
     SELECT rs.*, l.status AS loanstatus
     INTO vs
@@ -826,6 +922,23 @@ BEGIN
     IF vs.loanstatus <> 'Active' OR vs.status = 'Paid' THEN
         PERFORM
             banking_api.raise_error ('CONFLICT', 'loan or schedule is not payable');
+    END IF;
+    IF EXISTS (
+        SELECT 1 FROM bank_transaction bt JOIN transaction_type tt USING (transactiontypeid)
+        WHERE tt.typecode = 'LOAN_PAYMENT' AND bt.status = 'Pending'
+          AND split_part(bt.description, '|', 1) = 'LOAN_PAYMENT'
+          AND split_part(bt.description, '|', 2) = p_loan::text
+          AND split_part(bt.description, '|', 3) = p_schedule::text
+    ) THEN
+        PERFORM banking_api.raise_error('CONFLICT', 'loan schedule already has a pending payment');
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM bank_account a CROSS JOIN bank_account b
+        WHERE a.accountid = p_source AND b.accountid = p_internal
+          AND a.accountcategory = 'CUSTOMER' AND b.accountcategory = 'INTERNAL'
+          AND a.status = 'Active' AND b.status = 'Active'
+    ) THEN
+        PERFORM banking_api.raise_error('VALIDATION', 'invalid loan payment account direction');
     END IF;
     IF p_amount <> vs.principaldue + vs.interestdue + vs.penaltydue THEN
         PERFORM
@@ -933,6 +1046,7 @@ DECLARE
     ve RECORD;
     v_type integer;
     v_id bigint;
+    v_existing RECORD;
 BEGIN
     PERFORM
         pg_advisory_xact_lock(p_original);
@@ -958,17 +1072,9 @@ BEGIN
         PERFORM
             banking_api.raise_error ('CONFLICT', 'transaction is not reversible');
     END IF;
-    IF EXISTS (
-        SELECT
-            1
-        FROM
-            bank_transaction
-        WHERE
-            originaltransactionid = p_original
-            AND status = 'Success') THEN
-    PERFORM
-        banking_api.raise_error ('CONFLICT', 'transaction already reversed');
-END IF;
+    IF EXISTS (SELECT 1 FROM transaction_type WHERE transactiontypeid=vo.transactiontypeid AND typecode='LOAN_PAYMENT') THEN
+        PERFORM banking_api.raise_error('CONFLICT','loan payment reversal is not supported; requires loan-domain compensation');
+    END IF;
     IF (
         SELECT
             count(*)
@@ -1012,6 +1118,26 @@ END IF;
             'transaction is outside employee branch scope'
         );
     END IF;
+    SELECT bt.* INTO v_existing FROM bank_transaction bt WHERE bt.transactioncode = p_code;
+    IF FOUND THEN
+        IF v_existing.originaltransactionid IS DISTINCT FROM p_original
+           OR v_existing.employeeid IS DISTINCT FROM p_employee
+           OR v_existing.description IS DISTINCT FROM p_reason THEN
+            PERFORM banking_api.raise_error('CONFLICT', 'transaction code has a different reversal payload');
+        END IF;
+        RETURN banking_api.transaction_result(v_existing.transactionid);
+    END IF;
+    IF EXISTS (
+        SELECT
+            1
+        FROM
+            bank_transaction
+        WHERE
+            originaltransactionid = p_original
+            AND status = 'Success') THEN
+    PERFORM
+        banking_api.raise_error ('CONFLICT', 'transaction already reversed');
+END IF;
     IF vd.amount <> vc.amount THEN
         PERFORM
             banking_api.raise_error ('INTEGRITY', 'original posting is unbalanced');

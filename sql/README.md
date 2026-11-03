@@ -59,3 +59,16 @@ SELECT banking_api.create_transfer(
 );
 ROLLBACK;
 ```
+
+## Transaction regression and read-only reconciliation
+
+`tests/sql/transaction_integrity_audit.sql` checks stored status/posting/outbox
+consistency without modifying data. `tests/sql/transaction_flow_rollback.sql`
+checks the candidate financial functions, review/loan/reversal and retry contracts
+inside a transaction that always ends with ROLLBACK. It temporarily replaces risk
+calculation for deterministic branches; that replacement is rolled back too.
+Run with `psql -v ON_ERROR_STOP=1 -f tests/sql/transaction_flow_rollback.sql` from
+the repository root. Identity sequences may advance even though records and
+balances are rolled back. See `docs/audit/transaction-flow-review.md` for findings
+and the historical TXN demo-data discrepancies; do not infer a financial repair
+from a UI status alone.

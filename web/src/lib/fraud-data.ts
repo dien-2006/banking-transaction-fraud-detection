@@ -29,6 +29,7 @@ export function presentFraudReview(row: ApiFraudReview) {
       : `${(Number(row.modelprobability) * 100).toLocaleString("vi-VN", { maximumFractionDigits: 1 })}%`;
   return {
     id: `RVW${row.reviewcaseid}`,
+    reviewId: row.reviewcaseid,
     transaction: row.transactioncode,
     time: formatDateTime(timestamp, "—"),
     customer:

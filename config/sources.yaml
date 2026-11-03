@@ -1,21 +1,22 @@
+# V1 deliberately uses consistent full snapshots: event time/IDs do not track commit order.
 sources:
   branch: {primary_key: branchid, strategy: SNAPSHOT}
   customer: {primary_key: customerid, strategy: SNAPSHOT}
   customer_device: {primary_key: deviceid, strategy: SNAPSHOT}
-  login_event: {primary_key: logineventid, strategy: INCREMENTAL, watermark: [logintime, logineventid]}
+  login_event: {primary_key: logineventid, strategy: SNAPSHOT}
   account_type: {primary_key: accounttypeid, strategy: SNAPSHOT}
   bank_account: {primary_key: accountid, strategy: SNAPSHOT}
   account_holder: {primary_key: accountholderid, strategy: SNAPSHOT}
   transaction_type: {primary_key: transactiontypeid, strategy: SNAPSHOT}
   bank_transaction: {primary_key: transactionid, strategy: SNAPSHOT}
   transfer_request: {primary_key: transferrequestid, strategy: SNAPSHOT}
-  transaction_posting: {primary_key: postingid, strategy: INCREMENTAL, watermark: [postingdate, postingid]}
+  transaction_posting: {primary_key: postingid, strategy: SNAPSHOT}
   loan_type: {primary_key: loantypeid, strategy: SNAPSHOT}
   loan: {primary_key: loanid, strategy: SNAPSHOT}
   repayment_schedule: {primary_key: scheduleid, strategy: SNAPSHOT}
-  loan_payment: {primary_key: loanpaymentid, strategy: INCREMENTAL, watermark: [paymentdate, loanpaymentid]}
+  loan_payment: {primary_key: loanpaymentid, strategy: SNAPSHOT}
   model_version: {primary_key: modelversionid, strategy: SNAPSHOT}
-  risk_assessment: {primary_key: riskassessmentid, strategy: INCREMENTAL, watermark: [assessedat, riskassessmentid]}
+  risk_assessment: {primary_key: riskassessmentid, strategy: SNAPSHOT}
   review_case: {primary_key: reviewcaseid, strategy: SNAPSHOT}
-  fraud_label_event: {primary_key: fraudlabeleventid, strategy: INCREMENTAL, watermark: [labeledat, fraudlabeleventid]}
+  fraud_label_event: {primary_key: fraudlabeleventid, strategy: SNAPSHOT}
   event_outbox: {primary_key: eventoutboxid, strategy: SNAPSHOT}

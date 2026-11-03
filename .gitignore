@@ -1,5 +1,6 @@
 # Chỉ chia sẻ template; credentials thật phải ở file local hoặc secret manager.
-!.env
+.env
+.env.*
 !.env.example
 
 # Python
@@ -18,3 +19,6 @@ airflow/logs/
 backend/node_modules/
 backend/dist/
 backend/*.tsbuildinfo
+
+web/AGENTS.md
+web/CLAUDE.md

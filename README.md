@@ -1291,7 +1291,7 @@ Compose tự thực hiện:
 Airflow DAG `banking_bronze_silver_gold` chạy tự động lần đầu khi stack sẵn sàng, sau đó chạy theo schedule `01:00 Asia/Ho_Chi_Minh`. Không cần chạy từng ETL file bằng tay. Chuỗi Batch mặc định là:
 
 ```text
-PostgreSQL -> Bronze -> Bronze DQ -> Silver -> Silver DQ -> commit watermark -> Gold -> Gold DQ
+PostgreSQL -> Bronze -> Bronze DQ -> Silver -> Silver DQ -> commit watermark -> Gold -> Gold DQ -> Trino tables/views
 ```
 
 Kafka/realtime là profile riêng: khởi động bằng `docker compose --profile realtime up -d --build`. Khi bật, outbox publisher đẩy event sang Kafka và consumer ghi MinIO Bronze bền vững. PostgreSQL Batch vẫn là nguồn duy nhất tạo các bảng Silver nghiệp vụ; Kafka event không ghi đè `silver/bank_transaction`. Nếu chủ động bật `ENABLE_REALTIME_SILVER_MERGE`, Batch chỉ materialize `silver/domain_event` để phân tích và đối soát. Model sync dùng profile `ml`; DAG Batch không tự training model.
@@ -1337,7 +1337,7 @@ curl -X POST http://localhost:8000/api/v1/auth/login \
   }'
 ```
 
-Luồng chuyển khoản của web thực hiện đủ ba bước có cùng context: `POST /api/v1/security/otp/request`, `POST /api/v1/security/otp/verify`, rồi `POST /api/v1/transactions/transfers` với `otpAuthorizationToken`. Không gọi thẳng bước transfer nếu chưa verify OTP.
+Luồng chuyển khoản của web thực hiện đủ ba bước có cùng context: `POST /api/v1/security/otp/request`, `POST /api/v1/security/otp/verify`, rồi `POST /api/v1/transactions/transfers` với `otpAuthorizationToken`. Context bao gồm cả `description` và phải giữ nguyên qua cả ba bước. Không gọi thẳng bước transfer nếu chưa verify OTP.
 
 Response phân biệt rõ `decision=ALLOW` với `status=Success`; chỉ `Success` sau posting mới có `TransactionCompleted` outbox event. Với `REVIEW`, nhân viên dùng `POST /api/v1/transactions/reviews/{review_case_id}` và action `APPROVE` hoặc `REJECT`.
 
@@ -1372,10 +1372,10 @@ Banking integration tests khi PostgreSQL đã start:
 RUN_BANKING_INTEGRATION=1 conda run -n bank-fraud python -m pytest -q tests/integration/test_banking_postgres.py
 ```
 
-Full automated proof có cả realtime/Kafka chỉ chạy khi profile `realtime` đã được bật:
+Full automated proof có cả realtime/Kafka chỉ chạy khi profile `realtime` đã được bật. Script **ghi một giao dịch demo thật** qua API tại quầy; cần JWT admin/nhân viên còn hạn trong `E2E_ACCESS_TOKEN` (nhân viên phải thuộc chi nhánh tài khoản demo):
 
 ```bash
-python -m scripts.e2e_test
+E2E_ALLOW_DEMO_TRANSFER=1 python -m scripts.e2e_test
 ```
 
 Script E2E fail ngay tại stage không đạt và in summary chứa transaction/risk/outbox/Bronze/Airflow/Trino evidence khi thành công.

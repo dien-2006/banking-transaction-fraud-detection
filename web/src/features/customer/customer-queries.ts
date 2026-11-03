@@ -9,6 +9,7 @@ export function useCustomerAccounts() {
   return useQuery({
     queryKey: ["customer", user.id, "accounts"],
     queryFn: bankService.customerAccounts,
+    refetchInterval: 15_000,
   });
 }
 export function useCustomerTransactions() {
@@ -16,5 +17,6 @@ export function useCustomerTransactions() {
   return useQuery({
     queryKey: ["customer", user.id, "transactions"],
     queryFn: () => loadCustomerTransactions(bankService.listTransactions),
+    refetchInterval: 15_000,
   });
 }

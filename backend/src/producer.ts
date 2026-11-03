@@ -1,12 +1,13 @@
-import { Kafka } from 'kafkajs';
+import { Kafka, Producer } from 'kafkajs';
 import { Pool } from 'pg';
+import { DeliveryRetry } from './delivery-retry';
 
 const pool = new Pool({
   host: process.env.POSTGRES_HOST ?? 'localhost',
   port: Number(process.env.POSTGRES_INTERNAL_PORT ?? process.env.POSTGRES_PORT ?? 5432),
   database: process.env.POSTGRES_DB,
-  user: process.env.POSTGRES_USER,
-  password: process.env.POSTGRES_PASSWORD,
+  user: process.env.OUTBOX_DB_USER || process.env.POSTGRES_USER,
+  password: process.env.OUTBOX_DB_PASSWORD || process.env.POSTGRES_PASSWORD,
   max: 2,
   application_name: 'd4-bank-outbox-producer',
 });
@@ -14,19 +15,20 @@ const kafka = new Kafka({ clientId: 'd4-bank-outbox-producer',
   brokers: (process.env.KAFKA_BOOTSTRAP_SERVERS ?? 'localhost:9092').split(',') });
 const producer = kafka.producer({ allowAutoTopicCreation: false, idempotent: true, maxInFlightRequests: 1 });
 const topic = process.env.KAFKA_TRANSACTION_TOPIC ?? 'banking.transaction-events.v1';
+const retries = new DeliveryRetry();
 
-async function publishBatch(): Promise<number> {
-  const client = await pool.connect();
+export async function publishBatch(database: Pick<Pool, 'connect'> = pool, transport: Pick<Producer, 'send'> = producer, retry: DeliveryRetry = retries): Promise<number> {
+  const client = await database.connect();
   try {
     await client.query('BEGIN');
     const result = await client.query(
-      'SELECT * FROM banking_api.claim_outbox($1)',
-      [Number(process.env.OUTBOX_BATCH_SIZE ?? 100)],
+      'SELECT * FROM banking_api.claim_ready_outbox($1,$2::bigint[])',
+      [Number(process.env.OUTBOX_BATCH_SIZE ?? 100), retry.excluded()],
     );
     let published = 0;
     for (const event of result.rows) {
       try {
-        await producer.send({ topic, acks: -1, messages: [{
+        await transport.send({ topic, acks: -1, messages: [{
           key: event.eventkey,
           value: JSON.stringify({
             event_id: event.eventkey,
@@ -42,9 +44,11 @@ async function publishBatch(): Promise<number> {
         }] });
         await client.query('SELECT banking_api.mark_outbox_published($1)', [event.eventoutboxid]);
         published += 1;
+        retry.succeeded(event.eventoutboxid);
       } catch (error) {
         await client.query('SELECT banking_api.mark_outbox_failed($1)', [event.eventoutboxid]);
-        console.error('outbox_event_publish_failed', { eventId: event.eventkey, error });
+        const paused = retry.failed(event.eventoutboxid);
+        console.error('outbox_event_publish_failed', { eventId: event.eventkey, paused, errorType: error instanceof Error ? error.name : 'UnknownError' });
       }
     }
     await client.query('COMMIT');
@@ -60,8 +64,8 @@ async function main(): Promise<void> {
   const interval = Number(process.env.OUTBOX_POLL_INTERVAL_MS ?? 1000);
   for (;;) {
     try {
-      const count = await publishBatch();
-      if (count === 0) await new Promise((resolve) => setTimeout(resolve, interval));
+      await publishBatch();
+      await new Promise((resolve) => setTimeout(resolve, interval));
     } catch (error) {
       console.error('outbox_publish_failed', error);
       await new Promise((resolve) => setTimeout(resolve, interval));
@@ -72,6 +76,8 @@ async function main(): Promise<void> {
 async function shutdown(): Promise<void> {
   await producer.disconnect(); await pool.end(); process.exit(0);
 }
-process.on('SIGTERM', () => void shutdown());
-process.on('SIGINT', () => void shutdown());
-void main();
+if (require.main === module) {
+  process.on('SIGTERM', () => void shutdown());
+  process.on('SIGINT', () => void shutdown());
+  void main().catch(() => { console.error('outbox_start_failed'); process.exitCode = 1; });
+}

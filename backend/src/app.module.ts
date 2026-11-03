@@ -18,6 +18,7 @@ import { OtpService } from './security/otp.service';
 import { RedisService } from './security/redis.service';
 import { RolesGuard } from './security/roles.guard';
 import { ManagementController } from './http/management.controller';
+import { SecurityThrottle } from './security/throttle.service';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { ManagementController } from './http/management.controller';
   providers: [
     CounterTransferService,
     RedisService,
+    SecurityThrottle,
     OtpService,
     { provide: APP_GUARD, useClass: AuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },

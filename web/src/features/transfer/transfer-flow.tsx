@@ -67,6 +67,7 @@ export function TransferFlow() {
       balance: Number(x.balance),
       available: Number(x.availablebalance),
     }));
+  const confirmedSource = useRef<(typeof accounts)[number] | null>(null);
   const [step, setStep] = useState(0),
     [result, setResult] = useState<Transaction | null>(null),
     [loading, setLoading] = useState(false),
@@ -95,6 +96,7 @@ export function TransferFlow() {
   });
   const amount = Number(form.amount.replace(/\D/g, "")),
     source =
+      (step > 0 ? confirmedSource.current : null) ??
       accounts.find((x) => x.id === sourceId) ??
       accounts.find((x) => x.type === "Thanh toán") ??
       accounts[0],
@@ -130,6 +132,7 @@ export function TransferFlow() {
     amount: string;
     idempotencyKey: string;
     channel: "InternetBanking";
+    description: string;
   }) => {
     setLoading(true);
     setError("");
@@ -172,6 +175,7 @@ export function TransferFlow() {
           await bankService.resolveDestination(form.account.replace(/\s/g, "")),
           Number(source.id),
         );
+        confirmedSource.current = { ...source };
         setResolved(destination);
         setDestinationId(destination.accountId);
         setForm((x) => ({
@@ -202,6 +206,7 @@ export function TransferFlow() {
       amount: String(amount),
       idempotencyKey: idempotencyKey.current,
       channel: "InternetBanking" as const,
+      description: form.content || `Chuyển tiền đến ${form.customer}`,
     };
     if (step === 1) {
       await requestOtp(context);
@@ -274,6 +279,7 @@ export function TransferFlow() {
       amount: String(amount),
       idempotencyKey: idempotencyKey.current,
       channel: "InternetBanking",
+      description: form.content || `Chuyển tiền đến ${form.customer}`,
     });
   };
   return (
@@ -761,9 +767,9 @@ export function TransferFlow() {
                 <ShieldCheck />
                 <h2>Xác nhận giao dịch</h2>
                 <p>
-                  Nhập 6 chữ số đã gửi tới email{" "}
-                  {otpDestination || "đã đăng ký"} để hoàn tất yêu cầu chuyển
-                  tiền.
+                  Yêu cầu gửi mã tới email {otpDestination || "đã đăng ký"} đã
+                  được tiếp nhận. Nhập 6 chữ số khi email đến để hoàn tất yêu cầu
+                  chuyển tiền. Nếu chưa nhận được, kiểm tra thư rác hoặc gửi lại mã.
                 </p>
                 <input
                   aria-label="Mã xác nhận gồm 6 chữ số"

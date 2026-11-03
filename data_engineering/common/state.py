@@ -88,6 +88,8 @@ class PipelineState:
             {
                 "batch_id": batch_id,
                 "stage": stage,
+                "gold_prefix": os.getenv("GOLD_VERSION_PREFIX", ""),
+                "silver_prefix": os.getenv("SILVER_VERSION_PREFIX", ""),
                 "recorded_at": datetime.now(timezone.utc).isoformat(),
                 "metrics": metrics,
             },

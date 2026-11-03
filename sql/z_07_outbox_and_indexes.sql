@@ -6,7 +6,7 @@
 SET search_path TO banking;
 
 -- Kafka transactional-outbox worker contract.
-CREATE OR REPLACE FUNCTION banking_api.claim_outbox (p_limit integer DEFAULT 100)
+CREATE OR REPLACE FUNCTION banking_api.claim_ready_outbox (p_limit integer DEFAULT 100, p_excluded bigint[] DEFAULT ARRAY[]::bigint[])
     RETURNS SETOF event_outbox
     LANGUAGE sql
     VOLATILE
@@ -19,12 +19,18 @@ CREATE OR REPLACE FUNCTION banking_api.claim_outbox (p_limit integer DEFAULT 100
     WHERE
         e.status IN ('PENDING', 'FAILED')
         AND e.publishedat IS NULL
+        AND e.eventoutboxid <> ALL(p_excluded)
     ORDER BY
         e.createdat,
         e.eventoutboxid
     LIMIT LEAST (GREATEST (p_limit, 1), 500)
     FOR UPDATE
         SKIP LOCKED;
+$$;
+
+CREATE OR REPLACE FUNCTION banking_api.claim_outbox(p_limit integer DEFAULT 100)
+RETURNS SETOF event_outbox LANGUAGE sql VOLATILE SET search_path=banking,pg_temp AS $$
+SELECT * FROM banking_api.claim_ready_outbox(p_limit, ARRAY[]::bigint[]);
 $$;
 
 CREATE OR REPLACE FUNCTION banking_api.mark_outbox_published (p_id bigint)
@@ -63,7 +69,7 @@ CREATE OR REPLACE FUNCTION banking_api.mark_outbox_failed (p_id bigint)
 $$;
 
 -- Email notification worker contract.
-CREATE OR REPLACE FUNCTION banking_api.claim_notifications (p_limit integer DEFAULT 100)
+CREATE OR REPLACE FUNCTION banking_api.claim_ready_notifications (p_limit integer DEFAULT 100, p_excluded bigint[] DEFAULT ARRAY[]::bigint[])
     RETURNS SETOF notification_outbox
     LANGUAGE sql
     VOLATILE
@@ -76,12 +82,18 @@ CREATE OR REPLACE FUNCTION banking_api.claim_notifications (p_limit integer DEFA
     WHERE
         n.status IN ('PENDING', 'FAILED')
         AND n.sentat IS NULL
+        AND n.notificationoutboxid <> ALL(p_excluded)
     ORDER BY
         n.createdat,
         n.notificationoutboxid
     LIMIT LEAST (GREATEST (p_limit, 1), 500)
     FOR UPDATE
         SKIP LOCKED;
+$$;
+
+CREATE OR REPLACE FUNCTION banking_api.claim_notifications(p_limit integer DEFAULT 100)
+RETURNS SETOF notification_outbox LANGUAGE sql VOLATILE SET search_path=banking,pg_temp AS $$
+SELECT * FROM banking_api.claim_ready_notifications(p_limit, ARRAY[]::bigint[]);
 $$;
 
 CREATE OR REPLACE FUNCTION banking_api.mark_notification_sent (p_id bigint)

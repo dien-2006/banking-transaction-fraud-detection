@@ -3,6 +3,7 @@ import { JwtService } from '@nestjs/jwt';
 import { Reflector } from '@nestjs/core';
 import { Request } from 'express';
 import { employeeBranch } from './branch-access';
+import { DatabaseService } from '../database/database.service';
 
 export interface AuthUser {
   sub: string; role: 'customer' | 'employee' | 'admin'; actorType: 'customer' | 'employee';
@@ -13,7 +14,8 @@ export interface AuthRequest extends Request { user: AuthUser }
 
 @Injectable()
 export class AuthGuard implements CanActivate {
-  constructor(private readonly jwt: JwtService, private readonly reflector: Reflector) {}
+  constructor(private readonly jwt: JwtService, private readonly reflector: Reflector,
+    private readonly db: DatabaseService) {}
   async canActivate(context: ExecutionContext): Promise<boolean> {
     if (this.reflector.getAllAndOverride<boolean>('public', [context.getHandler(), context.getClass()])) return true;
     const request = context.switchToHttp().getRequest<AuthRequest>();
@@ -28,6 +30,7 @@ export class AuthGuard implements CanActivate {
         throw new Error('Invalid actor identity');
       }
       employeeBranch(user);
+      if (!await this.db.isActorActive(user)) throw new Error('Actor permissions changed');
       request.user = user;
       return true;
     }

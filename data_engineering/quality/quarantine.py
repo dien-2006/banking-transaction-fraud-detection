@@ -49,22 +49,19 @@ def _transaction_violations(frames: dict[str, DataFrame]) -> DataFrame:
     )
     unbalanced_transfers = (
         transactions.filter(F.col("status") == "Success")
-        .select("transaction_id")
-        .join(
-            frames["transfer_request"].select("transaction_id").distinct(),
-            "transaction_id",
-        )
+        .select("transaction_id", "amount")
         .join(posting_totals, "transaction_id", "left")
         .filter(
             F.col("debit").isNull()
             | F.col("credit").isNull()
             | (F.col("debit") != F.col("credit"))
+            | (F.col("debit") != F.col("amount"))
         )
         .select(
             "transaction_id",
             *_reason(
                 "UNBALANCED_SUCCESSFUL_TRANSFER",
-                "successful transfer debit and credit totals are missing or unequal",
+                "successful transaction posting totals are missing, unequal or do not match its amount",
             ),
         )
     )
@@ -85,9 +82,16 @@ def _transaction_violations(frames: dict[str, DataFrame]) -> DataFrame:
         .distinct()
         .withColumn("review_approved", F.lit(True))
     )
+    valid_reversals = (
+        transactions.filter(F.col("status") == "Success")
+        .join(frames["transaction_type"].filter(F.col("type_code") == "REVERSAL").select("transaction_type_id"), "transaction_type_id")
+        .join(transactions.filter(F.col("status") == "Success").select(F.col("transaction_id").alias("original_transaction_id")), "original_transaction_id")
+        .select("transaction_id").distinct()
+    )
     invalid_gate = (
         transactions.filter(F.col("status") == "Success")
         .select("transaction_id")
+        .join(valid_reversals, "transaction_id", "left_anti")
         .join(
             latest_risk.select("transaction_id", "decision"),
             "transaction_id",

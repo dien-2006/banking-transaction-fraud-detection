@@ -31,6 +31,7 @@ export function TransactionsPage() {
   const [status, setStatus] = useState("");
   const [type, setType] = useState("");
   const transactionsQuery = useQuery({
+    refetchInterval: 15_000,
     queryKey: ["staff-transactions", user.role, user.id, user.branchId],
     queryFn: () =>
       loadAllPages(bankService.listTransactions, (row) => row.transactionid),

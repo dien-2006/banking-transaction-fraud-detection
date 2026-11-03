@@ -1,4 +1,8 @@
-"""Non-destructive proof of the complete transaction and data-platform path."""
+"""Opt-in demo financial transfer plus evidence through the data platform.
+
+This script commits a demo transaction. It requires an authenticated staff JWT
+and E2E_ALLOW_DEMO_TRANSFER=1 before it bootstraps or writes anything.
+"""
 
 from __future__ import annotations
 
@@ -49,11 +53,14 @@ def _json_request(
     payload: dict[str, Any] | None = None,
     username: str | None = None,
     password: str | None = None,
+    bearer_token: str | None = None,
 ) -> Any:
     headers = {"Content-Type": "application/json"}
     if username is not None and password is not None:
         token = base64.b64encode(f"{username}:{password}".encode()).decode()
         headers["Authorization"] = f"Basic {token}"
+    if bearer_token:
+        headers["Authorization"] = f"Bearer {bearer_token}"
     request = urllib.request.Request(
         url,
         data=json.dumps(payload).encode() if payload is not None else None,
@@ -198,6 +205,12 @@ def _assert_docker_compose() -> None:
 
 
 def main() -> None:
+    access_token = os.getenv("E2E_ACCESS_TOKEN", "").strip()
+    if os.getenv("E2E_ALLOW_DEMO_TRANSFER") != "1" or not access_token:
+        raise RuntimeError(
+            "E2E commits a demo transfer: set E2E_ALLOW_DEMO_TRANSFER=1 and "
+            "E2E_ACCESS_TOKEN to a valid admin/employee JWT before running"
+        )
     _assert_docker_compose()
     bootstrap_demo()
     with psycopg.connect(
@@ -222,16 +235,17 @@ def main() -> None:
 
     api = f"http://localhost:{os.getenv('BANKING_API_PORT', '8000')}"
     transfer = _json_request(
-        f"{api}/transactions/transfers",
+        f"{api}/api/v1/transactions/counter-transfers",
+        bearer_token=access_token,
         method="POST",
         payload={
-            "customer_id": demo["customerid"],
-            "source_account_id": demo["sourceid"],
-            "destination_account_id": demo["destinationid"],
-            "device_id": demo["deviceid"],
+            "customerId": demo["customerid"],
+            "sourceAccountId": demo["sourceid"],
+            "destinationAccountId": demo["destinationid"],
             "amount": str(Decimal(os.getenv("E2E_TRANSFER_AMOUNT", "100000"))),
-            "idempotency_key": f"e2e-{uuid.uuid4().hex}",
-            "channel": "MobileBanking",
+            "idempotencyKey": str(uuid.uuid4()),
+            "customerVerified": True,
+            "description": "Opt-in E2E demo transfer",
         },
     )
     if transfer.get("decision") != "ALLOW" or transfer.get("status") != "Success":

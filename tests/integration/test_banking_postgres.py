@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import json
+from pathlib import Path
 import uuid
 from datetime import datetime
 from decimal import Decimal
@@ -42,6 +44,12 @@ def demo():
         ).fetchone()
 
 
+def model_context(connection):
+    artifact = json.loads((Path(__file__).resolve().parents[2] / "ml/artifacts/fraud_detection/v1/model.json").read_text())
+    artifact["modelVersionId"] = connection.execute("SELECT modelversionid FROM banking.model_version WHERE modelname='fraud_detection_v1' AND status='ACTIVE' ORDER BY modelversionid DESC LIMIT 1").fetchone()["modelversionid"]
+    connection.execute("SELECT set_config('app.fraud_model',%s,true)", (json.dumps(artifact),))
+
+
 def create_transfer(
     demo,
     *,
@@ -50,6 +58,7 @@ def create_transfer(
     customer_id: int | None = None,
 ) -> dict:
     with psycopg.connect(postgres_dsn(), row_factory=dict_row) as connection:
+        model_context(connection)
         row = connection.execute(
             """
             SELECT banking_api.create_transfer(
@@ -130,6 +139,7 @@ def test_customer_cannot_debit_an_account_they_do_not_hold(demo):
 
 def test_database_risk_contract_applies_documented_rules(demo):
     with psycopg.connect(postgres_dsn(), row_factory=dict_row) as connection:
+        model_context(connection)
         result = connection.execute(
             "SELECT banking_api.calculate_risk(%s, NULL, %s, %s) AS result",
             (demo["customerid"], Decimal("50000000"), datetime(2026, 1, 1, 1)),
@@ -139,3 +149,48 @@ def test_database_risk_contract_applies_documented_rules(demo):
     assert {"R01_HIGH_AMOUNT", "R02_NEW_DEVICE", "R03_UNUSUAL_TIME"}.issubset(
         set(result["triggeredRules"])
     )
+
+
+def test_model_context_really_changes_online_probability_and_matches_python(demo):
+    from ml.inference.predictor import FraudPredictor
+    path = Path(__file__).resolve().parents[2] / 'ml/artifacts/fraud_detection/v1/model.json'
+    with psycopg.connect(postgres_dsn(), row_factory=dict_row) as connection:
+        model_context(connection)
+        value = connection.execute('SELECT banking_api.calculate_risk(%s,%s,1000,%s) AS result',
+                                   (demo['customerid'], demo['deviceid'], datetime(2026, 1, 1, 1))).fetchone()['result']
+        features = value['features']
+        probability = FraudPredictor(path).predict({
+            'amount_log': __import__('math').log1p(1000)/20,
+            'is_new_device': int(features['isNewDevice']), 'is_unusual_time': 1,
+            'transactions_last_10m': features['transactionsLast10m'],
+            'failed_logins_last_30m': features['failedLoginsLast30m'],
+            'amount_to_average_ratio': features['amountToAverageRatio'],
+        })
+        assert Decimal(str(value['modelProbability'])) == probability
+        artifact = json.loads(path.read_text())
+        artifact.update(intercept=40, weights=dict.fromkeys(artifact['weights'], 0))
+        connection.execute("SELECT set_config('app.fraud_model',%s,true)", (json.dumps(artifact),))
+        blocked = connection.execute('SELECT banking_api.calculate_risk(%s,%s,1000,%s) AS result',
+                                     (demo['customerid'], demo['deviceid'], datetime(2026, 1, 1, 1))).fetchone()['result']
+        assert blocked['decision'] == 'BLOCK'
+        assert blocked['modelProbability'] != value['modelProbability']
+
+
+def test_concurrent_debits_cannot_overspend(demo):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    if not os.environ['POSTGRES_DB'].startswith('d4_'):
+        pytest.skip('destructive fixture is restricted to an isolated d4_* test database')
+    with psycopg.connect(postgres_dsn()) as connection:
+        connection.execute('UPDATE banking.bank_account SET balance=1000 WHERE accountid=%s', (demo['sourceid'],))
+    barrier = Barrier(2)
+    def transfer():
+        barrier.wait(timeout=10)
+        return create_transfer(demo, idempotency_key=f'concurrent-{uuid.uuid4()}', amount='600')
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(lambda _: transfer(), range(2)))
+    assert sorted(r['status'] for r in results) == ['Failed', 'Success']
+    with psycopg.connect(postgres_dsn()) as connection:
+        assert connection.execute('SELECT balance FROM banking.bank_account WHERE accountid=%s', (demo['sourceid'],)).fetchone()[0] == Decimal('400')
+    for result in results:
+        assert financial_evidence(result['transactionid'])['posting_count'] == (2 if result['status']=='Success' else 0)

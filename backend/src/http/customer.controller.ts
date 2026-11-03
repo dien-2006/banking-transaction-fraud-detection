@@ -3,10 +3,11 @@ import { DatabaseService } from '../database/database.service';
 import { CurrentUser } from '../security/decorators';
 import { AuthUser } from '../security/auth.guard';
 import { DeviceRegisterDto, DeviceStatusDto, PasswordChangeDto, PinChangeDto } from './management.dto';
+import { SecurityThrottle } from '../security/throttle.service';
 
 @Controller('me')
 export class CustomerController {
-  constructor(private readonly db: DatabaseService) {}
+  constructor(private readonly db: DatabaseService, private readonly throttle: SecurityThrottle) {}
   private id(user: AuthUser): number {
     if (!user.customerId) throw new ForbiddenException('Customer identity required');
     return user.customerId;
@@ -47,7 +48,8 @@ export class CustomerController {
   @Post('password') changePassword(@CurrentUser() user: AuthUser,@Body() dto:PasswordChangeDto) {
     return this.db.function('banking_api.change_customer_password',[this.id(user),dto.oldPassword,dto.newPassword]);
   }
-  @Post('cards/:id/pin') changePin(@CurrentUser() user:AuthUser,@Param('id',ParseIntPipe)id:number,@Body()dto:PinChangeDto){
+  @Post('cards/:id/pin') async changePin(@CurrentUser() user:AuthUser,@Param('id',ParseIntPipe)id:number,@Body()dto:PinChangeDto){
+    await this.throttle.check('card-pin', `${this.id(user)}:${id}`, 5, 900);
     return this.db.function('banking_api.change_card_pin',[this.id(user),id,dto.oldPin,dto.newPin]);
   }
   @Patch('devices/:id') deviceStatus(@CurrentUser()user:AuthUser,@Param('id',ParseIntPipe)id:number,@Body()dto:DeviceStatusDto){

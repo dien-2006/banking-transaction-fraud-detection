@@ -8,7 +8,7 @@ from airflow.operators.bash import BashOperator
 
 
 DEFAULT_ARGS = {"owner": "data-platform", "retries": 2, "retry_delay": timedelta(minutes=3)}
-SPARK = "spark-submit --master $SPARK_MASTER_URL /workspace/data_engineering/jobs/pipeline.py"
+SPARK = "spark-submit --driver-memory 512m --conf spark.executor.memory=512m --conf spark.cores.max=1 --conf spark.sql.shuffle.partitions=2 --master $SPARK_MASTER_URL /workspace/data_engineering/jobs/pipeline.py"
 
 
 def spark_task(task_id: str, stage: str, batch_id: str) -> BashOperator:
@@ -39,6 +39,13 @@ with DAG(
     commit_state = spark_task("commit_watermarks", "commit-state", batch)
     gold = spark_task("silver_to_gold", "gold", batch)
     gold_dq = spark_task("gold_dq", "gold-dq", batch)
+    catalog = BashOperator(
+        task_id="register_trino_views",
+        bash_command=f"python -m scripts.publish_gold --batch-id '{batch}'",
+        cwd="/workspace",
+        append_env=True,
+        execution_timeout=timedelta(minutes=5),
+    )
     (
         check
         >> extract
@@ -48,4 +55,5 @@ with DAG(
         >> commit_state
         >> gold
         >> gold_dq
+        >> catalog
     )

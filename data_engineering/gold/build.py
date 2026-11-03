@@ -9,18 +9,23 @@ from pyspark.sql.types import BooleanType, NumericType, StringType
 from data_engineering.common.config import s3a
 from data_engineering.common.spark import session
 from data_engineering.common.state import PipelineState
+from data_engineering.silver.release import configure_silver_release
 
 
 def _silver(spark, dataset: str):
     return spark.read.parquet(s3a("MINIO_BUCKET_SILVER", dataset))
 
 
+def _business_time(column: str):
+    return F.from_utc_timestamp(F.col(column), os.getenv("SOURCE_TIMEZONE", "Asia/Ho_Chi_Minh"))
+
+
 def _date_key(column: str):
-    return F.date_format(F.col(column), "yyyyMMdd").cast("int")
+    return F.date_format(_business_time(column), "yyyyMMdd").cast("int")
 
 
 def _time_key(column: str):
-    return (F.hour(F.col(column)) * 100 + F.minute(F.col(column))).cast("int")
+    return (F.hour(_business_time(column)) * 100 + F.minute(_business_time(column))).cast("int")
 
 
 def _write(frame, relative_path: str) -> int:
@@ -46,6 +51,13 @@ def _with_unknown(frame, key: str):
 
 
 def run(batch_id: str = "manual") -> dict[str, int]:
+    configure_silver_release(batch_id)
+    # Once validated, a release is immutable, including retries after publish.
+    state = PipelineState()
+    validated = state.get_json(f"runs/{batch_id}/gold_dq.json")
+    built = state.get_json(f"runs/{batch_id}/silver_to_gold.json")
+    if os.getenv("GOLD_VERSION_PREFIX") and validated and built and validated.get("gold_prefix") == os.getenv("GOLD_VERSION_PREFIX") and built.get("gold_prefix") == os.getenv("GOLD_VERSION_PREFIX") and validated["metrics"].get("failures") == []:
+        return built["metrics"]
     spark = session("silver-to-gold")
     outputs: dict[str, int] = {}
     transaction = _silver(spark, "bank_transaction")
@@ -57,14 +69,14 @@ def run(batch_id: str = "manual") -> dict[str, int]:
     payment = _silver(spark, "loan_payment")
 
     timestamp_frames = [
-        transaction.select(F.to_date("transaction_at").alias("full_date")),
-        posting.select(F.to_date("posting_at").alias("full_date")),
-        risk.select(F.to_date("assessed_at").alias("full_date")),
-        review.select(F.to_date("created_at").alias("full_date")),
-        review.select(F.to_date("reviewed_at").alias("full_date")),
-        label.select(F.to_date("labeled_at").alias("full_date")),
-        login.select(F.to_date("login_at").alias("full_date")),
-        payment.select(F.to_date("payment_at").alias("full_date")),
+        transaction.select(F.to_date(_business_time("transaction_at")).alias("full_date")),
+        posting.select(F.to_date(_business_time("posting_at")).alias("full_date")),
+        risk.select(F.to_date(_business_time("assessed_at")).alias("full_date")),
+        review.select(F.to_date(_business_time("created_at")).alias("full_date")),
+        review.select(F.to_date(_business_time("reviewed_at")).alias("full_date")),
+        label.select(F.to_date(_business_time("labeled_at")).alias("full_date")),
+        login.select(F.to_date(_business_time("login_at")).alias("full_date")),
+        payment.select(F.to_date(_business_time("payment_at")).alias("full_date")),
     ]
     dates = timestamp_frames[0]
     for candidate in timestamp_frames[1:]:

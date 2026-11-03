@@ -1,0 +1,49 @@
+name: Validate banking and platform contracts
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: d4_ci
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: test-only-password
+        ports: [5432:5432]
+        options: --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 15
+    env:
+      PGHOST: localhost
+      PGPASSWORD: test-only-password
+      POSTGRES_HOST: localhost
+      POSTGRES_INTERNAL_PORT: 5432
+      POSTGRES_DB: d4_ci
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: test-only-password
+      RUN_BANKING_INTEGRATION: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Reject tracked local credentials
+        run: test -z "$(git ls-files -- .env)"
+      - run: pip install -r requirements.txt
+      - name: Initialize isolated contract database
+        run: BANKING_SQL_DIR="$PWD/sql" bash docker/postgres-init.sh
+      - run: python -m pytest -q
+      - name: Verify review, rollback, reversal and loan gates
+        run: |
+          psql -U postgres -d d4_ci -v ON_ERROR_STOP=1 -f tests/sql/fixtures.sql
+          psql -U postgres -d d4_ci -v ON_ERROR_STOP=1 -f tests/sql/transaction_flow_rollback.sql
+      - name: Backend
+        working-directory: backend
+        run: npm ci && npm run test:web && npm run typecheck
+      - name: Web
+        working-directory: web
+        run: npm ci && npm run test:web && npm run typecheck

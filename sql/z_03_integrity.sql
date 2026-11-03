@@ -72,6 +72,8 @@ DECLARE
     v_amount numeric(19, 2);
     v_debit numeric(19, 2);
     v_credit numeric(19, 2);
+    v_decision text;
+    v_reversal boolean;
 BEGIN
     SELECT
         status,
@@ -84,6 +86,16 @@ BEGIN
     WHERE
         transactionid = v_id;
     IF v_status = 'Success' THEN
+        SELECT tt.typecode='REVERSAL' INTO v_reversal FROM bank_transaction bt
+        JOIN transaction_type tt USING(transactiontypeid) WHERE bt.transactionid=v_id;
+        SELECT decision INTO v_decision FROM risk_assessment WHERE transactionid=v_id
+        ORDER BY assessedat DESC,riskassessmentid DESC LIMIT 1;
+        IF NOT COALESCE(v_reversal,FALSE)
+           AND v_decision IS DISTINCT FROM 'ALLOW'
+           AND NOT (COALESCE(v_decision='REVIEW',FALSE) AND EXISTS (
+               SELECT 1 FROM review_case WHERE transactionid=v_id AND status='APPROVED')) THEN
+            RAISE EXCEPTION 'INTEGRITY:successful transaction % has no risk approval',v_id;
+        END IF;
         SELECT
             COALESCE(sum(amount) FILTER (WHERE postingtype = 'DEBIT'), 0),
             COALESCE(sum(amount) FILTER (WHERE postingtype = 'CREDIT'), 0)
@@ -107,6 +119,8 @@ BEGIN
                 AND eventtype = 'TransactionCompleted') THEN
             RAISE EXCEPTION 'INTEGRITY:successful transaction % has no committed outbox event', v_id;
         END IF;
+    ELSIF EXISTS (SELECT 1 FROM transaction_posting WHERE transactionid=v_id) THEN
+        RAISE EXCEPTION 'INTEGRITY:non-success transaction % has financial postings',v_id;
     END IF;
     RETURN NULL;
 END;
@@ -196,12 +210,12 @@ BEGIN
     v_old := CASE WHEN TG_OP = 'INSERT' THEN
         NULL
     ELSE
-        to_jsonb (OLD)
+        to_jsonb (OLD) - ARRAY['pinhash','cardnumber','passwordhash']
     END;
     v_new := CASE WHEN TG_OP = 'DELETE' THEN
         NULL
     ELSE
-        to_jsonb (NEW)
+        to_jsonb (NEW) - ARRAY['pinhash','cardnumber','passwordhash']
     END;
     v_id := COALESCE(v_new ->> TG_ARGV[1], v_old ->> TG_ARGV[1]);
     v_action := CASE WHEN TG_OP = 'INSERT' THEN

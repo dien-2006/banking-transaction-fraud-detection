@@ -6,13 +6,16 @@ import { CurrentUser, Public } from '../security/decorators';
 import { LoginDto } from './dto';
 import { AuthUser } from '../security/auth.guard';
 import { PasswordChangeDto } from './management.dto';
+import { SecurityThrottle } from '../security/throttle.service';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly db: DatabaseService, private readonly jwt: JwtService) {}
+  constructor(private readonly db: DatabaseService, private readonly jwt: JwtService, private readonly throttle: SecurityThrottle) {}
   @Public()
   @Post('login')
   async login(@Body() dto: LoginDto, @Req() request: Request) {
+    await this.throttle.check('login-ip', request.ip ?? 'unknown', 50, 60);
+    await this.throttle.check('login-account', dto.username.trim().toLowerCase(), 10, 900);
     const user = await this.db.authenticate(
       dto.username,
       dto.password,

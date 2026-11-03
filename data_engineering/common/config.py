@@ -15,4 +15,7 @@ def load_yaml(relative_path: str) -> dict:
 
 def s3a(bucket_env: str, suffix: str = "") -> str:
     bucket = os.getenv(bucket_env, bucket_env.removeprefix("MINIO_BUCKET_").lower())
-    return f"s3a://{bucket}/{suffix.lstrip('/')}"
+    version_env = {"MINIO_BUCKET_GOLD": "GOLD_VERSION_PREFIX", "MINIO_BUCKET_SILVER": "SILVER_VERSION_PREFIX"}.get(bucket_env)
+    prefix = os.getenv(version_env, "").strip("/") if version_env else ""
+    path = "/".join(part for part in [prefix, suffix.lstrip("/")] if part)
+    return f"s3a://{bucket}/{path}"

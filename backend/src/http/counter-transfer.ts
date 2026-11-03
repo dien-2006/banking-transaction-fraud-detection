@@ -67,7 +67,7 @@ export class CounterTransferService {
     const key = `counter:${user.userId}:${dto.idempotencyKey}`;
     const description = dto.description?.trim() || null;
     return this.db.transaction(
-      { userId: user.userId, ipAddress: ip },
+      { userId: user.userId, ipAddress: ip, risk: true },
       async (client) => {
         const actor = await client.query(
           `/* counter-actor */ SELECT e.branchid, r.rolename

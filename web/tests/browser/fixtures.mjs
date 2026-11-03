@@ -250,17 +250,15 @@ export function fixtureResponse(url, role) {
   if (path === "/admin/branches") return page(branches, url);
   if (path === "/admin/fraud-reviews")
     return page(
-      transactionRows
-        .slice(0, 24)
-        .map((row, i) => ({
-          ...row,
-          reviewcaseid: i + 1,
-          reviewstatus: ["OPEN", "IN_REVIEW", "APPROVED", "REJECTED", "CLOSED"][
-            i % 5
-          ],
-          reviewcreatedat: row.transactiondate,
-          revieweruserid: i % 2 ? 1 : null,
-        })),
+      transactionRows.slice(0, 24).map((row, i) => ({
+        ...row,
+        reviewcaseid: i + 1,
+        reviewstatus: ["OPEN", "IN_REVIEW", "APPROVED", "REJECTED", "CLOSED"][
+          i % 5
+        ],
+        reviewcreatedat: row.transactiondate,
+        revieweruserid: i % 2 ? 1 : null,
+      })),
       url,
     );
   if (path === "/admin/audit-logs")
@@ -299,6 +297,27 @@ export function fixtureResponse(url, role) {
       riskyTransactionCount: 20,
       activeLoanCount: 5,
       openReviewCount: 3,
+    };
+  if (path === "/analytics/snapshot")
+    return {
+      release: {
+        schema_name: "gold_r_" + "a".repeat(20),
+        batch_id: "mock-release",
+        published_at: "2026-11-02 12:00:00",
+      },
+      datasets: Object.fromEntries(
+        ["transactions", "risk", "reviews", "models", "logins", "loans"].map(
+          (dataset) => {
+            const query = new URL(url);
+            query.pathname = query.pathname.replace(
+              "/analytics/snapshot",
+              "/analytics",
+            );
+            query.searchParams.set("dataset", dataset);
+            return [dataset, fixtureResponse(query, role)];
+          },
+        ),
+      ),
     };
   if (path === "/analytics")
     return [

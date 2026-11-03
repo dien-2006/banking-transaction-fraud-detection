@@ -547,7 +547,10 @@ CREATE OR REPLACE FUNCTION banking_api.list_audit_logs (p_user integer DEFAULT N
     AS $$
     WITH f AS (
         SELECT
-            *
+            auditid, userid, entitytype, entityid, action,
+            oldvalue - ARRAY['pinhash','cardnumber','passwordhash'] AS oldvalue,
+            newvalue - ARRAY['pinhash','cardnumber','passwordhash'] AS newvalue,
+            ipaddress, createdat
         FROM
             audit_log
         WHERE (p_user IS NULL

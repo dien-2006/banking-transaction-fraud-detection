@@ -84,3 +84,35 @@ export function analyticsCsv(rows: AnalyticsRow[], columns: string[]): string {
     ].join("\r\n")
   );
 }
+
+export type AnalyticsSnapshot = {
+  release: {
+    schema_name: string;
+    batch_id: string;
+    published_at: string | null;
+  };
+  datasets: Record<AnalyticsDataset, AnalyticsRow[]>;
+};
+export function validateAnalyticsSnapshot(value: unknown): AnalyticsSnapshot {
+  const snapshot = value as AnalyticsSnapshot | null;
+  if (
+    !snapshot ||
+    typeof snapshot !== "object" ||
+    !snapshot.release ||
+    typeof snapshot.release.batch_id !== "string" ||
+    typeof snapshot.release.schema_name !== "string" ||
+    !snapshot.datasets
+  )
+    throw new Error("Không nhận được phiên bản dữ liệu Gold hợp lệ.");
+  for (const dataset of Object.keys(analyticsDatasets) as AnalyticsDataset[])
+    if (
+      !Array.isArray(snapshot.datasets[dataset]) ||
+      snapshot.datasets[dataset].some(
+        (row) => !row || typeof row !== "object" || Array.isArray(row),
+      )
+    )
+      throw new Error(
+        "Phiên bản Gold chưa đầy đủ các nhóm dữ liệu. Vui lòng thử lại.",
+      );
+  return snapshot;
+}

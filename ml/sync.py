@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import json
 import os
 import tempfile
 import time
@@ -8,6 +9,7 @@ from pathlib import Path
 
 from minio import Minio
 from minio.error import S3Error
+from ml.inference.predictor import validate_artifact
 
 LOG = logging.getLogger("model-sync")
 
@@ -36,6 +38,7 @@ def main() -> None:
             with tempfile.NamedTemporaryFile(dir=target.parent, delete=False) as handle:
                 temporary = Path(handle.name)
             client.fget_object(bucket, object_name, str(temporary))
+            validate_artifact(json.loads(temporary.read_text(encoding="utf-8")))
             temporary.replace(target)
             temporary = None
             LOG.info("model_cache_updated object=%s target=%s", object_name, target)

@@ -1,8 +1,10 @@
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Pool, PoolClient } from 'pg';
+import { CachedFraudModel } from './fraud-model';
+import type { AuthUser } from '../security/auth.guard';
 
-export interface RequestContext { userId?: number; ipAddress?: string }
+export interface RequestContext { userId?: number; ipAddress?: string; risk?: boolean }
 export interface AuthResult {
   actorType: 'customer' | 'employee';
   role: 'customer' | 'employee' | 'admin';
@@ -21,13 +23,15 @@ export interface AuthResult {
 export class DatabaseService implements OnModuleDestroy {
   readonly pool: Pool;
   private readonly cryptoReady = new WeakSet<PoolClient>();
+  private readonly fraudModel: CachedFraudModel;
   constructor(config: ConfigService) {
+    this.fraudModel = new CachedFraudModel(config);
     this.pool = new Pool({
       host: config.get('POSTGRES_HOST', 'localhost'),
       port: config.get<number>('POSTGRES_INTERNAL_PORT', 5432),
       database: config.getOrThrow('POSTGRES_DB'),
-      user: config.getOrThrow('POSTGRES_USER'),
-      password: config.getOrThrow('POSTGRES_PASSWORD'),
+      user: config.get<string>('BANKING_DB_USER') || config.getOrThrow('POSTGRES_USER'),
+      password: config.get<string>('BANKING_DB_PASSWORD') || config.getOrThrow('POSTGRES_PASSWORD'),
       max: config.get<number>('POSTGRES_POOL_MAX', 20),
       statement_timeout: 15000,
       application_name: 'd4-bank-nest-api',
@@ -300,11 +304,27 @@ export class DatabaseService implements OnModuleDestroy {
 
   async function<T>(name: string, args: unknown[] = [], context: RequestContext = {}): Promise<T> {
     if (!/^banking_api\.[a-z0-9_]+$/.test(name)) throw new Error('Unsafe database function name');
+    if (['banking_api.create_transfer', 'banking_api.create_account_movement', 'banking_api.pay_loan'].includes(name)) context = { ...context, risk: true };
     return this.transaction(context, async (client) => {
       const placeholders = args.map((_, i) => `$${i + 1}`).join(', ');
       const result = await client.query<{ result: T }>(`SELECT ${name}(${placeholders}) AS result`, args);
       return result.rows[0]?.result;
     });
+  }
+
+  async isActorActive(user: AuthUser): Promise<boolean> {
+    const result = user.role === 'customer'
+      ? await this.pool.query(`SELECT 1 FROM banking.customer c
+          JOIN banking.customer_online_account a USING(customerid)
+          WHERE c.customerid=$1 AND c.status='Active' AND a.isactive
+            AND ($2::bigint IS NULL OR EXISTS (SELECT 1 FROM banking.customer_device d
+              WHERE d.deviceid=$2 AND d.customerid=c.customerid AND d.status='Active'))`, [user.customerId, user.deviceId ?? null])
+      : await this.pool.query(`SELECT 1 FROM banking.system_user u
+          JOIN banking.employee e USING(employeeid) JOIN banking.role r USING(roleid)
+          WHERE u.userid=$1 AND e.employeeid=$2 AND u.isactive AND e.status='Active' AND r.status='Active'
+          AND e.branchid=$3 AND (CASE WHEN lower(r.rolename) LIKE '%admin%' OR r.rolename='Quản trị hệ thống'
+            THEN 'admin' ELSE 'employee' END)=$4`, [user.userId, user.employeeId, user.branchId, user.role]);
+    return result.rows.length > 0;
   }
 
   async transaction<T>(context: RequestContext, work: (client: PoolClient) => Promise<T>): Promise<T> {
@@ -342,6 +362,14 @@ export class DatabaseService implements OnModuleDestroy {
   private async setContext(client: PoolClient, context: RequestContext): Promise<void> {
     await client.query("SELECT set_config('app.user_id', $1, true), set_config('app.ip_address', $2, true)",
       [context.userId?.toString() ?? '', context.ipAddress ?? '']);
+    if (context.risk) {
+      const { artifact, databaseName } = this.fraudModel.snapshot();
+      const result = await client.query<{ modelversionid: number }>(
+        "SELECT modelversionid FROM banking.model_version WHERE modelname=$1 AND status='ACTIVE' ORDER BY modelversionid DESC LIMIT 1", [databaseName]);
+      if (!result.rows.length) throw new Error('CONFIGURATION:No ACTIVE database identity for the loaded model');
+      await client.query("SELECT set_config('app.fraud_model',$1,true)",
+        [JSON.stringify({ ...artifact, modelVersionId: result.rows[0].modelversionid })]);
+    }
   }
   async onModuleDestroy(): Promise<void> { await this.pool.end(); }
 }

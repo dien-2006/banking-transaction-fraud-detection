@@ -10,6 +10,7 @@ from data_engineering.common.config import load_yaml
 from data_engineering.common.spark import session
 from data_engineering.common.state import PipelineState
 from data_engineering.gold.build import run as build_gold
+from data_engineering.gold.release import configure_release
 from data_engineering.ingestion.batch.extract import run as extract
 from data_engineering.quality.checks import run as quality
 from data_engineering.silver.transform import run as transform
@@ -49,6 +50,8 @@ def main() -> None:
     parser.add_argument("--batch-id", default=uuid.uuid4().hex)
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO)
+    if args.stage in {"gold", "gold-dq"}:
+        configure_release(args.batch_id)
     if args.stage == "check":
         metrics = dependency_check(args.batch_id)
     elif args.stage == "extract":

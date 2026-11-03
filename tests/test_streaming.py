@@ -1,9 +1,8 @@
 import json
 from datetime import datetime, timezone
-from unittest.mock import MagicMock, Mock
+from unittest.mock import Mock
 
 from streaming.consumer.service import persist_message, persist_rejected
-from streaming.publisher.service import build_envelope, publish_once, validate_envelope
 
 
 def _event() -> dict:
@@ -51,43 +50,55 @@ def test_invalid_event_can_be_durably_quarantined() -> None:
     assert "rejected" in name
 
 
-def test_outbox_is_marked_failed_when_kafka_flush_times_out() -> None:
-    connection = MagicMock()
-    connection.execute.return_value.fetchall.return_value = [
-        {
-            "eventoutboxid": 1,
-            "eventkey": "evt-1",
-            "aggregatetype": "BANK_TRANSACTION",
-            "aggregateid": "10",
-            "eventtype": "TransactionCompleted",
-            "payloadjson": {"transaction_id": 10},
-            "createdat": datetime.now(timezone.utc),
-        }
-    ]
-    producer = Mock()
-    producer.flush.return_value = 1
-
-    assert publish_once(connection, producer, "events") == 0
-
-    executed_sql = [call.args[0] for call in connection.execute.call_args_list]
-    assert not any("status='PUBLISHED'" in sql for sql in executed_sql)
-    assert any("status='FAILED'" in sql for sql in executed_sql)
 
 
-def test_publisher_builds_versioned_envelope() -> None:
-    envelope = build_envelope(
-        {
-            "eventoutboxid": 12,
-            "eventkey": "evt-12",
-            "eventtype": "TransactionCompleted",
-            "aggregatetype": "BANK_TRANSACTION",
-            "aggregateid": "99",
-            "payloadjson": {"transaction_id": 99},
-            "createdat": datetime.now(timezone.utc),
-        }
-    )
 
-    validate_envelope(envelope)
-    assert envelope["event_version"] == "1.0"
-    assert envelope["outbox_id"] == 12
-    assert envelope["source_system"] == "banking_postgresql"
+
+def test_consumer_storage_failure_never_commits_or_advances() -> None:
+    import pytest
+    from streaming.consumer.service import process_message
+    consumer, store = Mock(), Mock()
+    store.put_object.side_effect = OSError('MinIO offline')
+    with pytest.raises(OSError):
+        process_message(consumer, store, 'bronze', 'quarantine', _message(json.dumps(_event()).encode()))
+    consumer.commit.assert_not_called()
+
+
+def test_consumer_quarantine_failure_never_commits() -> None:
+    import pytest
+    from streaming.consumer.service import process_message
+    consumer, store = Mock(), Mock()
+    store.stat_object.side_effect = OSError('quarantine unavailable')
+    with pytest.raises(OSError):
+        process_message(consumer, store, 'bronze', 'quarantine', _message(b'{invalid'))
+    consumer.commit.assert_not_called()
+
+
+def test_consumer_commits_after_verified_put_for_valid_and_rejected_messages() -> None:
+    from streaming.consumer.service import process_message
+    for raw, bucket in [(json.dumps(_event()).encode(),'bronze'),(b'{invalid','quarantine')]:
+        operations=[]
+        store,consumer=Mock(),Mock()
+        store.put_object.side_effect=lambda *_a,**_kw: operations.append('put')
+        store.stat_object.side_effect=lambda *_a,**_kw: operations.append('stat')
+        consumer.commit.side_effect=lambda *_a,**_kw: operations.append('commit')
+        name=process_message(consumer,store,'bronze','quarantine',_message(raw))
+        assert operations==['put','stat','commit']
+        store.stat_object.assert_called_once_with(bucket,name)
+
+
+def test_replayed_kafka_offset_uses_message_date_not_consumer_clock() -> None:
+    from streaming.consumer.service import durable_object_name
+    message=_message(b'event')
+    message.timestamp.return_value=(1,1767225600000)
+    assert durable_object_name(message).startswith('kafka/events/date=2026-01-01/')
+
+
+def test_invalid_payload_and_timestamp_are_quarantined_instead_of_poisoning_silver() -> None:
+    from streaming.consumer.service import process_message
+    for patch in [{'payload':[]},{'event_id':''},{'occurred_at':'not-a-date'}]:
+        store,consumer=Mock(),Mock()
+        envelope={**_event(),**patch}
+        process_message(consumer,store,'bronze','quarantine',_message(json.dumps(envelope).encode()))
+        assert store.put_object.call_args.args[0]=='quarantine'
+        consumer.commit.assert_called_once()
