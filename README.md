@@ -1,1398 +1,504 @@
-# Bank Fraud Detection & Data Platform
+# D4 Bank — Banking Transaction Fraud Detection & Data Platform
 
-Hệ thống mô phỏng một nền tảng ngân hàng tích hợp **xử lý giao dịch**, **đánh giá rủi ro/phát hiện gian lận**, **Batch + Realtime Data Pipeline**, **Data Lakehouse Bronze/Silver/Gold**, **Machine Learning** và **BI/Analytics**.
+**Nền tảng mô phỏng ngân hàng tích hợp phát hiện gian lận và phân tích dữ liệu.**
 
-> **Nguyên tắc dự án:** PostgreSQL schema hiện tại trong `create_table.sql` được xem là **cố định**. Các service, pipeline ETL và ML phải thích nghi với schema này; không thay đổi database chỉ để phục vụ ETL/ML.
+D4 Bank kết nối toàn bộ hành trình của một giao dịch: khách hàng gửi yêu cầu chuyển tiền, hệ thống đánh giá rủi ro bằng Rule Engine và Machine Learning, ngân hàng xử lý tiền, sau đó dữ liệu được đưa vào nền tảng phân tích qua Batch và Realtime.
 
----
+Dự án kết hợp ba lĩnh vực: **ứng dụng ngân hàng**, **phát hiện gian lận**, và **Data Engineering**. Giao diện phục vụ khách hàng, nhân viên và quản trị viên; dữ liệu nghiệp vụ được lưu trong PostgreSQL, còn dữ liệu phân tích được tổ chức trên MinIO theo mô hình Bronze → Silver → Gold.
 
-## 1. Mục tiêu dự án
+## Mục lục
 
-Dự án được xây dựng để mô phỏng end-to-end một hệ thống ngân hàng có khả năng:
+- [Chức năng chính](#chức-năng-chính)
+- [Kiến trúc hệ thống](#kiến-trúc-hệ-thống)
+- [Công nghệ sử dụng](#công-nghệ-sử-dụng)
+- [Luồng giao dịch ngân hàng](#luồng-giao-dịch-ngân-hàng)
+- [Phát hiện gian lận](#phát-hiện-gian-lận)
+- [Nền tảng dữ liệu](#nền-tảng-dữ-liệu)
+- [Mô hình dữ liệu phân tích](#mô-hình-dữ-liệu-phân-tích)
+- [Cấu trúc mã nguồn](#cấu-trúc-mã-nguồn)
+- [Cài đặt và chạy](#cài-đặt-và-chạy)
+- [API và các dịch vụ](#api-và-các-dịch-vụ)
+- [Kiểm thử](#kiểm-thử)
+- [Nguyên tắc thiết kế](#nguyên-tắc-thiết-kế)
 
-- Quản lý dữ liệu nghiệp vụ ngân hàng trong PostgreSQL.
-- Tiếp nhận và xử lý giao dịch tài chính an toàn theo database transaction.
-- Đánh giá rủi ro bằng **Rule Engine + Machine Learning**.
-- Đưa ra quyết định `ALLOW`, `REVIEW` hoặc `BLOCK` trước khi xử lý tài chính.
-- Sử dụng **Transactional Outbox** để tách Banking Core khỏi Data Platform.
-- Thu thập dữ liệu theo cả **Batch** và **Realtime**.
-- Lưu raw data trên MinIO Bronze.
-- Làm sạch, chuẩn hóa, kiểm tra chất lượng và deduplicate bằng Spark.
-- Đưa dữ liệu lỗi vào Quarantine thay vì xóa.
-- Xây dựng Silver và Gold phục vụ phân tích.
-- Query dữ liệu Lakehouse bằng Trino.
-- Tạo Feature Mart và huấn luyện model phát hiện gian lận.
-- Phục vụ Web, BI Dashboard và báo cáo.
+## Chức năng chính
 
----
+### Khách hàng
 
-## 2. Kiến trúc tổng thể
+- Đăng nhập và quản lý hồ sơ cá nhân.
+- Xem tài khoản, số dư, thẻ và lịch sử giao dịch.
+- Chuyển tiền với xác minh người nhận và OTP qua email.
+- Theo dõi kết quả giao dịch và xem biên nhận.
+- Tra cứu khoản vay, lịch trả nợ và trạng thái từng kỳ.
+- Quản lý thiết bị, đổi mật khẩu, đổi PIN thẻ và xem thông báo.
 
-```text
-                                      USER / BANKING CLIENT
-                                               |
-                                               v
-                                      Create Transaction
-                                               |
-                                               v
-                                         PostgreSQL
-                                               |
-                                      BANK_TRANSACTION
-                                               |
-                                               v
-+--------------------------------------------------------------------------------+
-|                              RISK / FRAUD ENGINE                               |
-|                                                                                |
-|         Rule Engine                                  ML Model                  |
-|             |                                            |                     |
-|             v                                            v                     |
-|       RuleScore 0-100                         ModelProbability 0-1              |
-|             \                                            /                     |
-|              +---------------- Decision Engine --------+                       |
-|                                   |                                            |
-|                         ALLOW / REVIEW / BLOCK                                 |
-+--------------------------------------------------------------------------------+
-                         |          |          |
-                         |          |          +-----------------> STOP
-                         |          |
-                         |          +----------------------------> REVIEW_CASE
-                         |                                             |
-                         |                                      APPROVE / REJECT
-                         |                                             |
-                         +------------------+--------------------------+
-                                            |
-                                            v
-                                  FINANCIAL PROCESSING
-                                            |
-                               Transaction Posting
-                               Debit / Credit / Balance
-                                            |
-                                  BANK_TRANSACTION
-                                      = SUCCESS
-                                            |
-                                      EVENT_OUTBOX
-                                            |
-                                          COMMIT
-                                            |
-============================== BANKING / DATA BOUNDARY ===========================
-                                            |
-                         +------------------+------------------+
-                         |                                     |
-                         v                                     v
-                       BATCH                               REALTIME
-                         |                                     |
-                  Spark JDBC                           Outbox Publisher
-                         |                                     |
-                         |                                   Kafka
-                         |                                     |
-                         |                              Kafka Consumer
-                         |                                     |
-                         +------------------+------------------+
-                                            |
-                                            v
-                                      MINIO BRONZE
-                                            |
-                                            v
-                                           Spark
-                                   Normalize / Validate
-                                      /           \
-                                     v             v
-                                  SILVER       QUARANTINE
-                                     |
-                                     v
-                                DATA QUALITY
-                                     |
-                                     v
-                                    GOLD
-                               10 DIM + 7 FACT
-                                     |
-                         +-----------+------------+
-                         |                        |
-                         v                        v
-                       Trino               ML Feature Mart
-                         |                        |
-                         v                        v
-                  Web / BI / Report          ML Training
+### Nhân viên ngân hàng
+
+- Tra cứu khách hàng, tài khoản, thẻ, khoản vay và giao dịch trong phạm vi chi nhánh.
+- Thực hiện chuyển khoản tại quầy sau khi xác minh yêu cầu của khách hàng.
+- Xử lý các nghiệp vụ nạp/rút tiền và quản lý tài khoản.
+- Kiểm tra giao dịch cần duyệt, đưa ra quyết định chấp thuận hoặc từ chối.
+- Quản lý khoản vay và ghi nhận nhãn gian lận phục vụ phân tích, Machine Learning.
+
+### Quản trị viên
+
+- Theo dõi hoạt động ngân hàng qua dashboard tổng quan.
+- Quản lý chi nhánh, nhân viên và tài khoản hệ thống.
+- Tra cứu giao dịch rủi ro và nhật ký thao tác.
+- Xem báo cáo trên dữ liệu Gold qua Trino tại khu vực D4 Insights.
+
+### Xử lý dữ liệu và Machine Learning
+
+- Kết hợp Rule Engine với mô hình XGBoost để đánh giá giao dịch.
+- Phát sự kiện đã commit bằng Transactional Outbox và Kafka.
+- Thu thập dữ liệu từ PostgreSQL và Kafka vào MinIO.
+- Chuẩn hóa, kiểm tra chất lượng và đưa dữ liệu không hợp lệ vào Quarantine.
+- Xây dựng 10 bảng chiều và 7 bảng sự kiện phục vụ phân tích.
+- Lập lịch pipeline bằng Airflow; lưu dữ liệu và kết quả kiểm tra theo từng batch.
+
+## Kiến trúc hệ thống
+
+```mermaid
+flowchart TB
+    Web[Web Next.js] --> API[Banking API NestJS]
+    API --> Risk[Rule Engine + XGBoost]
+    API --> Core[Banking Core / PostgreSQL]
+    Risk --> Decision{ALLOW / REVIEW / BLOCK}
+    Decision -->|ALLOW hoặc REVIEW được duyệt| Core
+    Core --> Commit[Posting + Balance + Status + Outbox / COMMIT]
+
+    Commit --> Publisher[Outbox Publisher]
+    Publisher --> Kafka[Kafka]
+    Kafka --> Consumer[Bronze Consumer]
+    Consumer --> Bronze[MinIO Bronze]
+
+    Core -->|Snapshot 20 bảng| Extract[Spark JDBC]
+    Extract --> Bronze
+    Bronze --> Silver[Spark / Silver]
+    Silver --> DQ[Data Quality]
+    Silver --> Quarantine[Quarantine]
+    DQ --> Gold[Gold / 10 Dimensions + 7 Facts]
+    Gold --> Trino[Trino]
+    Trino --> Insights[D4 Insights / BI]
+    DQ --> Features[Curated Data / Feature Mart]
+    Features --> Training[ML Training & Evaluation]
+
+    Airflow[Airflow] -. Điều phối Batch .-> Extract
+    Airflow -. Điều phối Batch .-> Silver
+    Airflow -. Điều phối Batch .-> Gold
 ```
 
-### Ranh giới quan trọng
+Hệ thống có ba vùng trách nhiệm:
 
-**Banking Core** chịu trách nhiệm giao dịch tài chính. **Data Platform** không được tham gia vào critical path của việc chuyển tiền. Sau khi PostgreSQL `COMMIT`, lỗi Kafka, MinIO, Spark hoặc Airflow không được làm đảo ngược giao dịch ngân hàng đã thành công.
+| Vùng | Trách nhiệm |
+|---|---|
+| **Banking Core** | Kiểm tra nghiệp vụ, khóa tài khoản, debit/credit, cập nhật số dư, trạng thái và outbox |
+| **Risk/Fraud** | Tính điểm rule, dự đoán xác suất gian lận và quyết định ALLOW/REVIEW/BLOCK |
+| **Data Platform** | Kafka, thu thập dữ liệu, xử lý Spark, điều phối Airflow, lưu trữ MinIO và phân tích Trino |
 
----
+**COMMIT là ranh giới giữa giao dịch ngân hàng và nền tảng dữ liệu.** Một giao dịch đã commit không bị đảo ngược vì Kafka, Spark, MinIO hoặc Airflow tạm ngừng hoạt động.
 
-## 3. Công nghệ sử dụng
+## Công nghệ sử dụng
 
 | Thành phần | Công nghệ | Vai trò |
 |---|---|---|
-| Web | Next.js / TypeScript | Giao diện cho customer, employee và admin |
-| Banking API | NestJS / TypeScript | HTTP API, authentication, authorization và orchestration |
-| OLTP Database | PostgreSQL | Dữ liệu nghiệp vụ ngân hàng |
-| Banking Core | PostgreSQL `banking_api.*` | Transaction, locking, posting, balance và outbox nguyên tử |
-| Risk Rules | PostgreSQL | Rule Engine trên cùng dữ liệu giao dịch nhất quán |
-| Fraud Model | Python / ML | Training và model artifact; không cập nhật dữ liệu tài chính |
-| Model Artifact Storage | MinIO | Lưu file model và metadata file ngoài DB |
-| Realtime Messaging | Kafka | Event streaming |
-| Data Lake | MinIO | Bronze, Silver, Gold, Quarantine |
-| Processing Engine | Apache Spark / PySpark | Extract, transform, DQ, dedup, build Gold |
-| Orchestration | Apache Airflow | Lập lịch và điều phối Batch ETL |
-| Query Engine | Trino | SQL trên dữ liệu Lakehouse |
-| BI / Analytics | Tùy công cụ BI/Web | Dashboard và báo cáo |
-| Deployment | Docker / Docker Compose | Chạy các service của hệ thống |
+| Giao diện | Next.js, React, TypeScript, Tailwind CSS | Không gian làm việc cho ba nhóm người dùng |
+| Biểu đồ và dữ liệu giao diện | ECharts, TanStack Query | Trực quan hóa, tải và quản lý cache dữ liệu |
+| Backend | NestJS, TypeScript | API, xác thực, phân quyền và điều phối nghiệp vụ |
+| Cơ sở dữ liệu nghiệp vụ | PostgreSQL, PL/pgSQL | Lưu dữ liệu, thực thi nghiệp vụ và bảo đảm transaction |
+| Xác thực | JWT, Redis | Phiên đăng nhập, OTP và giới hạn tần suất yêu cầu |
+| Email | Brevo | Gửi OTP và thông báo giao dịch |
+| Phát hiện gian lận | Python, XGBoost, scikit-learn, joblib | Dự đoán xác suất gian lận |
+| Realtime | Apache Kafka | Truyền sự kiện sau commit |
+| Data Lake | MinIO, Parquet | Lưu dữ liệu Bronze, Silver, Gold và Quarantine |
+| Xử lý dữ liệu | Apache Spark / PySpark | Trích xuất, biến đổi, kiểm tra và xây dựng dữ liệu phân tích |
+| Điều phối | Apache Airflow | Lập lịch, retry và theo dõi từng bước Batch |
+| Truy vấn phân tích | Trino, Hive Metastore | Truy vấn các bảng và view Gold |
+| Triển khai | Docker Compose | Đóng gói và kết nối các dịch vụ |
 
----
+## Luồng giao dịch ngân hàng
 
-# 4. PostgreSQL - Banking Source of Truth
+Ví dụ một khách hàng chuyển tiền từ tài khoản A sang tài khoản B:
 
-Database hiện tại có **29 bảng** và schema được xem là cố định.
+1. Khách hàng chọn tài khoản nguồn, nhập số tài khoản nhận và số tiền.
+2. API xác minh thông tin người nhận; khách hàng xác nhận giao dịch bằng OTP.
+3. Hệ thống lấy dữ liệu hành vi trước giao dịch, chạy Rule Engine và model XGBoost.
+4. Decision Engine quyết định **ALLOW**, **REVIEW** hoặc **BLOCK**.
+5. Giao dịch ALLOW, hoặc REVIEW đã được nhân viên duyệt, đi vào xử lý tài chính.
+6. PostgreSQL khóa tài khoản và kiểm tra lại quyền giao dịch, trạng thái tài khoản, số dư.
+7. Posting debit/credit, thay đổi số dư, trạng thái thành công và sự kiện outbox được ghi trong cùng transaction.
+8. Sau commit, publisher chuyển sự kiện tới Kafka để hệ thống dữ liệu tiếp nhận.
 
-```text
-branch
-role
-employee
-system_user
-customer
-customer_online_account
-customer_device
-login_event
-account_type
-bank_account
-account_holder
-account_status_history
-card
-transaction_type
-terminal
-bank_transaction
-transfer_request
-transaction_posting
-loan_type
-loan
-repayment_schedule
-loan_payment
-model_version
-risk_assessment
-review_case
-fraud_label_event
-event_outbox
-notification_outbox
-audit_log
-```
+| Quyết định | Cách xử lý |
+|---|---|
+| **ALLOW** | Được phép bước vào xử lý tài chính |
+| **REVIEW** | Chờ nhân viên kiểm tra; chỉ xử lý tài chính sau APPROVE |
+| **BLOCK** | Dừng yêu cầu, không tạo posting tài chính |
 
-Trong Data Platform, V1 chọn **20 bảng nghiệp vụ** làm nguồn Batch chính:
+**ALLOW không đồng nghĩa với SUCCESS.** Ví dụ, giao dịch có rủi ro thấp vẫn có thể thất bại vì tài khoản không đủ số dư khi được khóa và kiểm tra lại.
 
-```text
-branch
-customer
-customer_device
-login_event
-account_type
-bank_account
-account_holder
-transaction_type
-bank_transaction
-transfer_request
-transaction_posting
-loan_type
-loan
-repayment_schedule
-loan_payment
-model_version
-risk_assessment
-review_case
-fraud_label_event
-event_outbox
-```
+API dùng `idempotencyKey` để nhận diện các lần gửi lại cùng một yêu cầu. PostgreSQL kiểm tra nội dung yêu cầu và giữ việc retry không tạo thêm một lần chuyển tiền.
 
-Các bảng còn lại vẫn thuộc Banking Core nhưng không bắt buộc phải trở thành Batch dataset V1.
+## Phát hiện gian lận
 
----
+### Rule Engine
 
-# 5. Luồng Risk / Fraud Detection
-
-## 5.1 Tổng quan
-
-Mỗi giao dịch được đánh giá bởi hai thành phần độc lập:
-
-```text
-BANK_TRANSACTION
-       |
-       +----------------------+----------------------+
-       |                                             |
-       v                                             v
- RULE ENGINE                                      ML MODEL
-       |                                             |
-       v                                             v
- RuleScore                                    ModelProbability
-   0-100                                           0-1
-       |                                             |
-       +----------------------+----------------------+
-                              |
-                              v
-                       DECISION ENGINE
-                              |
-                    ALLOW / REVIEW / BLOCK
-```
-
-## 5.2 Rule Engine V1
+Sáu rule tạo điểm rủi ro theo chính sách V1:
 
 | Rule | Điều kiện | Điểm |
 |---|---|---:|
-| R01 HIGH_AMOUNT | amount >= 50.000.000 VND | +20 |
-| R02 NEW_DEVICE | Thiết bị mới | +20 |
-| R03 UNUSUAL_TIME | 00:00 - 05:00 | +10 |
-| R04 HIGH_VELOCITY | >= 5 giao dịch / 10 phút | +25 |
-| R05 FAILED_LOGIN | >= 5 lần login thất bại / 30 phút | +15 |
-| R06 AMOUNT_ANOMALY | amount hiện tại >= 5x trung bình 30 ngày | +20 |
-
-```text
-RuleScore = MIN(100, tổng điểm rule được kích hoạt)
-```
-
-Risk Level:
-
-| RuleScore | Risk Level |
-|---:|---|
-| 0-39 | LOW |
-| 40-59 | MEDIUM |
-| 60-79 | HIGH |
-| 80-100 | CRITICAL |
-
-Risk Level chỉ dùng để mô tả mức rủi ro; quyết định cuối cùng thuộc Decision Engine.
-
-## 5.3 ML Model
-
-Online hiện dùng pipeline XGBoost tại `models/fraud_detection_model.joblib`, với 19 feature đúng contract của notebook training. Banking API giữ worker Python/cache model trong bộ nhớ, lấy feature trước giao dịch tại cùng mốc thời gian và truyền xác suất cùng artifact identity vào SQL. `reasonjson` giữ feature snapshot và hash để truy vết. MinIO chỉ lưu bản artifact theo version trong bước triển khai; không tham gia critical path. Xem cách đăng ký artifact và cập nhật API tại [running.md](running.md).
-
-Model trả về:
-
-```text
-ModelProbability ∈ [0, 1]
-```
-
-Ví dụ:
-
-```text
-ModelProbability = 0.82
-```
-
-nghĩa là model ước lượng xác suất fraud là `82%` theo model đang sử dụng.
-
-## 5.4 Decision Engine - Policy V1
-
-```text
-IF ModelProbability >= 0.90 OR RuleScore >= 80
-    -> BLOCK
-
-ELSE IF ModelProbability >= 0.60 OR RuleScore >= 60
-    -> REVIEW
-
-ELSE
-    -> ALLOW
-```
-
-Thứ tự phải là:
-
-```text
-BLOCK -> REVIEW -> ALLOW
-```
-
-## 5.5 RISK_ASSESSMENT
-
-Schema hiện tại đã hỗ trợ trực tiếp thiết kế Risk V1:
-
-```text
-riskassessmentid
-transactionid
-modelversionid
-rulescore
-risklevel
-modelprobability
-decision
-reasonjson
-assessedat
-```
-
-Ràng buộc chính:
-
-```text
-rulescore        : 0..100
-risklevel        : LOW / MEDIUM / HIGH / CRITICAL
-modelprobability : 0..1
-decision         : ALLOW / REVIEW / BLOCK
-```
-
-Không thay đổi schema này.
-
----
-
-# 6. Xử lý ALLOW / REVIEW / BLOCK
-
-## ALLOW
-
-`ALLOW` chỉ có nghĩa giao dịch vượt qua Risk/Fraud. Nó **chưa có nghĩa giao dịch đã chuyển tiền thành công**.
-
-```text
-ALLOW
-  |
-  v
-BEGIN DATABASE TRANSACTION
-  |
-  v
-LOCK ACCOUNT(S)
-  |
-  v
-RE-CHECK BUSINESS CONDITIONS
-  |
-  +-- Transaction còn PENDING?
-  +-- Account còn ACTIVE?
-  +-- Có quyền giao dịch?
-  +-- Số dư đủ?
-  |
-  v
-TRANSACTION_POSTING
-  |
-  +----------+----------+
-  |                     |
-  v                     v
-DEBIT                  CREDIT
-  |                     |
-  +----------+----------+
-             |
-             v
-       UPDATE BALANCE
-             |
-             v
-BANK_TRANSACTION = SUCCESS
-             |
-             v
-       EVENT_OUTBOX
-             |
-             v
-           COMMIT
-```
-
-Các thao tác tài chính quan trọng phải nằm trong cùng database transaction. Nếu lỗi trước `COMMIT`, toàn bộ thay đổi phải `ROLLBACK`.
-
-## REVIEW
-
-```text
-REVIEW
-   |
-   v
-CREATE REVIEW_CASE
-   |
-   v
-Nhân viên kiểm tra
-   |
-   +------ APPROVE ------> Financial Processing
-   |
-   +------ REJECT -------> STOP
-```
-
-Chỉ REVIEW đã được APPROVE mới được đi vào xử lý tài chính.
-
-## BLOCK
-
-```text
-BLOCK
-  |
-  v
-STOP
-```
-
-Không tạo posting tài chính.
-
----
-
-# 7. Transactional Outbox và Realtime
-
-Realtime **không đọc trực tiếp `bank_transaction` để publish Kafka**.
-
-```text
-Business Transaction
-        |
-        v
-BANK_TRANSACTION / POSTING / RISK
-        |
-        v
-EVENT_OUTBOX
-        |
-      COMMIT
-        |
-        v
-Outbox Publisher
-        |
-        v
-      Kafka
-        |
-        v
-Kafka Consumer
-        |
-        v
-bronze/kafka/events
-```
-
-`EVENT_OUTBOX` được tạo trong database transaction trước `COMMIT`. Sau commit, Outbox Publisher mới chịu trách nhiệm publish event.
-
-### Delivery semantics
-
-Hệ thống phải chấp nhận **at-least-once delivery**. Publisher có thể publish trùng nếu đã nhận Kafka ACK nhưng crash trước khi cập nhật trạng thái outbox. Vì vậy downstream phải idempotent và deduplicate.
-
-Kafka Consumer chỉ commit offset sau khi raw event đã được ghi bền vững xuống Bronze.
-
----
-
-# 8. Batch Pipeline
-
-Batch sử dụng Spark JDBC đọc 20 bảng nguồn từ PostgreSQL.
-
-```text
-PostgreSQL
-     |
-     v
-Spark JDBC
-     |
-     v
-MinIO Bronze
-```
-
-Bronze giữ nguyên toàn bộ source columns và bổ sung metadata ingestion:
-
-```text
-_ingested_at
-_source_system = postgresql
-_source_table
-_batch_id
-_ingestion_mode = BATCH
-```
-
-### Full load và Incremental load
-
-**V1 hiện tại:** 20 bảng dùng full snapshot và cùng một exported PostgreSQL snapshot. Event timestamp/sequence không bảo đảm thứ tự commit nên chưa dùng làm incremental watermark. Bronze/Silver/Gold được pin theo batch; khi bổ sung CDC/incremental phải kiểm chứng late commit và reconciliation, không thay schema nghiệp vụ.
-
----
-
-# 9. MinIO Data Lake
-
-Cấu trúc logical đề xuất:
-
-```text
-MinIO
-|
-+-- bronze/
-|   +-- postgres/
-|   |   +-- customer/
-|   |   +-- bank_account/
-|   |   +-- bank_transaction/
-|   |   +-- risk_assessment/
-|   |   +-- ...
-|   |
-|   +-- kafka/
-|       +-- events/
-|
-+-- silver/
-|   +-- customer/
-|   +-- account/
-|   +-- transaction/
-|   +-- risk_assessment/
-|   +-- ...
-|
-+-- quarantine/
-|   +-- <dataset>/
-|
-+-- gold/
-|   +-- dimensions/
-|   +-- facts/
-|
-+-- ml-models/
-    +-- fraud_detection/
-        +-- v1/
-        +-- v2/
-        +-- ...
-```
-
-Parquet là định dạng phù hợp cho các analytical dataset Bronze/Silver/Gold khi triển khai với Spark + Trino.
-
----
-
-# 10. Bronze Layer
-
-Bronze là raw zone.
-
-Nguyên tắc:
-
-- Không làm mất dữ liệu nguồn.
-- Không tự tạo business field không tồn tại.
-- Có thể giữ duplicate raw để audit/replay.
-- Batch và Realtime được lưu riêng về mặt ingestion.
-- Có metadata để biết dữ liệu đến từ đâu và khi nào.
-
-Realtime Bronze giữ envelope/payload Kafka thực tế. `topic`, `partition`, `offset` chỉ ghi khi consumer thực sự nhận được các metadata đó.
-
----
-
-# 11. Silver Layer
-
-Silver là lớp dữ liệu business đã chuẩn hóa.
-
-Spark thực hiện:
-
-```text
-Bronze
-  |
-  v
-Rename -> snake_case
-  |
-Type Casting
-  |
-Timestamp Normalization
-  |
-Validation
-  |
-Batch + Realtime Integration
-  |
-Deduplication
-  |
-  +------ Invalid ------> Quarantine
-  |
- Valid
-  |
-  v
-Silver
-```
-
-Điểm quan trọng nhất là một business transaction xuất hiện từ cả Batch và Kafka **không được trở thành hai transaction trong Silver**.
-
-Ví dụ:
-
-```text
-Batch:
-TX1001 | Success | 10,000,000
-
-Realtime:
-event -> aggregateid=TX1001
-
-             |
-             v
-     Normalize + Deduplicate
-             |
-             v
-silver_transaction
-TX1001 chỉ còn 1 bản logic
-```
-
----
-
-# 12. Quarantine
-
-Record không đạt validation **không bị drop**.
-
-Quarantine cần lưu đủ thông tin để audit, sửa lỗi và replay, ví dụ:
-
-```text
-source_dataset
-business_key
-original_data
-error_code
-error_reason
-batch_id
-quarantined_at
-```
-
----
-
-# 13. Data Quality
-
-Các nhóm kiểm tra chính:
-
-- Primary/business key không null và không duplicate.
-- Reference/FK tồn tại khi nghiệp vụ yêu cầu.
-- `amount > 0`.
-- `fee >= 0`.
-- Currency/status/channel nằm trong allowed values nguồn.
-- Posting type chỉ `DEBIT/CREDIT` và amount > 0.
-- SUCCESS transaction phải có posting hợp lệ theo nghiệp vụ.
-- Pending/Failed/Cancelled không được có posting tài chính có hiệu lực.
-- Loan payment phải thỏa reconciliation nghiệp vụ.
-- Risk `rulescore` thuộc `0..100`.
-- Risk `modelprobability` thuộc `0..1`.
-- Decision thuộc `ALLOW/REVIEW/BLOCK`.
-- Fraud label thuộc `FRAUD/LEGITIMATE/UNKNOWN`.
-- Review timestamp không trước created timestamp.
-
-DQ failure cần được log và/hoặc đưa record lỗi vào Quarantine theo loại kiểm tra.
-
----
-
-# 14. Gold Layer
-
-Gold được thiết kế theo mô hình dimensional phục vụ BI/Analytics.
-
-## 14.1 Dimensions - 10
-
-```text
-dim_date
-dim_time
-dim_customer
-dim_account
-dim_account_type
-dim_branch
-dim_transaction_type
-dim_channel
-dim_device
-dim_model
-```
-
-## 14.2 Facts - 7
-
-```text
-fact_transaction
-fact_transaction_posting
-fact_risk_assessment
-fact_fraud_review
-fact_fraud_label_event
-fact_login_event
-fact_loan_payment
-```
-
-### Build order
-
-```text
-Silver
-  |
-  v
-Dimensions
-  |
-  v
-Dimension Key Lookup
-  |
-  v
-Facts
-  |
-  v
-Gold DQ
-```
-
-### fact_transaction
-
-Grain:
-
-```text
-1 row = 1 BANK_TRANSACTION
-```
-
-Dùng để phân tích số lượng giao dịch, amount, fee, status, customer, channel, device, thời gian và các chiều liên quan.
-
-### fact_risk_assessment
-
-Gold Risk phải sử dụng schema Risk hiện tại:
-
-```text
-risk_assessment_id
-transaction_id
-model_key
-rule_score
-risk_level
-model_probability
-decision
-assessed date/time keys
-```
-
-Không dùng thiết kế cũ chỉ có một `risk_score`.
-
----
-
-# 15. Idempotency và Replay
-
-Toàn bộ Data Platform phải được thiết kế để chạy lại an toàn.
-
-```text
-Run #1 -> fact_transaction = 1,000 rows
-Run #2 cùng input -> vẫn 1,000 rows
-```
-
-Không được:
-
-```text
-Run #1 -> 1,000
-Run #2 -> 2,000   X
-```
-
-Nguyên tắc:
-
-- Bronze có thể giữ raw duplicate cho audit/replay.
-- Silver loại duplicate logic.
-- Gold phải idempotent.
-- Batch + Kafka không tạo duplicate business record.
-- Kafka downstream phải chịu được at-least-once.
-
----
-
-# 16. Machine Learning
-
-## 16.1 Training flow
-
-```text
-Silver
-  |
-  v
-ML Feature Mart
-  |
-  v
-Feature Engineering
-  |
-  v
-Train / Validate
-  |
-  v
-Model Artifact
-  |
-  v
-MinIO ml-models/
-```
-
-## 16.2 Model storage
-
-PostgreSQL **không lưu file model** và schema DB không thay đổi.
-
-File model được lưu ngoài DB, ví dụ:
-
-```text
-ml-models/
-└── fraud_detection/
-    ├── v1/
-    │   ├── model.pkl
-    │   ├── metadata.json
-    │   └── features.json
-    ├── v2/
-    │   ├── model.pkl
-    │   ├── metadata.json
-    │   └── features.json
-    └── ...
-```
-
-`model_version` trong PostgreSQL tiếp tục giữ metadata hiện có:
-
-```text
-modelversionid
-modelname
-modeltype
-status
-createdat
-description
-```
-
-Ứng dụng dùng convention/config bên ngoài DB để ánh xạ model version tới artifact MinIO.
-
-## 16.3 Realtime inference
-
-Không download model từ MinIO cho mỗi transaction.
-
-```text
-Risk Service Start
-       |
-       v
-Find ACTIVE model metadata
-       |
-       v
-Load artifact from MinIO
-       |
-       v
-Keep model in memory
-       |
-       v
-READY
-
-Transaction -> Feature Builder -> predict_proba -> ModelProbability
-```
-
----
-
-# 17. Airflow
-
-Airflow dùng cho orchestration Batch/Data Quality, **không dùng để xử lý chuyển tiền** và không nên dùng như một Kafka Consumer 24/7.
-
-Các DAG logical:
-
-```text
-postgres_to_bronze
-bronze_to_silver
-silver_dq
-silver_to_gold
-```
-
-Dependency tổng quát:
-
-```text
-PostgreSQL -> Bronze -> Silver -> DQ -> Gold -> Gold DQ
-```
-
-Nếu Gold lỗi, có thể retry Gold mà không cần extract lại PostgreSQL nếu input Silver tương ứng vẫn hợp lệ.
-
----
-
-# 18. Realtime Services
-
-Realtime components chạy độc lập với Airflow Batch:
-
-```text
-Outbox Publisher     -> chạy liên tục
-Kafka                -> chạy liên tục
-Kafka Consumer       -> chạy liên tục
-```
-
-Airflow tập trung vào:
-
-```text
-Batch ETL
-Data Quality
-Gold Build
-Maintenance / scheduled jobs
-```
-
----
-
-# 19. Trino và Analytics
-
-Trino đóng vai trò query engine trên analytical data trong MinIO.
-
-```text
-MinIO Gold
-    |
-    v
-  Trino
-    |
-    +------> BI Dashboard
-    +------> Web Analytics
-    +------> Ad-hoc SQL
-    +------> Reports
-```
-
-Các nhóm câu hỏi có thể phân tích:
-
-- Tổng số và giá trị giao dịch theo ngày/tháng.
-- Transaction success/failure rate.
-- Giao dịch theo channel/device/customer segment.
-- Số lượng `ALLOW/REVIEW/BLOCK`.
-- Phân bố RuleScore và RiskLevel.
-- ModelProbability theo fraud label.
-- Tỷ lệ REVIEW được approve/reject.
-- Fraud theo thiết bị, thời gian, channel.
-- Login failure và hành vi trước giao dịch đáng ngờ.
-- Loan payment performance.
-
----
-
-# 20. Cấu trúc source code đề xuất
-
-Đây là cấu trúc triển khai mục tiêu. Các module có thể được bổ sung dần trong quá trình phát triển nhưng phải giữ ranh giới trách nhiệm như dưới đây.
-
-```text
-bank-fraud-detection/
-│
-├── README.md
-├── docker-compose.yml
-│
-├── backend/
-│   └── src/                 # NestJS HTTP/auth/orchestration layer
-│
-├── web/
-│   └── src/                 # Next.js role-based user interface
-│
-├── sql/
-│   ├── create_table.sql     # Fixed 29-table source schema
-│   └── z_*.sql              # banking_api transaction/query contract
-│
-├── streaming/
-│   └── consumer/            # Kafka consumer ghi durable Bronze
-│
-├── airflow/
-│   └── dags/
-│       ├── postgres_to_bronze.py
-│       ├── bronze_to_silver.py
-│       ├── silver_dq.py
-│       └── silver_to_gold.py
-│
-├── data_engineering/
-│   ├── ingestion/           # PostgreSQL batch extraction
-│   ├── bronze/              # Raw validation
-│   ├── silver/              # Normalize, validate, deduplicate
-│   └── gold/                # Dimensions, facts và feature mart
-│
-├── ml/
-│   ├── features/
-│   ├── training/
-│   ├── evaluation/
-│   └── inference/
-│
-├── config/
-│   ├── sources.yaml
-│   ├── kafka.yaml
-│   ├── risk_rules.yaml
-│   ├── data_quality.yaml
-│   └── spark.yaml
-│
-├── scripts/
-│   ├── postgres_config.py   # Shared connection settings for Python tools
-│   ├── bootstrap_demo.py
-│   └── e2e_test.py
-│
-└── tests/                   # SQL contract, ML, streaming và data tests
-```
-
----
-
-# 21. Trách nhiệm từng module
-
-| Module | Trách nhiệm |
+| R01 — HIGH_AMOUNT | Số tiền từ 50.000.000 VND | +20 |
+| R02 — NEW_DEVICE | Thiết bị mới hoặc chưa được tin cậy | +20 |
+| R03 — UNUSUAL_TIME | Giao dịch từ 00:00 đến trước 05:00 | +10 |
+| R04 — HIGH_VELOCITY | Có ít nhất 5 giao dịch trong cửa sổ 10 phút | +25 |
+| R05 — FAILED_LOGIN | Có ít nhất 5 lần đăng nhập thất bại/bị chặn trong 30 phút | +15 |
+| R06 — AMOUNT_ANOMALY | Số tiền từ 5 lần mức trung bình 30 ngày | +20 |
+
+`RuleScore` là tổng điểm các rule được kích hoạt, tối đa 100.
+
+| RuleScore | RiskLevel |
 |---|---|
-| `backend/` | NestJS API, authentication, authorization và orchestration |
-| `sql/` | Financial processing, rule decision, posting, balance và outbox |
-| `streaming/` | Kafka Consumer và durable Bronze writer |
-| `airflow/` | Batch orchestration |
-| `data_engineering/ingestion/` | PostgreSQL batch extraction |
-| `data_engineering/silver/` | Normalize, validation, dedup, integration |
-| `data_engineering/gold/` | Build dimensions, facts và feature mart |
-| `ml/` | Feature engineering, training, evaluation |
-| `config/` | Pipeline/rule/DQ configuration ngoài DB |
-| `scripts/` | Bootstrap, E2E và operational utilities |
-| `tests/` | Unit/integration/data pipeline tests |
+| 0–39 | LOW |
+| 40–59 | MEDIUM |
+| 60–79 | HIGH |
+| 80–100 | CRITICAL |
 
----
+### Machine Learning
 
-# 22. Luồng End-to-End của một giao dịch
+Model online là pipeline **XGBoost** tại [`models/fraud_detection_model.joblib`](models/fraud_detection_model.joblib), đi kèm [`models/model_metadata.json`](models/model_metadata.json).
 
-Ví dụ một transaction mới:
+Model sử dụng **19 feature** thuộc các nhóm:
 
-```text
-1. Customer tạo transaction
-        |
-2. BANK_TRANSACTION = PENDING
-        |
-3. Rule Engine -> RuleScore
-        |
-4. ML Model -> ModelProbability
-        |
-5. Decision Engine
-        |
-        +-- BLOCK  -> STOP
-        |
-        +-- REVIEW -> REVIEW_CASE -> APPROVE/REJECT
-        |
-        +-- ALLOW -----------------------+
-                                          |
-6. BEGIN DB TRANSACTION                   |
-        |                                 |
-7. Lock + Re-check                        |
-        |                                 |
-8. DEBIT/CREDIT Posting                   |
-        |                                 |
-9. Update Balance                         |
-        |                                 |
-10. BANK_TRANSACTION = SUCCESS            |
-        |                                 |
-11. INSERT EVENT_OUTBOX                   |
-        |                                 |
-12. COMMIT <------------------------------+
-        |
-================ DATA PLATFORM ================
-        |
-13. Outbox Publisher
-        |
-14. Kafka
-        |
-15. Consumer -> Bronze Realtime
-        |
-16. Batch PostgreSQL -> Bronze Batch
-        |
-17. Spark normalize + deduplicate
-        |
-18. Silver / Quarantine
-        |
-19. Data Quality
-        |
-20. Dimensions + Facts
-        |
-21. Gold
-        |
-22. Trino -> BI / Analytics
-        |
-23. Silver -> Feature Mart -> Model Training
-```
+- Thông tin giao dịch: số tiền, kênh và loại giao dịch.
+- Thời gian: giờ, ngày trong tuần và giao dịch ban đêm.
+- Tài khoản: số ngày từ khi mở tài khoản.
+- Hành vi giao dịch: tần suất trong 1 giờ, 24 giờ, 7 ngày, 30 ngày; mức tiền trung bình, lớn nhất và khoảng cách giữa các giao dịch.
+- Đăng nhập: số lần thành công, thất bại và tỷ lệ thất bại.
 
----
+API giữ một worker Python để cache model trong bộ nhớ. Feature được lấy trước giao dịch; xác suất, danh tính artifact và feature snapshot được liên kết với kết quả đánh giá để truy vết.
 
-# 23. Failure Handling
+Notebook phục vụ chuẩn bị dữ liệu, huấn luyện và đánh giá nằm trong [`notebooks/`](notebooks/). Các module trong [`ml/`](ml/) phục vụ inference và vòng đời artifact; bộ trainer JSON/logistic được giữ riêng cho nghiên cứu, tách với model joblib online.
 
-## Banking failure trước COMMIT
+### Decision Engine
 
 ```text
-BEGIN
-  |
-DEBIT OK
-  |
-CREDIT ERROR
-  |
-ROLLBACK
+Nếu ModelProbability >= 0.90 hoặc RuleScore >= 80 → BLOCK
+Nếu ModelProbability >= 0.60 hoặc RuleScore >= 60 → REVIEW
+Các trường hợp còn lại                         → ALLOW
 ```
 
-Kết quả:
+BLOCK được xét trước REVIEW. Xác suất model và điểm rule được lưu riêng trong `risk_assessment`, cùng model version và thông tin giải thích.
 
-- Không giữ debit dở dang.
-- Không để destination thiếu credit tương ứng.
-- Không đặt transaction thành SUCCESS.
-- Không có committed success event.
+## Nền tảng dữ liệu
 
-## Kafka/MinIO failure sau COMMIT
+### Batch: từ PostgreSQL đến Gold
 
 ```text
-Banking COMMIT SUCCESS
-        |
-Kafka / MinIO ERROR
+PostgreSQL — cùng một snapshot cho 20 bảng
+    → Spark JDBC
+    → Bronze
+    → Bronze Data Quality
+    → Silver / Quarantine
+    → Silver Data Quality
+    → Gold
+    → Gold Data Quality
+    → Publish release trên Trino
 ```
 
-Kết quả:
+V1 sử dụng **full snapshot nhất quán** cho 20 bảng nguồn. Các reader cùng nhìn một trạng thái PostgreSQL, giúp giữ quan hệ giữa giao dịch, posting, risk và các bảng tham chiếu.
 
-- Giao dịch ngân hàng vẫn SUCCESS.
-- Không rollback tiền.
-- Outbox event được retry.
+DAG [`banking_bronze_silver_gold`](airflow/dags/banking_data_pipeline.py) chạy lúc **01:00 hằng ngày theo giờ Việt Nam**. Airflow điều phối; logic xử lý nằm trong các module Spark. Mỗi stage có thể retry độc lập.
 
-## ETL failure
-
-Pipeline phải có khả năng retry theo layer/job mà không tạo duplicate trong Silver/Gold.
-
----
-
-# 24. Logging và Observability
-
-Mỗi component nên ghi log đủ để trace theo các identifier nghiệp vụ, đặc biệt:
+### Realtime: từ Outbox đến Bronze
 
 ```text
-transaction_id
-transaction_code
-event_outbox_id / event_key
-batch_id
-model_version_id
-risk_assessment_id
+Giao dịch COMMIT → EVENT_OUTBOX → Publisher → Kafka → Consumer → Bronze
 ```
 
-Data Pipeline nên theo dõi tối thiểu:
+Publisher chỉ đọc sự kiện đã commit. Consumer lưu và kiểm tra object trên MinIO trước khi commit Kafka offset.
+
+Cơ chế truyền là **at-least-once**: sự kiện có thể được gửi lại khi retry. Bronze giữ dữ liệu để audit/replay; các bước xử lý sau sử dụng khóa sự kiện để deduplicate.
+
+Các trang nghiệp vụ trên web đọc PostgreSQL qua API. Kafka cung cấp dữ liệu sự kiện cho Data Platform; khi bật `ENABLE_REALTIME_SILVER_MERGE`, Batch tạo thêm dataset `domain_event` để phân tích và đối soát. Các bảng Silver nghiệp vụ lấy PostgreSQL Batch làm nguồn chuẩn.
+
+### Vai trò của các lớp dữ liệu
+
+| Lớp | Nội dung và mục đích |
+|---|---|
+| **Bronze** | Dữ liệu nguồn và metadata thu thập, phục vụ audit và replay |
+| **Silver** | Dữ liệu đã chuẩn hóa, kiểm tra và deduplicate theo khóa nghiệp vụ |
+| **Quarantine** | Record không hợp lệ kèm dữ liệu gốc và lý do để đối soát |
+| **Gold** | Dimensions, facts và view phục vụ báo cáo, dashboard |
+| **Pipeline Control** | Metadata batch, kết quả các stage và thông tin release |
+
+Silver và Gold được tổ chức theo **release của từng batch**. Gold đọc Silver đã qua DQ của đúng batch; sau khi Gold đạt kiểm tra, hệ thống publish release cho analytics. Chạy lại cùng batch giữ tính idempotent và không nhân bản dữ liệu phân tích.
+
+## Mô hình dữ liệu phân tích
+
+PostgreSQL có **29 bảng nghiệp vụ**. Data Platform chọn **20 bảng nguồn** theo [`config/sources.yaml`](config/sources.yaml) để xây dựng Gold gồm **10 dimensions và 7 facts**.
+
+**Dimension** mô tả đối tượng dùng để phân tích; **fact** lưu các sự kiện và số đo nghiệp vụ.
+
+| Dimensions | Mô tả |
+|---|---|
+| `dim_date`, `dim_time` | Ngày và thời gian |
+| `dim_customer`, `dim_account` | Khách hàng và tài khoản |
+| `dim_account_type`, `dim_branch` | Loại tài khoản và chi nhánh |
+| `dim_transaction_type`, `dim_channel` | Loại giao dịch và kênh |
+| `dim_device`, `dim_model` | Thiết bị và phiên bản model |
+
+| Facts | Một dòng đại diện cho |
+|---|---|
+| `fact_transaction` | Một giao dịch ngân hàng |
+| `fact_transaction_posting` | Một posting debit hoặc credit |
+| `fact_risk_assessment` | Một lần đánh giá rủi ro |
+| `fact_fraud_review` | Một hồ sơ kiểm tra giao dịch |
+| `fact_fraud_label_event` | Một sự kiện gán nhãn gian lận |
+| `fact_login_event` | Một sự kiện đăng nhập |
+| `fact_loan_payment` | Một lần thanh toán khoản vay |
+
+Trino cung cấp các view tổng hợp theo giao dịch, rủi ro, review, model, đăng nhập và trả nợ. D4 Insights sử dụng release Gold để hiển thị dữ liệu phân tích nhất quán trong cùng một lần tải dashboard.
+
+## Cấu trúc mã nguồn
 
 ```text
-input_count
-output_count
-invalid_count
-duplicate_count
-quarantine_count
-start_time
-end_time
-status
+.
+├── web/                    # Giao diện Next.js cho customer, employee, admin
+├── backend/                # NestJS API, OTP, phân quyền, publisher, email worker
+├── sql/                    # Schema, functions, views, triggers và Trino SQL
+├── streaming/              # Kafka consumer ghi dữ liệu Bronze
+├── data_engineering/
+│   ├── ingestion/batch/    # PostgreSQL snapshot → Bronze
+│   ├── bronze/             # Kiểm tra dữ liệu raw
+│   ├── silver/             # Chuẩn hóa, validate, deduplicate
+│   ├── quality/            # DQ và Quarantine
+│   ├── gold/               # Build dimensions, facts và release
+│   ├── common/             # Config, contracts, Spark, pipeline state
+│   └── jobs/               # Điểm chạy các stage
+├── airflow/dags/           # DAG điều phối Batch
+├── ml/                     # Inference và quản lý artifact
+├── models/                 # Model joblib và metadata
+├── notebooks/              # Chuẩn bị dữ liệu, huấn luyện và đánh giá
+├── config/                 # Source mapping và quy tắc Data Quality
+├── scripts/                # Bootstrap, kiểm tra và công cụ vận hành
+├── tests/                  # Python, SQL và integration tests
+├── docker/                 # Dockerfiles và cấu hình dịch vụ
+├── docs/                   # Tài liệu hướng dẫn chi tiết
+├── docker-compose.yaml     # Khai báo các dịch vụ
+└── .env.example            # Mẫu cấu hình local
 ```
 
-Các metadata này nên được quản lý ở tầng application/pipeline/logging, không yêu cầu sửa business schema PostgreSQL.
+Các file `sql/z_*.sql` là phần thực thi nghiệp vụ. NestJS gọi function `banking_api.*` đã cài trong PostgreSQL, ví dụ `create_transfer`, `resolve_review` và `pay_loan`. Backend quản lý transaction và context của request; PostgreSQL thực hiện các thao tác tài chính bên trong transaction đó.
 
----
+## Cài đặt và chạy
 
-# 25. Testing Strategy
+### 1. Chuẩn bị
 
-## Banking tests
+- Git.
+- Docker Engine hoặc Docker Desktop, kèm Docker Compose V2.
+- Node.js 22 và npm để chạy giao diện trên máy.
+- Khuyến nghị ít nhất **8 GB RAM trống** cho toàn bộ stack.
+- Python 3.11 cho các script chạy trên máy và kiểm thử Python.
 
-- ALLOW nhưng insufficient balance -> không posting.
-- Debit thành công nhưng credit lỗi -> rollback toàn bộ.
-- SUCCESS chỉ xuất hiện sau posting/balance hợp lệ.
-- EVENT_OUTBOX được tạo cùng transaction trước commit.
+Với Windows/WSL, bật WSL integration trong Docker Desktop trước khi chạy lệnh Docker.
 
-## Risk tests
-
-- Kiểm tra từng Rule V1.
-- RuleScore không vượt 100.
-- Threshold BLOCK được ưu tiên trước REVIEW.
-- Kiểm tra boundary `0.60`, `0.90`, `60`, `80`.
-- Kiểm tra RiskAssessment lưu đúng model version và decision.
-
-## Realtime tests
-
-- Outbox publish thành công.
-- Retry khi Kafka lỗi.
-- Duplicate event không tạo duplicate business record downstream.
-- Consumer chỉ commit offset sau durable Bronze write.
-
-## ETL tests
-
-- PostgreSQL -> Bronze đủ source columns.
-- Invalid data -> Quarantine.
-- Batch + Kafka cùng transaction -> Silver chỉ một bản logic.
-- Re-run Gold -> không tăng duplicate.
-- Fact/Dimension grain đúng thiết kế.
-
----
-
-# 26. Thứ tự triển khai khuyến nghị
-
-Không cần xây toàn bộ hệ thống cùng lúc. Nên triển khai theo vertical slice để kiểm chứng end-to-end trước.
-
-### Phase 1 - Infrastructure
-
-```text
-PostgreSQL
-MinIO
-Kafka
-Spark
-Airflow
-Trino
+```bash
+git clone https://github.com/dien-2006/banking-transaction-fraud-detection.git
+cd banking-transaction-fraud-detection
 ```
 
-### Phase 2 - Banking Transaction
+### 2. Cấu hình môi trường
 
-```text
-Create Transaction
--> Posting
--> Balance
--> SUCCESS
--> EVENT_OUTBOX
-```
-
-### Phase 3 - Risk/Fraud V1
-
-```text
-Rule Engine
-+ ML Predictor
--> Decision Engine
--> ALLOW / REVIEW / BLOCK
-```
-
-### Phase 4 - Realtime
-
-```text
-EVENT_OUTBOX
--> Publisher
--> Kafka
--> Consumer
--> Bronze
-```
-
-### Phase 5 - Batch ETL
-
-Bắt đầu với nhóm dữ liệu cốt lõi:
-
-```text
-customer
-customer_device
-bank_account
-transaction_type
-bank_transaction
-risk_assessment
-```
-
-Sau đó mở rộng đủ 20 Batch sources.
-
-### Phase 6 - Silver + DQ + Quarantine
-
-Hoàn thành normalize, validation, Batch/Realtime dedup và replay safety.
-
-### Phase 7 - Gold
-
-Build 10 dimensions trước, sau đó 7 facts.
-
-### Phase 8 - Trino + BI
-
-Query Gold và xây dashboard/report.
-
-### Phase 9 - ML Lifecycle
-
-Feature Mart -> Training -> Evaluation -> lưu model artifact MinIO -> Risk Service inference.
-
----
-
-# 27. Definition of Done
-
-Dự án được xem là hoàn chỉnh khi có thể chứng minh end-to-end:
-
-```text
-Transaction được tạo
-        -> Risk/Fraud đánh giá
-        -> ALLOW/REVIEW/BLOCK đúng Policy
-        -> ALLOW/APPROVED xử lý tài chính atomic
-        -> SUCCESS + EVENT_OUTBOX commit
-        -> Kafka nhận event
-        -> Bronze nhận realtime data
-        -> Batch lấy dữ liệu PostgreSQL
-        -> Silver hợp nhất và deduplicate
-        -> Invalid record vào Quarantine
-        -> DQ pass
-        -> Gold 10 DIM + 7 FACT được build idempotent
-        -> Trino query được Gold
-        -> BI/Report sử dụng được dữ liệu
-        -> Silver tạo Feature Mart
-        -> ML model được train/versioned/lưu artifact
-        -> Risk Service sử dụng model để inference
-```
-
----
-
-# 28. Các nguyên tắc không được phá vỡ
-
-1. **PostgreSQL schema hiện tại là cố định.**
-2. `ALLOW` không đồng nghĩa với `SUCCESS`.
-3. Chỉ `ALLOW` hoặc `REVIEW -> APPROVE` mới vào Financial Processing.
-4. Posting + balance + transaction SUCCESS + success outbox phải tuân thủ transaction boundary phù hợp.
-5. Lỗi trước commit phải rollback.
-6. Kafka/Spark/MinIO/Airflow không nằm trên critical path của chuyển tiền.
-7. Realtime publish qua `EVENT_OUTBOX`, không publish trực tiếp từ transaction table.
-8. Bronze giữ raw data phục vụ audit/replay.
-9. Invalid data không bị drop; đưa vào Quarantine.
-10. Batch + Realtime không được tạo duplicate business record trong Silver/Gold.
-11. Gold phải idempotent.
-12. ML model artifact lưu ngoài PostgreSQL; database chỉ dùng schema `model_version` hiện có.
-13. Mọi thay đổi triển khai mới phải thích nghi với database, không yêu cầu sửa schema để tiện cho pipeline.
-
----
-
-# 29. Tóm tắt một câu
-
-> **Bank Fraud Detection & Data Platform** là hệ thống mô phỏng ngân hàng end-to-end, trong đó PostgreSQL xử lý nghiệp vụ và giao dịch tài chính; Rule Engine + ML đánh giá fraud; Transactional Outbox + Kafka cung cấp realtime events; Spark + Airflow + MinIO xây dựng pipeline Batch/Realtime Bronze -> Silver -> Gold; Trino phục vụ Analytics; và Silver cung cấp dữ liệu cho vòng đời huấn luyện Machine Learning.
-
----
-
-# 30. Chạy project end-to-end
-
-> Hướng dẫn chi tiết cho người mới clone, Batch, Realtime, MinIO/Trino và xử lý lỗi: [`docs/run/README.md`](docs/run/README.md).
-
-## 30.1 Chuẩn bị
-
-Yêu cầu: Docker Engine/Compose, tối thiểu khoảng 8 GB RAM trống. Không xóa volume nếu đang có dữ liệu.
-
-Chỉ tạo `.env` khi file local chưa tồn tại:
+Tạo `.env` nếu máy chưa có file cấu hình:
 
 ```bash
 test -f .env || cp .env.example .env
 ```
 
-Đổi toàn bộ giá trị `change_me_*`; không commit `.env`. `KAFKA_CLUSTER_ID` chỉ cần tạo khi bật profile `realtime`, không phải điều kiện để Batch chạy.
+Điền các nhóm thông tin phù hợp với môi trường:
 
-Để OTP và thông báo email hoạt động thật, cấu hình thêm `OTP_HASH_SECRET`, `BREVO_API_KEY`, `OTP_SENDER_EMAIL` (địa chỉ sender đã verify trên Brevo) và email thật trong hồ sơ customer. Frontend dùng `NEXT_PUBLIC_API_URL=http://localhost:8000`.
+| Nhóm | Biến tiêu biểu |
+|---|---|
+| PostgreSQL | `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_PORT` |
+| API và phiên đăng nhập | `JWT_SECRET`, `CORS_ORIGINS`, `BANKING_API_PORT` |
+| OTP và email | `REDIS_URL`, `OTP_HASH_SECRET`, `BREVO_API_KEY`, `OTP_SENDER_EMAIL` |
+| MinIO | `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`, các biến `MINIO_BUCKET_*` |
+| Airflow | `AIRFLOW_DB_PASSWORD`, `AIRFLOW_ADMIN_USERNAME`, `AIRFLOW_ADMIN_PASSWORD`, `AIRFLOW_ADMIN_EMAIL` |
+| Kafka | `KAFKA_CLUSTER_ID`, `KAFKA_TRANSACTION_TOPIC` |
+| Trả nợ | `LOAN_SETTLEMENT_ACCOUNT_ID`: ID tài khoản INTERNAL dùng nhận tiền trả nợ |
 
-## 30.2 Start tự động
+OTP sử dụng email khách hàng trong database và sender đã được xác minh trên Brevo. Các tài khoản PostgreSQL, MinIO và Airflow dùng giá trị do người triển khai cấu hình.
+
+Các file `.env.banking`, `.env.outbox`, `.env.notification`, `.env.etl` phục vụ cấu hình theo service. Compose chọn chúng qua các biến `BANKING_ENV_FILE`, `OUTBOX_ENV_FILE`, `NOTIFICATION_ENV_FILE`, `ETL_ENV_FILE`; mặc định đọc `.env`.
+
+### 3. Khởi động các dịch vụ
 
 ```bash
 docker compose up -d --build
 docker compose ps -a
 ```
 
-Compose tự thực hiện:
+Trên PostgreSQL volume mới, init script tạo schema từ `sql/create_table.sql`, sau đó nạp các file `z_*.sql`. Bootstrap đăng ký model và tạo customer, tài khoản, thiết bị demo. Compose cũng khởi động các thành phần Batch và trigger `bootstrap_first_run` của DAG.
 
-- khởi tạo schema trên PostgreSQL volume mới từ `sql/create_table.sql` (volume hiện hữu không bị reinitialize);
-- tạo các MinIO bucket;
-- seed bộ demo idempotent;
-- chạy Banking/Risk API;
-- chạy Redis cho OTP, worker gửi notification email;
-- chạy Spark master/worker, Airflow scheduler/webserver và Trino;
-- tự unpause và trigger run `bootstrap_first_run` của DAG Batch đúng một lần trên Airflow metadata mới;
-- đăng ký 10 dimensions + 7 facts dưới `hive.gold`.
+Database và volume đã tồn tại được giữ lại. Tài khoản đăng nhập web nằm trong `customer_online_account` hoặc `system_user`; sử dụng tài khoản đã được cấp trong database của môi trường triển khai.
 
-Airflow DAG `banking_bronze_silver_gold` chạy tự động lần đầu khi stack sẵn sàng, sau đó chạy theo schedule `01:00 Asia/Ho_Chi_Minh`. Không cần chạy từng ETL file bằng tay. Chuỗi Batch mặc định là:
+Theo dõi quá trình khởi động:
 
-```text
-PostgreSQL -> Bronze -> Bronze DQ -> Silver -> Silver DQ -> validated Silver snapshot -> Gold -> Gold DQ -> Trino tables/views
+```bash
+docker compose logs -f banking-api airflow-scheduler
 ```
 
-Kafka/realtime là profile riêng: khởi động bằng `docker compose --profile realtime up -d --build`. Khi bật, outbox publisher đẩy event sang Kafka và consumer ghi MinIO Bronze bền vững. PostgreSQL Batch vẫn là nguồn duy nhất tạo các bảng Silver nghiệp vụ; Kafka event không ghi đè `silver/bank_transaction`. Nếu chủ động bật `ENABLE_REALTIME_SILVER_MERGE`, Batch chỉ materialize `silver/domain_event` để phân tích và đối soát. Model sync dùng profile `ml`; DAG Batch không tự training model.
+### 4. Chạy giao diện
 
-Chạy giao diện Next.js ở terminal riêng:
+Tạo `web/.env.local` với địa chỉ API:
+
+```env
+NEXT_PUBLIC_API_URL=http://localhost:8000
+```
+
+Ở terminal riêng:
 
 ```bash
 cd web
-npm install
+npm ci
 npm run dev
 ```
 
-Web dùng chung nhãn trạng thái, chi tiết tài khoản, biên nhận giao dịch và biểu đồ vòng giữa các role. Khoản vay `Paid` hiển thị “Đã tất toán”; kỳ trả nợ `Paid` hiển thị “Đã thanh toán”. Admin/nhân viên có bộ lọc giao dịch theo ngày, tài khoản và khoảng tiền như khách hàng. Biểu đồ thống kê toàn bộ dữ liệu trong phạm vi quyền của role; chú giải dài xuống dòng và có thể cuộn trong ô biểu đồ nhỏ. Chức năng ẩn số dư của khách hàng cũng ẩn giá trị và tỷ lệ trên biểu đồ.
+Mở **http://localhost:3000**. Sau đăng nhập, hệ thống chuyển người dùng tới không gian làm việc tương ứng với vai trò.
 
-Trang đăng nhập giữ kích thước chữ và nút theo CSS, cuộn dọc trong biểu mẫu khi thiếu chiều cao thay vì thu nhỏ toàn bộ khung. CSS đăng nhập tự thiết lập box sizing và kiểu nút để khung không tràn ngang khi stylesheet chung tải chậm.
-
-Sau khi bật Realtime, chạy `conda run -n bank-fraud python -m scripts.healthcheck` để kiểm tra cả Kafka và các service còn lại.
-
-## 30.3 Endpoints
-
-| Component | URL |
-|---|---|
-| Banking/Risk API + OpenAPI | `http://localhost:8000/docs` |
-| Kafka UI | `http://localhost:8080` |
-| Airflow | `http://localhost:8081` |
-| Spark master | `http://localhost:8082` |
-| MinIO console | `http://localhost:9001` |
-| Trino | `http://localhost:8084` |
-
-## 30.4 Kiểm tra API và giao dịch
-
-Lấy các ID demo theo cách idempotent:
+### 5. Bật Realtime
 
 ```bash
-docker compose run --rm demo-bootstrap
+docker compose --profile realtime up -d --build
 ```
 
-Đăng nhập trước để lấy JWT:
+Profile này khởi động cụm Kafka 3 broker, tạo topic, chạy outbox publisher, Bronze consumer và Kafka UI. Với cụm mới có thể tạo cluster ID bằng:
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/auth/login \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "username": "your_username",
-    "password": "your_password",
-    "role": "customer"
-  }'
+docker run --rm confluentinc/cp-kafka:7.9.0 kafka-storage random-uuid
 ```
 
-Luồng chuyển khoản của web thực hiện đủ ba bước có cùng context: `POST /api/v1/security/otp/request`, `POST /api/v1/security/otp/verify`, rồi `POST /api/v1/transactions/transfers` với `otpAuthorizationToken`. Context bao gồm cả `description` và phải giữ nguyên qua cả ba bước. Không gọi thẳng bước transfer nếu chưa verify OTP.
+Đặt ID vào `KAFKA_CLUSTER_ID` trước khi khởi tạo cụm. Với cụm đã có dữ liệu, giữ nguyên ID đang sử dụng.
 
-Response phân biệt rõ `decision=ALLOW` với `status=Success`; chỉ `Success` sau posting mới có `TransactionCompleted` outbox event. Với `REVIEW`, nhân viên dùng `POST /api/v1/transactions/reviews/{review_case_id}` và action `APPROVE` hoặc `REJECT`.
+### 6. Chạy Batch theo yêu cầu
 
-## 30.5 Theo dõi pipeline
+Ngoài lịch hằng ngày, có thể tạo một lượt chạy mới:
 
 ```bash
-docker compose logs -f airflow-scheduler spark-master spark-worker
+docker compose exec airflow-webserver airflow dags trigger banking_bronze_silver_gold
+```
+
+Xem lịch sử và log:
+
+```bash
 docker compose exec airflow-webserver airflow dags list-runs -d banking_bronze_silver_gold
-python -m scripts.healthcheck
+docker compose logs -f airflow-scheduler spark-master spark-worker
 ```
 
-Run/batch metrics và release manifests nằm trong MinIO bucket `pipeline-control`; rejected record nằm trong `quarantine`; raw replayable data nằm trong `bronze`.
-
-## 30.6 Query Gold bằng Trino
+### 7. Dừng và chạy lại
 
 ```bash
-docker compose exec trino trino --execute \
-  "SELECT decision, count(*) FROM hive.gold.fact_risk_assessment GROUP BY decision"
+docker compose --profile realtime stop
+docker compose --profile realtime up -d
 ```
 
-## 30.7 Test
+`stop` giữ lại dữ liệu và volume để tiếp tục sử dụng ở lần chạy sau.
 
-Unit/contract tests không cần stack:
+## API và các dịch vụ
+
+Các địa chỉ dưới đây dùng cổng mặc định trong Compose:
+
+| Dịch vụ | Địa chỉ |
+|---|---|
+| Web | http://localhost:3000 |
+| API Swagger | http://localhost:8000/docs |
+| API health | http://localhost:8000/api/v1/health |
+| Kafka UI | http://localhost:8080 |
+| Airflow | http://localhost:8081 |
+| Spark Master UI | http://localhost:8082 |
+| Trino HTTP | http://localhost:8084 |
+| MinIO API | http://localhost:9000 |
+| MinIO Console | http://localhost:9001 |
+| PostgreSQL | `localhost:5432` |
+
+API nghiệp vụ có prefix **`/api/v1`**. Các nhóm endpoint chính:
+
+| Nhóm | Ví dụ | Mục đích |
+|---|---|---|
+| Xác thực | `POST /auth/login` | Đăng nhập và nhận JWT |
+| Khách hàng | `GET /me/accounts`, `GET /me/loans` | Tra cứu dữ liệu của người dùng |
+| OTP | `POST /security/otp/request`, `POST /security/otp/verify` | Xác minh giao dịch |
+| Chuyển tiền | `POST /transactions/transfers` | Chuyển khoản online |
+| Tại quầy | `POST /transactions/counter-transfers` | Chuyển khoản do nhân viên thực hiện |
+| Review | `POST /transactions/reviews/:id` | APPROVE hoặc REJECT giao dịch |
+| Quản lý | `/management/*` | Thao tác trên các đối tượng nghiệp vụ |
+| Dashboard | `/admin/*` | Tổng quan và tra cứu theo quyền |
+| Analytics | `GET /analytics/snapshot` | Dữ liệu Gold cho dashboard phân tích |
+
+Sau khi đăng nhập, gửi JWT trong header:
+
+```http
+Authorization: Bearer <access-token>
+```
+
+Luồng chuyển khoản online gồm ba request dùng cùng thông tin giao dịch: yêu cầu OTP → xác minh OTP → tạo transfer với `otpAuthorizationToken`. Swagger cung cấp mô tả API để tra cứu và thử request.
+
+## Kiểm thử
+
+### Python
+
+Từ thư mục gốc, dùng môi trường Python 3.11:
 
 ```bash
-conda run -n bank-fraud python -m pytest -q
+python -m pip install -r requirements.txt
+python -m pytest -q
 ```
 
-Banking integration tests khi PostgreSQL đã start:
+Để chạy thêm worker inference thật, cài dependency đã pin:
 
 ```bash
-RUN_BANKING_INTEGRATION=1 conda run -n bank-fraud python -m pytest -q tests/integration/test_banking_postgres.py
+python -m pip install -r docker/requirements-inference.txt
 ```
 
-Full automated proof có cả realtime/Kafka chỉ chạy khi profile `realtime` đã được bật. Script **ghi một giao dịch demo thật** qua API tại quầy; cần JWT admin/nhân viên còn hạn trong `E2E_ACCESS_TOKEN` (nhân viên phải thuộc chi nhánh tài khoản demo):
+### Backend
 
 ```bash
-E2E_ALLOW_DEMO_TRANSFER=1 python -m scripts.e2e_test
+cd backend
+npm ci
+npm run typecheck
+npm run test:web
 ```
 
-Script E2E fail ngay tại stage không đạt và in summary chứa transaction/risk/outbox/Bronze/Airflow/Trino evidence khi thành công.
+### Frontend
 
-## 30.8 Recovery và idempotency
+```bash
+cd web
+npm ci
+npm run typecheck
+npm run test:web
+npm run build
+```
 
-- Retry cùng `idempotency_key` trả cùng transaction, không posting lần hai.
-- Banking recovery loop tiếp tục các transaction `Pending + ALLOW` nếu process chết giữa risk commit và financial processing.
-- Publisher dùng at-least-once; Silver deduplicate event theo `event_id` và transaction theo `transaction_id`.
-- Kafka offset chỉ commit sau khi Parquet Bronze đã được ghi và `stat_object` thành công.
-- Airflow retry từng stage; Silver và Gold có release theo batch. Gold chỉ đọc Silver đã qua DQ của đúng batch, nên retry batch cũ không đọc snapshot mới.
-- Worker joblib giữ model đã validate trong memory, kiểm tra thay đổi artifact local và giữ bản tốt nếu reload lỗi. Khi chưa có model hợp lệ, giao dịch mới fail closed. Artifact JSON/profile model-sync cũ không thay thế model joblib online.
+### Integration và end-to-end
 
-Chi tiết cập nhật function, runtime roles, artifact mapping và kiểm thử: [running.md](running.md), [platform-integrity-fixes.md](docs/audit/platform-integrity-fixes.md).
+PostgreSQL integration tests dùng database thử riêng có tên bắt đầu bằng `d4_`, đã nạp schema và function. Sau khi cấu hình các biến kết nối tới database thử:
+
+```bash
+RUN_BANKING_INTEGRATION=1 python -m pytest -q tests/integration
+```
+
+Tests bao phủ risk boundary, idempotency, posting/rollback, review, snapshot và phân quyền runtime. Các bài kiểm tra cần Redis hoặc worker joblib được bật riêng bằng `RUN_REDIS_INTEGRATION=1` và `RUN_JOBLIB_INTEGRATION=1` trong môi trường test backend.
+
+Để kiểm chứng toàn tuyến API → PostgreSQL → Outbox → Kafka → Bronze → Batch → Trino, sử dụng [`scripts/e2e_test.py`](scripts/e2e_test.py). Script yêu cầu `E2E_ACCESS_TOKEN` của admin/nhân viên và `E2E_ALLOW_DEMO_TRANSFER=1`, vì bài kiểm tra tạo một giao dịch demo có commit thật.
+
+## Nguyên tắc thiết kế
+
+- **PostgreSQL là nguồn dữ liệu nghiệp vụ chuẩn.** ETL và ML sử dụng contract schema hiện có.
+- **ALLOW khác SUCCESS.** Chỉ kết quả xử lý tài chính mới quyết định trạng thái thành công.
+- **Debit/credit nguyên tử.** Posting, số dư, trạng thái và success outbox cùng nằm trong transaction.
+- **Sự kiện đi qua Transactional Outbox.** Kafka nhận sự kiện sau commit.
+- **Bronze giữ raw; Silver chuẩn hóa; Gold phục vụ phân tích.** Dữ liệu không hợp lệ đi vào Quarantine.
+- **Retry và replay có định danh.** Request key, event key và batch/release giúp kiểm soát duplicate và truy vết.
+- **Model artifact nằm ngoài PostgreSQL.** Database lưu danh tính phiên bản và kết quả đánh giá; API cache model để inference.
+
+Các quy tắc đóng góp và invariant của hệ thống được mô tả trong [`AGENTS.md`](AGENTS.md).
