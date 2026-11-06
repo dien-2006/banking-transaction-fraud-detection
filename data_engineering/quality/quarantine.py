@@ -117,9 +117,17 @@ def _transaction_violations(frames: dict[str, DataFrame]) -> DataFrame:
         )
     )
 
+    completed = frames['event_outbox'].filter(
+        (F.col('event_type') == 'TransactionCompleted') & (F.col('aggregate_type') == 'BANK_TRANSACTION')
+    ).select(F.col('aggregate_id').alias('_aggregate_id')).distinct()
+    missing_outbox = transactions.filter(F.col('status') == 'Success').join(
+        completed, F.col('transaction_id').cast('string') == F.col('_aggregate_id'), 'left_anti'
+    ).select('transaction_id', *_reason('SUCCESS_WITHOUT_COMPLETED_OUTBOX', 'successful transaction has no committed completed event'))
+
     return (
         success_without_postings.unionByName(unbalanced_transfers)
         .unionByName(invalid_gate)
+        .unionByName(missing_outbox)
         .groupBy("transaction_id")
         .agg(
             F.concat_ws(
@@ -156,6 +164,7 @@ def _write_quarantine(
     reasons: DataFrame,
     reason_key: str,
     batch_id: str,
+    rule_path: str = 'business_rules',
 ) -> tuple[DataFrame, int]:
     reason_keys = reasons.select(reason_key).distinct()
     valid = frame.join(reason_keys, reason_key, "left_anti")
@@ -179,11 +188,40 @@ def _write_quarantine(
             .parquet(
                 s3a(
                     "MINIO_BUCKET_QUARANTINE",
-                    f"{dataset}/batch_id={batch_id}/business_rules",
+                    f"{dataset}/batch_id={batch_id}/{rule_path}",
                 )
             )
         )
     return valid, invalid_count
+
+
+def quarantine_loan_violations(spark, frames: dict[str, DataFrame], batch_id: str) -> int:
+    payments = frames['loan_payment']
+    tx = frames['bank_transaction'].select('transaction_id', F.col('status').alias('_tx_status'),
+        F.col('amount').alias('_tx_amount'), 'transaction_type_id')
+    types = frames['transaction_type'].select('transaction_type_id', 'type_code')
+    schedules = frames['repayment_schedule'].select('loan_id', 'schedule_id', 'principal_due', 'interest_due', 'penalty_due')
+    joined = payments.join(tx, 'transaction_id', 'left').join(types, 'transaction_type_id', 'left')
+    joined = joined.join(schedules.withColumn('_has_schedule', F.lit(True)), ['loan_id', 'schedule_id'], 'left')
+    invalid = joined.filter(
+        ~F.coalesce((F.col('_tx_status') == 'Success') & (F.col('type_code') == 'LOAN_PAYMENT')
+                    & (F.col('amount_paid') == F.col('_tx_amount')), F.lit(False))
+        | (F.col('schedule_id').isNotNull() & F.col('_has_schedule').isNull())
+    ).select('loan_payment_id')
+    totals = payments.filter(F.col('schedule_id').isNotNull()).groupBy('loan_id', 'schedule_id').agg(
+        F.sum('principal_paid').alias('_principal'), F.sum('interest_paid').alias('_interest'), F.sum('penalty_fee').alias('_penalty'))
+    overpaid = totals.join(schedules, ['loan_id', 'schedule_id']).filter(
+        (F.col('_principal') > F.col('principal_due')) | (F.col('_interest') > F.col('interest_due')) | (F.col('_penalty') > F.col('penalty_due')))
+    invalid = invalid.unionByName(payments.join(overpaid.select('loan_id','schedule_id'), ['loan_id','schedule_id']).select('loan_payment_id')).distinct()
+    reasons = invalid.select('loan_payment_id', *_reason('INVALID_LOAN_PAYMENT_DOMAIN', 'payment does not reconcile with financial transaction or loan schedule')).localCheckpoint(eager=True)
+    try:
+        if not reasons.count():
+            return 0
+        valid, count = _write_quarantine(payments, 'loan_payment', reasons, 'loan_payment_id', batch_id, 'loan_rules')
+        frames['loan_payment'] = _replace_silver(spark, 'loan_payment', valid, batch_id)
+        return count
+    finally:
+        reasons.unpersist()
 
 
 def _replace_silver(

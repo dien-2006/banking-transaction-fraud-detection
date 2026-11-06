@@ -6,6 +6,27 @@
   font-display: swap;
 }
 
+/* Keep the form's geometry independent of reset styles loaded by other routes. */
+.login-viewport,
+.login-viewport *,
+.login-viewport *::before,
+.login-viewport *::after {
+  box-sizing: border-box;
+}
+:where(.login-page) button {
+  appearance: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+:where(.login-page) a {
+  text-decoration: none;
+}
+
 .login-page {
   position: fixed;
   inset: 0;
@@ -36,19 +57,6 @@
   z-index: -2;
   object-fit: cover;
   object-position: center bottom;
-}
-.login-showcase::after {
-  position: absolute;
-  z-index: -1;
-  inset: 0;
-  content: "";
-  pointer-events: none;
-  background: linear-gradient(
-    110deg,
-    #ffffff5c 0%,
-    #ffffff15 55%,
-    transparent 78%
-  );
 }
 .login-brand {
   display: flex;
@@ -181,6 +189,7 @@
   min-height: 0;
   padding: 92px clamp(24px, 2.6vw, 52px) 40px;
   overflow-y: auto;
+  overflow-x: hidden;
   background: radial-gradient(ellipse at center, white 0%, #f6f8fc 80%);
 }
 .login-language {
@@ -223,11 +232,10 @@
 }
 .login-card-fit {
   width: 100%;
-  max-width: 600px;
+  max-width: 624px;
   flex-shrink: 0;
 }
 .login-card {
-  transform-origin: top center;
   display: flex;
   flex-direction: column;
   width: 100%;
@@ -551,7 +559,11 @@
 .login-footer nav {
   display: flex;
   align-items: center;
-  gap: 0;
+  flex-wrap: wrap;
+  justify-content: center;
+  min-width: 0;
+  max-width: 100%;
+  gap: 8px 0;
 }
 .login-footer nav button {
   padding: 0 20px;
@@ -901,102 +913,14 @@
   background: #f6f8fc;
 }
 
-/* Size content independently: readable controls and a bounded form. */
-@media (min-width: 1024px) {
-  .login-card-fit { max-width: 540px; }
-  .login-page {
-    position: fixed;
-    inset: 0;
-    width: 100%;
-    height: 100dvh;
-    min-height: 0;
-  }
-  .login-showcase {
-    padding: clamp(28px, 4.5vh, 48px) clamp(36px, 5vw, 90px);
-  }
-  .login-showcase::after {
-    background: linear-gradient(90deg, #fff9faed 0%, #fff9facf 38%, #fff9fa75 65%, transparent 90%);
-  }
-  .login-scene {
-    object-fit: cover;
-    object-position: center bottom;
-  }
-  .login-brand > span {
-    width: 56px;
-    height: 65px;
-  }
-  .login-brand > span i {
-    width: 14px;
-    height: 30px;
-  }
-  .login-brand > span i:nth-child(2) {
-    height: 46px;
-  }
-  .login-brand > span i:nth-child(3) {
-    height: 65px;
-  }
-  .login-brand b { font-size: 40px; }
-  .login-brand small { font-size: 14px; }
-  .login-intro { margin-top: clamp(24px, 4vh, 44px); }
-  .login-intro h1 {
-    max-width: 580px;
-    font-size: clamp(34px, 2.8vw, 46px);
-    line-height: 1.1;
-    letter-spacing: -1.5px;
-  }
-  .login-intro > p { max-width: 480px; font-size: 16px; margin-top: 16px; line-height: 1.6; }
-  .login-desktop-break { display: none; }
-  .login-features { gap: 16px; margin-top: 24px; }
-  .login-features article { gap: 18px; }
-  .login-features article > i {
-    flex-basis: 54px;
-    width: 54px;
-    height: 54px;
-  }
-  .login-features article svg { width: 30px; height: 30px; }
-  .login-features b { font-size: 16px; line-height: 1.5; }
-  .login-features article p > span { color: #344c81; font-size: 14px; font-weight: 400; line-height: 1.5; }
-  .login-form-side {
-    padding: 72px clamp(24px, 3vw, 56px) 24px;
-    overflow: auto;
-  }
-  .login-language { top: 16px; right: 32px; width: 160px; height: 40px; }
-  .login-card { max-width: 540px; min-height: 0; padding: 26px 30px; }
-  .login-card > h2 { font-size: clamp(26px, 1.9vw, 30px); }
-  .login-card > p:not(.login-register) { font-size: 15px; }
-  .login-card > form { margin-top: 20px; padding-top: 20px; gap: 16px; }
-  .login-label { font-size: 15px; }
-  .login-field { height: 46px; margin-top: 7px; }
-  .login-field input { font-size: 15px; }
-  .login-options { font-size: 14px; }
-  .login-submit { height: 48px; font-size: 17px; }
-  .login-divider { margin: 20px 0 12px; font-size: 13px; }
-  .quick-login button { width: 72px; height: 46px; }
-  .quick-login button svg { width: 27px; height: 27px; }
-  .login-card > .login-register { margin-top: 0; padding-top: 24px; font-size: 14px; }
-  .login-footer { min-height: 46px; padding: 10px 40px; }
-}
-
-@media (min-width: 1024px) and (max-height: 800px) {
-  .login-showcase { padding-block: 24px; }
-  .login-brand > span { height: 48px; }
-  .login-brand > span i { height: 24px; }
-  .login-brand > span i:nth-child(2) { height: 36px; }
-  .login-brand > span i:nth-child(3) { height: 48px; }
-  .login-brand b { font-size: 36px; }
-  .login-brand small { font-size: 12px; }
-  .login-intro { margin-top: 22px; }
-  .login-intro h1 { font-size: clamp(32px, 2.8vw, 42px); }
-  .login-intro > p { font-size: 16px; margin-top: 12px; }
-  .login-features article > i { flex-basis: 40px; width: 40px; height: 40px; }
-  .login-features article svg { width: 25px; height: 25px; }
-  .login-features b { font-size: 16px; }
-  .login-features article p > span { font-size: 14px; }
-  .login-card { padding: 24px 28px; }
-  .login-card > form { margin-top: 18px; padding-top: 18px; gap: 14px; }
-  .login-divider { margin-block: 18px 12px; }
-  .login-card > .login-register { padding-top: 24px; }
-  .login-features { gap: 12px; margin-top: 20px; }
+/* Fit shorter desktop windows by reducing spacing, not control sizes. */
+@media (min-width: 1024px) and (max-height: 700px) {
+  .login-form-side { padding-top: 64px; padding-bottom: 12px; }
+  .login-card { padding: 18px 24px; }
+  .login-card > form { margin-top: 12px; padding-top: 12px; gap: 8px; }
+  .login-divider { margin-block: 12px 8px; }
+  .quick-login button { height: 44px; }
+  .login-card > .login-register { padding-top: 12px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

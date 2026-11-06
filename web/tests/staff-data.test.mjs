@@ -7,6 +7,25 @@ const { presentTransaction, transactionSummary, isVerified } = await import(
   await moduleUrl("staff-data")
 );
 const { summarizeLoans } = await import(await moduleUrl("loan-summary"));
+const { recordStatus } = await import(await moduleUrl("record-status"));
+const { presentCard } = await import(await moduleUrl("card-data"));
+
+test("shared status presentation preserves loan, installment and transaction meanings across roles", () => {
+  assert.equal(recordStatus("Paid", "loan").label, "Đã tất toán");
+  assert.equal(recordStatus("Paid").label, "Đã thanh toán");
+  assert.equal(recordStatus("Pending", "loan").label, "Chờ phê duyệt");
+  assert.equal(recordStatus("Pending", "transaction").label, "Đang xử lý");
+  assert.equal(recordStatus("Overdue", "loan").tone, "bad");
+  assert.equal(recordStatus("NewStatus", "loan").label, "NewStatus");
+  const card = presentCard({
+    status: "Blocked",
+    cardtype: "Credit",
+    maskedcardnumber: "4111111111111234",
+  });
+  assert.equal(card.status, recordStatus("Blocked", "card").label);
+  assert.equal(card.type, "Thẻ tín dụng");
+  assert.equal(card.number, "•••• •••• •••• 1234");
+});
 const { customerLoanOverview, installmentRemaining, loanProgress, loanTerm } =
   await import(await moduleUrl("customer-loans"));
 const { accountBalanceSummary, accountActivity } = await import(

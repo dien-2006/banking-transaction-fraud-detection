@@ -30,7 +30,8 @@ def validate_candidate(
         raise ValueError("candidate weights do not match the online feature contract")
     numeric_values = [model.get("intercept"), *weights.values()]
     try:
-        valid_numbers = all(math.isfinite(float(value)) for value in numeric_values)
+        valid_numbers = all(not isinstance(value, bool) and isinstance(value, (int, float))
+                            and math.isfinite(value) for value in numeric_values)
     except (TypeError, ValueError):
         valid_numbers = False
     if not valid_numbers:
@@ -38,6 +39,10 @@ def validate_candidate(
     classes = metadata.get("classes")
     if classes != [0, 1]:
         raise ValueError("candidate must be trained with both fraud classes")
+    for split in ('train', 'test'):
+        evaluated = metadata.get('metrics', {}).get(split, {})
+        if not isinstance(evaluated.get('samples'), int) or evaluated['samples'] < 2 or evaluated.get('classes') != [0, 1]:
+            raise ValueError("candidate requires nonempty train/test evaluation spanning both classes")
 
 
 def _get_json(client: Minio, bucket: str, key: str) -> dict[str, Any]:

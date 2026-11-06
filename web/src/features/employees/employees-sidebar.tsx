@@ -1,14 +1,18 @@
 "use client";
+import { DistributionChart } from "@/components/distribution-chart";
+
 import { UsersRound } from "lucide-react";
 import type { EmployeeRow } from "./employee-data";
 
 export function EmployeesSidebar({
   rows,
   ready,
+  error = false,
   onShowAll,
 }: {
   rows: EmployeeRow[];
   ready: boolean;
+  error?: boolean;
   onShowAll: () => void;
 }) {
   const counts = new Map<string, number>();
@@ -29,15 +33,6 @@ export function EmployeesSidebar({
           },
         ]
       : branches;
-  const colors = ["#ff2143", "#ff9dad", "#ffbb4b", "#459cdb", "#8459e5"];
-  let cursor = 0;
-  const gradient = groups
-    .map((group, i) => {
-      const start = cursor;
-      cursor += (group.count / Math.max(rows.length, 1)) * 100;
-      return `${colors[i]} ${start}% ${cursor}%`;
-    })
-    .join(",");
   const latest = [...rows]
     .sort(
       (a, b) =>
@@ -46,46 +41,24 @@ export function EmployeesSidebar({
     )
     .slice(0, 3);
   return (
-    <aside className="grid min-h-0 grid-rows-2 gap-3">
+    <aside className="employee-summary-panels grid min-h-0 grid-rows-2 gap-3">
       <article className="card p-3">
         <h2 className="text-base font-black">Phân bổ nhân sự theo chi nhánh</h2>
-        <div className="flex items-center gap-4 pt-2">
-          <div
-            className="grid size-28 shrink-0 place-items-center rounded-full"
-            style={{
-              background: rows.length
-                ? `conic-gradient(${gradient})`
-                : "#edf0f5",
-            }}
-          >
-            <div className="grid size-16 place-items-center rounded-full bg-white text-center">
-              <b className="text-xl">{ready ? rows.length : "—"}</b>
-              <span className="text-[9px]">nhân viên</span>
-            </div>
-          </div>
-          <div className="min-w-0 space-y-2 text-[10px]">
-            {groups.map((group, i) => (
-              <p key={group.label} title={group.label} className="truncate">
-                <i
-                  className="mr-1 inline-block size-2 rounded-full"
-                  style={{ background: colors[i] }}
-                />
-                {group.label}{" "}
-                <b>
-                  {Math.round((group.count / rows.length) * 100)}% (
-                  {group.count})
-                </b>
-              </p>
-            ))}
-            {ready && !rows.length && <p>Chưa có dữ liệu nhân viên.</p>}
-            <p className="text-slate-500">
-              {ready
-                ? rows.filter((row) => row.status === "Đang làm việc").length
-                : "—"}{" "}
-              đang làm việc
-            </p>
-          </div>
-        </div>
+        <DistributionChart
+          items={groups.map((group) => ({
+            label: group.label,
+            value: group.count,
+          }))}
+          label="nhân viên"
+          ready={ready}
+          error={error}
+        />
+        <p className="mt-1 text-xs text-slate-500">
+          {ready
+            ? rows.filter((row) => row.status === "Đang làm việc").length
+            : "—"}{" "}
+          đang làm việc
+        </p>
       </article>
       <article className="card flex min-h-0 flex-col p-3">
         <h2 className="text-base font-black">Nhân viên mới nhất</h2>

@@ -1,19 +1,24 @@
-FROM node:22-alpine AS dependencies
+FROM node:22-bookworm-slim AS dependencies
 WORKDIR /app
 COPY backend/package*.json ./
-RUN npm install
+RUN npm ci
 
 FROM dependencies AS build
 COPY backend/ ./
 RUN npm run build
 
-FROM node:22-alpine AS runtime
+FROM node:22-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
+RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-venv libgomp1 wget && rm -rf /var/lib/apt/lists/*
+COPY docker/requirements-inference.txt /app/requirements-inference.txt
+RUN python3 -m venv /opt/inference && /opt/inference/bin/pip install --no-cache-dir --timeout 120 -r /app/requirements-inference.txt
 COPY --from=dependencies /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY backend/package.json ./package.json
 COPY ml/artifacts/fraud_detection/v1/ /app/ml-artifacts/
-ENV MODEL_CACHE_PATH=/models/current/model.json
+COPY ml/ /app/ml/
+COPY models/fraud_detection_model.joblib models/model_metadata.json /app/models/
+ENV PYTHON_EXECUTABLE=/opt/inference/bin/python JOBLIB_MODEL_PATH=/app/models/fraud_detection_model.joblib JOBLIB_METADATA_PATH=/app/models/model_metadata.json ML_WORKSPACE_ROOT=/app
 USER node
 CMD ["node", "dist/main.js"]

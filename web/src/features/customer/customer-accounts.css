@@ -721,3 +721,44 @@
     font-size: 10px;
   }
 }
+
+/* Large balances and their visibility control remain inside each metric. */
+.customer-shell .customer-accounts-screen .customer-metric > div {
+  min-width: 0;
+  flex: 1;
+}
+.customer-shell .customer-accounts-screen .customer-metric strong {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  white-space: normal;
+  font-size: clamp(12px, 1.1vw, 18px);
+}
+.customer-account-metric-amount {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.customer-metric strong:has(button) .customer-account-metric-amount {
+  max-width: calc(100% - 24px);
+}
+.customer-accounts-visibility {
+  flex-shrink: 0;
+  margin-left: 0;
+}
+.customer-shell .customer-accounts-aside .customer-box:has(.d4-distribution) {
+  overflow: auto;
+  scrollbar-width: thin;
+}
+.customer-accounts-aside .d4-distribution {
+  padding: 4px 12px 10px;
+}
+.customer-accounts-aside .d4-distribution-layout {
+  grid-template-columns: minmax(60px, 0.7fr) minmax(0, 1.3fr);
+}
+.customer-accounts-aside .d4-distribution-ring {
+  width: min(96px, 100%);
+}
+.customer-accounts-aside .d4-distribution-legend {
+  gap: 6px;
+}

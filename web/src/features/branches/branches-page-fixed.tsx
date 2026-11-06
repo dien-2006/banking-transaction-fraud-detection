@@ -168,7 +168,11 @@ export function BranchesPageFixed() {
           <h2 className="text-lg font-black">{tab}</h2>
           {tab === "Thống kê" ? (
             <div className="mt-3">
-              <BranchSidebar rows={rows} />
+              <BranchSidebar
+                rows={rows}
+                ready={query.isSuccess}
+                error={query.isError}
+              />
             </div>
           ) : tab === "Lịch sử thay đổi" ? (
             <Link className="btn-secondary mt-3" href="/admin/audit-logs">
@@ -329,7 +333,11 @@ export function BranchesPageFixed() {
             </div>
             <ListPagination {...pagination} noun="chi nhánh" />
           </article>
-          <BranchSidebar rows={rows} />
+          <BranchSidebar
+            rows={rows}
+            ready={query.isSuccess}
+            error={query.isError}
+          />
         </section>
       )}
       <Modal

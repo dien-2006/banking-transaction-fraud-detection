@@ -1,4 +1,13 @@
 "use client";
+import { RecordStatus } from "@/components/record-status";
+import {
+  amountRanges,
+  emptyHistoryFilters,
+  filterCustomerHistory,
+  type HistoryFilters,
+} from "@/lib/customer-history";
+import { DistributionChart } from "@/components/distribution-chart";
+
 import {
   ArrowLeftRight,
   CheckCircle2,
@@ -14,7 +23,7 @@ import {
   ListPagination,
   useListPagination,
 } from "@/components/list-pagination";
-import { TransactionResultButton } from "@/components/transaction-result";
+import { TransactionRecordButton } from "@/components/transaction-result";
 import { bankService } from "@/services/bank.service";
 import { useSessionUser } from "@/components/session-context";
 import { loadAllPages } from "@/lib/paged-data";
@@ -27,9 +36,22 @@ import { StaffTransferDialog } from "./staff-transfer-dialog";
 import { StaffMovementDialog } from "./staff-movement-dialog";
 export function TransactionsPage() {
   const user = useSessionUser();
-  const [q, setQ] = useState("");
-  const [status, setStatus] = useState("");
-  const [type, setType] = useState("");
+  const [filters, setFilters] = useState<HistoryFilters>({
+    ...emptyHistoryFilters,
+  });
+  const { search: q, status, type } = filters;
+  const setFilter = (key: keyof HistoryFilters, value: string) => {
+    setFilters((current) => ({ ...current, [key]: value }));
+    pagination.setPage(1);
+  };
+  const setQ = (value: string) => setFilter("search", value);
+  const setStatus = (value: string) => setFilter("status", value);
+  const setType = (value: string) => setFilter("type", value);
+  const accountsQuery = useQuery({
+    queryKey: ["staff-accounts", user.role, user.id, user.branchId],
+    queryFn: () => loadAllPages(bankService.accounts, (row) => row.accountid),
+  });
+  const dateError = !!(filters.from && filters.to && filters.from > filters.to);
   const transactionsQuery = useQuery({
     refetchInterval: 15_000,
     queryKey: ["staff-transactions", user.role, user.id, user.branchId],
@@ -51,45 +73,23 @@ export function TransactionsPage() {
   );
   const data = useMemo(
     () =>
-      transactions
+      filterCustomerHistory(transactions, { ...filters, search: "" })
         .filter((row) => {
           const view = presentTransaction(row);
-          return (
-            (!status || row.status === status) &&
-            (!type || row.typecode === type) &&
-            `${view.id} ${view.customer} ${view.description} ${view.type}`
-              .toLocaleLowerCase("vi")
-              .includes(q.trim().toLocaleLowerCase("vi"))
-          );
+          return `${view.id} ${view.customer} ${view.description} ${view.type}`
+            .toLocaleLowerCase("vi")
+            .includes(q.trim().toLocaleLowerCase("vi"));
         })
-        .map(presentTransaction),
-    [q, transactions, status, type],
+        .map((row) => ({ ...presentTransaction(row), raw: row })),
+    [filters, q, transactions],
   );
   const pagination = useListPagination(data, { fitViewportOnly: true });
   const reset = () => {
-    setQ("");
-    setStatus("");
-    setType("");
+    setFilters({ ...emptyHistoryFilters });
     pagination.setPage(1);
   };
   const value = (count: number) =>
     transactionsQuery.isSuccess ? count.toLocaleString("vi-VN") : "—";
-  const palette = [
-    "#ff2143",
-    "#ff9dad",
-    "#ffbb4b",
-    "#459cdb",
-    "#8459e5",
-    "#27b38d",
-  ];
-  let cursor = 0;
-  const gradient = summary.groups
-    .map((item, index) => {
-      const start = cursor;
-      cursor += (item.count / Math.max(summary.total, 1)) * 100;
-      return `${palette[index % palette.length]} ${start}% ${cursor}%`;
-    })
-    .join(",");
   const cards = [
     [ArrowLeftRight, "Tổng giao dịch", value(summary.total)],
     [CheckCircle2, "Giao dịch thành công", value(summary.success)],
@@ -141,7 +141,7 @@ export function TransactionsPage() {
           ref={pagination.panelRef}
           className="card flex min-h-0 flex-col p-3"
         >
-          <div className="grid grid-cols-[1.5fr_.7fr_.7fr_.35fr] gap-2">
+          <div className="d4-transaction-filters">
             <label className="relative">
               <Search
                 className="absolute left-3 top-2.5 text-slate-400"
@@ -194,7 +194,63 @@ export function TransactionsPage() {
             >
               <Filter className="inline" size={13} /> Đặt lại
             </button>
+            <label>
+              Từ ngày
+              <input
+                type="date"
+                aria-label="Từ ngày"
+                value={filters.from}
+                onChange={(event) => setFilter("from", event.target.value)}
+              />
+            </label>
+            <label>
+              Đến ngày
+              <input
+                type="date"
+                aria-label="Đến ngày"
+                value={filters.to}
+                onChange={(event) => setFilter("to", event.target.value)}
+              />
+            </label>
+            <label>
+              Tài khoản
+              <select
+                aria-label="Tài khoản"
+                value={filters.account}
+                onChange={(event) => setFilter("account", event.target.value)}
+              >
+                <option value="">
+                  {accountsQuery.isError
+                    ? "Không tải được tài khoản"
+                    : "Tất cả tài khoản"}
+                </option>
+                {(accountsQuery.data ?? []).map((account) => (
+                  <option key={account.accountid} value={account.accountid}>
+                    {account.accountnumber}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Số tiền (VND)
+              <select
+                aria-label="Khoảng số tiền"
+                value={filters.amount}
+                onChange={(event) => setFilter("amount", event.target.value)}
+              >
+                {amountRanges.map((range) => (
+                  <option key={range.value} value={range.value}>
+                    {range.label}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
+          {dateError && (
+            <p role="alert" className="my-2 text-xs text-red-600">
+              Ngày kết thúc phải từ ngày bắt đầu trở đi.
+            </p>
+          )}
           <div className="staff-table-scroll">
             <table className="mt-3 w-full table-fixed text-left text-[10px]">
               <thead className="bg-slate-50">
@@ -257,28 +313,28 @@ export function TransactionsPage() {
                       <td className="p-2 font-semibold">{x.amountText}</td>
                       <td className="p-2">{x.time}</td>
                       <td className="p-2">
-                        <span
-                          className={
-                            x.status === "Thành công"
-                              ? "rounded bg-emerald-100 px-1 text-emerald-600"
-                              : x.status === "Đang xử lý"
-                                ? "rounded bg-amber-100 px-1 text-amber-600"
-                                : "rounded bg-red-100 px-1 text-red-600"
-                          }
-                        >
-                          {x.status}
-                        </span>
+                        <RecordStatus
+                          status={x.raw.status}
+                          domain="transaction"
+                        />
                       </td>
                       <td className="p-2">
-                        <TransactionResultButton
-                          status={x.status}
-                          operation={x.type}
-                          amount={x.amountText}
-                          reference={x.id}
-                          time={x.time}
-                          details={[
+                        <TransactionRecordButton
+                          transaction={x.raw}
+                          account={
+                            [x.raw.sourceaccountid, x.raw.destinationaccountid]
+                              .filter((id) => id != null)
+                              .map(
+                                (id) =>
+                                  accountsQuery.data?.find(
+                                    (account) =>
+                                      Number(account.accountid) === Number(id),
+                                  )?.accountnumber ?? `TK #${id}`,
+                              )
+                              .join(" → ") || "Chưa cập nhật"
+                          }
+                          staffDetails={[
                             ["Khách hàng", x.customer],
-                            ["Nội dung", x.description],
                             ["Đánh giá rủi ro", x.risk],
                           ]}
                         />
@@ -293,45 +349,22 @@ export function TransactionsPage() {
         <aside className="grid min-h-0 grid-rows-2 gap-3">
           <article className="card p-3">
             <h2 className="text-base font-black">Tỷ lệ loại giao dịch</h2>
-            <div className="flex items-center gap-4 pt-2">
-              <div
-                className="grid size-28 place-items-center rounded-full"
-                style={{
-                  background: summary.total
-                    ? `conic-gradient(${gradient})`
-                    : "#edf0f5",
-                }}
-              >
-                <div className="grid size-16 place-items-center rounded-full bg-white text-center">
-                  <b className="text-xl">{value(summary.total)}</b>
-                  <span className="text-[9px]">giao dịch</span>
-                </div>
-              </div>
-              <div className="space-y-2 text-[10px]">
-                {summary.groups.map((item, index) => (
-                  <p key={item.label}>
-                    <span style={{ color: palette[index % palette.length] }}>
-                      ●
-                    </span>{" "}
-                    {item.label}{" "}
-                    <b>
-                      {Math.round((item.count / summary.total) * 100)}% (
-                      {item.count})
-                    </b>
-                  </p>
-                ))}
-                {transactionsQuery.isSuccess && !summary.total && (
-                  <p>Chưa có giao dịch.</p>
-                )}
-              </div>
-            </div>
+            <DistributionChart
+              items={summary.groups.map((group) => ({
+                label: group.label,
+                value: group.count,
+              }))}
+              label="giao dịch"
+              ready={transactionsQuery.isSuccess}
+              error={transactionsQuery.isError}
+            />
           </article>
           <article className="card flex flex-col p-3">
             <h2 className="text-base font-black">Giao dịch gần đây</h2>
             <div className="mt-2 space-y-2">
               {transactions
                 .slice(0, 3)
-                .map(presentTransaction)
+                .map((row) => ({ ...presentTransaction(row), raw: row }))
                 .map((x, i) => (
                   <div className="flex items-center gap-2" key={x.id}>
                     <span className="grid size-5 place-items-center rounded-full bg-coral text-[10px] font-bold text-white">
@@ -344,15 +377,22 @@ export function TransactionsPage() {
                       <b className="block">{x.customer}</b>
                       <span className="text-slate-500">{x.amountText}</span>
                     </p>
-                    <TransactionResultButton
-                      status={x.status}
-                      operation={x.type}
-                      amount={x.amountText}
-                      reference={x.id}
-                      time={x.time}
-                      details={[
+                    <TransactionRecordButton
+                      transaction={x.raw}
+                      account={
+                        [x.raw.sourceaccountid, x.raw.destinationaccountid]
+                          .filter((id) => id != null)
+                          .map(
+                            (id) =>
+                              accountsQuery.data?.find(
+                                (account) =>
+                                  Number(account.accountid) === Number(id),
+                              )?.accountnumber ?? `TK #${id}`,
+                          )
+                          .join(" → ") || "Chưa cập nhật"
+                      }
+                      staffDetails={[
                         ["Khách hàng", x.customer],
-                        ["Nội dung", x.description],
                         ["Đánh giá rủi ro", x.risk],
                       ]}
                     />

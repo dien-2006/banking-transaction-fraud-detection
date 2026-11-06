@@ -1,4 +1,8 @@
 "use client";
+import { RecordStatus } from "@/components/record-status";
+import { recordStatus } from "@/lib/record-status";
+import { DistributionChart } from "@/components/distribution-chart";
+
 import {
   BadgeDollarSign,
   CheckCircle2,
@@ -99,15 +103,6 @@ export function LoansPage() {
           },
         ]
       : products;
-  const colors = ["#ff2143", "#ff9dad", "#ffbb4b"];
-  let boundary = 0;
-  const gradient = composition
-    .map((product, index) => {
-      const start = boundary;
-      boundary += outstanding > 0 ? (product.amount / outstanding) * 100 : 0;
-      return `${colors[index]} ${start}% ${boundary}%`;
-    })
-    .join(", ");
   const summaryStatus = loansQuery.isError
     ? "Không tải được thống kê"
     : loansQuery.isPending
@@ -253,7 +248,9 @@ export function LoansPage() {
               >
                 <option value="">Tất cả trạng thái</option>
                 {[...new Set(loans.map((row) => row[5]))].map((name) => (
-                  <option key={name}>{name}</option>
+                  <option key={name} value={name}>
+                    {recordStatus(name, "loan").label}
+                  </option>
                 ))}
               </select>
               <button
@@ -323,21 +320,14 @@ export function LoansPage() {
                         <td className="p-2 font-semibold">{x[3]}</td>
                         <td className="p-2">{x[4]}</td>
                         <td className="p-2">
-                          <span
-                            className={
-                              x[5] === "Đang trả"
-                                ? "rounded bg-emerald-100 px-1 text-emerald-600"
-                                : x[5] === "Chờ duyệt"
-                                  ? "rounded bg-amber-100 px-1 text-amber-600"
-                                  : "rounded bg-blue-100 px-1 text-blue-600"
-                            }
-                          >
-                            {x[5]}
-                          </span>
+                          <RecordStatus status={x[5]} domain="loan" />
                         </td>
                         <td className="p-2">
                           <RecordViewButton
-                            record={x}
+                            record={[
+                              ...x.slice(0, 5),
+                              recordStatus(x[5], "loan").label,
+                            ]}
                             title="Chi tiết khoản vay"
                             labels={[
                               "Mã khoản vay",
@@ -359,54 +349,21 @@ export function LoansPage() {
           <aside className="grid min-h-0 grid-rows-2 gap-3">
             <article className="card p-3">
               <h2 className="text-base font-black">Cơ cấu dư nợ</h2>
-              <div className="flex items-center gap-4 pt-2">
-                <div
-                  className="grid size-28 place-items-center rounded-full"
-                  style={{
-                    background:
-                      outstanding > 0
-                        ? `conic-gradient(${gradient})`
-                        : "#edf0f5",
-                  }}
-                >
-                  <div className="grid size-16 place-items-center rounded-full bg-white text-center">
-                    <b
-                      className="text-xl"
-                      title={
-                        summary ? money.format(outstanding) : summaryStatus
-                      }
-                    >
-                      {summary
-                        ? new Intl.NumberFormat("vi-VN", {
-                            notation: "compact",
-                            maximumFractionDigits: 1,
-                          }).format(outstanding)
-                        : "—"}
-                    </b>
-                    <span className="text-[9px]">đồng</span>
-                  </div>
-                </div>
-                <div className="space-y-2 text-[10px]">
-                  {composition.map((product, index) => (
-                    <p key={product.name} title={money.format(product.amount)}>
-                      <span style={{ color: colors[index] }}>●</span>{" "}
-                      {product.name}{" "}
-                      <b>
-                        {outstanding > 0
-                          ? Math.round((product.amount / outstanding) * 100)
-                          : 0}
-                        %
-                      </b>
-                    </p>
-                  ))}
-                  {!summary && (
-                    <p className="text-slate-500">{summaryStatus}</p>
-                  )}
-                  {summary && outstanding === 0 && (
-                    <p className="text-slate-500">Chưa có dư nợ.</p>
-                  )}
-                </div>
-              </div>
+              <DistributionChart
+                items={composition.map((product) => ({
+                  label: product.name,
+                  value: product.amount,
+                }))}
+                label="dư nợ VND"
+                ready={loansQuery.isSuccess}
+                error={loansQuery.isError}
+                centerValue={new Intl.NumberFormat("vi-VN", {
+                  notation: "compact",
+                  maximumFractionDigits: 1,
+                }).format(outstanding)}
+                formatValue={(value) => money.format(value)}
+                emptyText="Chưa có dư nợ."
+              />
             </article>
             <article className="card flex flex-col p-3">
               <h2 className="text-base font-black">Hồ sơ cần xử lý</h2>

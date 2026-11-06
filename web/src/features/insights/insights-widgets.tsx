@@ -1,4 +1,10 @@
 "use client";
+import {
+  DistributionChart,
+  distributionColors,
+} from "@/components/distribution-chart";
+import { recordStatusLabels } from "@/lib/record-status";
+import { riskLabels, reviewLabels } from "@/lib/fraud-data";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
@@ -61,13 +67,7 @@ export function AnalyticsBoundary({
   return <>{children}</>;
 }
 
-export const insightColors = [
-  "#f5223e",
-  "#ff9aa6",
-  "#ffb83e",
-  "#45a7ee",
-  "#8257ed",
-];
+export const insightColors = distributionColors;
 
 export function InsightDonut({
   items,
@@ -76,7 +76,6 @@ export function InsightDonut({
   items: { name: string; value: number }[];
   label: string;
 }) {
-  const total = items.reduce((sum, item) => sum + item.value, 0);
   const shown =
     items.length > 4
       ? [
@@ -87,49 +86,24 @@ export function InsightDonut({
           },
         ]
       : items;
-  let offset = 0;
-  const gradient = shown
-    .map((item, index) => {
-      const start = offset;
-      offset += total ? (item.value / total) * 100 : 0;
-      return `${insightColors[index]} ${start}% ${offset}%`;
-    })
-    .join(",");
   return (
-    <div className="insight-donut-layout flex h-full min-w-0 items-center justify-center gap-4 py-2">
-      <div
-        className="insight-donut grid size-24 shrink-0 place-items-center rounded-full"
-        style={{
-          background: total ? `conic-gradient(${gradient})` : "#edf0f5",
-        }}
-      >
-        <div className="grid size-14 place-items-center rounded-full bg-white text-center">
-          <b title={total.toLocaleString("vi-VN")}>
-            {total.toLocaleString("vi-VN", {
-              notation: "compact",
-              maximumFractionDigits: 1,
-            })}
-          </b>
-          <span className="text-[9px]">{label}</span>
-        </div>
-      </div>
-      <div className="min-w-0 space-y-1.5 text-[10px]">
-        {shown.map((item, index) => (
-          <p className="flex min-w-0 items-center gap-2" key={item.name}>
-            <i
-              className="size-2 shrink-0 rounded-full"
-              style={{ background: insightColors[index] }}
-            />
-            <span className="min-w-0 truncate" title={item.name}>
-              {item.name}
-            </span>
-            <b className="shrink-0">
-              {total ? Math.round((item.value / total) * 100) : 0}%
-            </b>
-          </p>
-        ))}
-      </div>
-    </div>
+    <DistributionChart
+      items={shown.map((item) => ({
+        label:
+          recordStatusLabels[item.name] ??
+          riskLabels[item.name] ??
+          reviewLabels[item.name] ??
+          item.name,
+        value: item.value,
+      }))}
+      label={label}
+      centerValue={items
+        .reduce((sum, item) => sum + item.value, 0)
+        .toLocaleString("vi-VN", {
+          notation: "compact",
+          maximumFractionDigits: 1,
+        })}
+    />
   );
 }
 

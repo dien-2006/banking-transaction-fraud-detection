@@ -6,23 +6,10 @@ import type {
 
 import { formatCurrency, formatDateTime, formatDate } from "./presentation";
 import { loadAllPages } from "./paged-data";
+import { recordStatusLabels } from "./record-status";
 export { formatCurrency };
 
-export const customerStatuses: Record<string, string> = {
-  Active: "Đang hoạt động",
-  Frozen: "Tạm phong tỏa",
-  Closed: "Đã đóng",
-  Inactive: "Ngừng hoạt động",
-  Blocked: "Đã khóa",
-  Expired: "Hết hạn",
-  Success: "Thành công",
-  Pending: "Đang xử lý",
-  Failed: "Thất bại",
-  Cancelled: "Đã hủy",
-  Paid: "Đã thanh toán",
-  Partial: "Thanh toán một phần",
-  Overdue: "Quá hạn",
-};
+export const customerStatuses = recordStatusLabels;
 export const transactionTypes: Record<string, string> = {
   TRANSFER: "Chuyển khoản",
   DEPOSIT: "Nạp tiền",

@@ -1,4 +1,6 @@
 "use client";
+import { DistributionChart } from "@/components/distribution-chart";
+
 import {
   BadgeCheck,
   CircleDollarSign,
@@ -112,15 +114,6 @@ export function CustomersPage() {
           },
         ]
       : sortedGroups;
-  const colors = ["#ff2143", "#ff9dad", "#ffbb4b", "#459cdb", "#8459e5"];
-  let cursor = 0;
-  const gradient = groups
-    .map((group, i) => {
-      const start = cursor;
-      cursor += (group.count / Math.max(customers.length, 1)) * 100;
-      return `${colors[i]} ${start}% ${cursor}%`;
-    })
-    .join(",");
   const cards = [
     [UsersRound, "Tổng khách hàng", value(customers.length)],
     [BadgeCheck, "Đã xác minh KYC", value(verifiedCount)],
@@ -312,39 +305,15 @@ export function CustomersPage() {
         <aside className="grid min-h-0 grid-rows-2 gap-3">
           <article className="card p-3">
             <h2 className="text-base font-black">Phân khúc khách hàng</h2>
-            <div className="flex items-center gap-4 pt-2">
-              <div
-                className="grid size-28 place-items-center rounded-full"
-                style={{
-                  background: customers.length
-                    ? `conic-gradient(${gradient})`
-                    : "#edf0f5",
-                }}
-              >
-                <div className="grid size-16 place-items-center rounded-full bg-white text-center">
-                  <b className="text-xl">{value(customers.length)}</b>
-                  <span className="text-[9px]">khách hàng</span>
-                </div>
-              </div>
-              <div className="space-y-2 text-[10px]">
-                {groups.map((group, i) => (
-                  <p key={group.label}>
-                    <i
-                      className="mr-1 inline-block size-2 rounded-full"
-                      style={{ background: colors[i] }}
-                    />
-                    {group.label}{" "}
-                    <b>
-                      {Math.round((group.count / customers.length) * 100)}% (
-                      {group.count})
-                    </b>
-                  </p>
-                ))}
-                {customersQuery.isSuccess && !customers.length && (
-                  <p>Chưa có dữ liệu phân khúc.</p>
-                )}
-              </div>
-            </div>
+            <DistributionChart
+              items={groups.map((group) => ({
+                label: group.label,
+                value: group.count,
+              }))}
+              label="khách hàng"
+              ready={customersQuery.isSuccess}
+              error={customersQuery.isError}
+            />
           </article>
           <article className="card flex flex-col p-3">
             <h2 className="text-base font-black">Khách hàng gần đây</h2>

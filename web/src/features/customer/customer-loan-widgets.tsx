@@ -1,4 +1,5 @@
 "use client";
+import { RecordStatus } from "@/components/record-status";
 import { CarFront, House, Wallet } from "lucide-react";
 import { customerDate, formatVnd } from "@/lib/customer-data";
 import {
@@ -19,19 +20,7 @@ export const loanIcon = (name: string) =>
 export const loanMoney = (value: string | number, hidden: boolean) =>
   hidden ? "••••••" : formatVnd(value);
 function LoanStatus({ status }: { status: string }) {
-  return status === "Active" || status === "Paid" || status === "Pending" ? (
-    <span
-      className={`customer-state ${status === "Pending" ? "waiting" : "good"}`}
-    >
-      {status === "Active"
-        ? "Đang trả nợ"
-        : status === "Paid"
-          ? "Đã tất toán"
-          : "Chờ phê duyệt"}
-    </span>
-  ) : (
-    <CustomerStatus status={status} />
-  );
+  return <RecordStatus status={status} domain="loan" />;
 }
 export function LoanRecord({
   loan,

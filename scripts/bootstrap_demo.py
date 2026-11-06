@@ -1,15 +1,28 @@
 from __future__ import annotations
 
 import json
+import hashlib
+from pathlib import Path
 
 import psycopg
 from psycopg.rows import dict_row
 
 from scripts.postgres_config import POSTGRES_SCHEMA, postgres_dsn
+from ml.features import JOBLIB_FEATURES
 
 
 def main() -> None:
     with psycopg.connect(postgres_dsn(), row_factory=dict_row, options=f"-c search_path={POSTGRES_SCHEMA}") as connection, connection.transaction():
+        connection.execute("SELECT pg_advisory_xact_lock(hashtextextended('d4-bootstrap',0))")
+        model_path = Path(__file__).resolve().parents[1] / 'models/fraud_detection_model.joblib'
+        metadata = json.loads(model_path.with_name('model_metadata.json').read_text())
+        if tuple(metadata.get('features', ())) != JOBLIB_FEATURES:
+            raise ValueError('Online joblib feature contract mismatch')
+        digest = hashlib.sha256(model_path.read_bytes()).hexdigest()
+        connection.execute("""INSERT INTO model_version(modelname,modeltype,status,description)
+            SELECT %s,'XGBOOST','ACTIVE',%s
+            WHERE NOT EXISTS (SELECT 1 FROM model_version WHERE modelname=%s)""",
+            ('fraud_detection_xgb_'+digest[:16], 'sha256='+digest, 'fraud_detection_xgb_'+digest[:16]))
         branch = connection.execute(
             """INSERT INTO branch(branchcode,branchname,address,city,opendate)
                VALUES ('DEMO-HCM','Demo HCM','1 Nguyen Hue','Ho Chi Minh',CURRENT_DATE)

@@ -1,0 +1,9 @@
+branch_key,branch_id,branch_code,branch_name,address,city,phone,open_date,status,created_at
+1,1,BR001,Chi nhanh Ha Noi 1,11 Duong trung tam,Ha Noi,02438880001,2018-01-01,Active,2020-01-01 00:00:00
+2,2,BR002,Chi nhanh Hai Phong 2,12 Duong trung tam,Hai Phong,02438880002,2017-01-01,Active,2020-01-01 00:00:00
+3,3,BR003,Chi nhanh Da Nang 3,13 Duong trung tam,Da Nang,02438880003,2013-01-01,Active,2020-01-01 00:00:00
+4,4,BR004,Chi nhanh Hue 4,14 Duong trung tam,Hue,02438880004,2015-01-01,Active,2020-01-01 00:00:00
+5,5,BR005,Chi nhanh TP Ho Chi Minh 5,15 Duong trung tam,TP Ho Chi Minh,02438880005,2017-01-01,Active,2020-01-01 00:00:00
+6,6,BR006,Chi nhanh Can Tho 6,16 Duong trung tam,Can Tho,02438880006,2014-01-01,Active,2020-01-01 00:00:00
+7,7,BR007,Chi nhanh Bac Ninh 7,17 Duong trung tam,Bac Ninh,02438880007,2012-01-01,Active,2020-01-01 00:00:00
+8,8,BR008,Chi nhanh Quang Ninh 8,18 Duong trung tam,Quang Ninh,02438880008,2017-01-01,Active,2020-01-01 00:00:00

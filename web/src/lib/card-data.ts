@@ -1,8 +1,9 @@
 import { loadAllPages } from "./paged-data";
 import { formatDate } from "./presentation";
-import { customerCardMask } from "./customer-cards";
+import { customerCardMask, customerCardType } from "./customer-cards";
+import { recordStatus } from "./record-status";
 import type { PageResult } from "@/services/bank.service";
-export type CardStatus = "Đang hoạt động" | "Tạm khóa" | "Đã đóng" | "Hết hạn";
+export type CardStatus = "Đang hoạt động" | "Đã khóa" | "Đã đóng" | "Hết hạn";
 export type BankCard = {
   id: string;
   number: string;
@@ -12,15 +13,9 @@ export type BankCard = {
   expiry: string;
   limit: string;
   status: CardStatus;
+  statusCode: string;
   issuedAt: string;
   issueDate: string;
-};
-
-const statuses: Record<string, CardStatus> = {
-  Active: "Đang hoạt động",
-  Blocked: "Tạm khóa",
-  Closed: "Đã đóng",
-  Expired: "Hết hạn",
 };
 
 export function presentCard(row: Record<string, unknown>): BankCard {
@@ -39,10 +34,11 @@ export function presentCard(row: Record<string, unknown>): BankCard {
         `Khách hàng #${row.customerid ?? "—"}`,
     ),
     account: String(row.accountid ?? "—"),
-    type: String(row.cardtype ?? "—"),
+    type: customerCardType({ cardtype: String(row.cardtype ?? "—") }),
     expiry: date(row.expirydate, true),
     limit: Number(row.dailylimit ?? 0).toLocaleString("vi-VN"),
-    status: statuses[String(row.status)] ?? (String(row.status) as CardStatus),
+    status: recordStatus(String(row.status), "card").label as CardStatus,
+    statusCode: String(row.status),
     issuedAt: date(row.issuedate),
     issueDate: String(row.issuedate ?? ""),
   };

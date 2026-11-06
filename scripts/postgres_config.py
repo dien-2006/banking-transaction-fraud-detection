@@ -8,6 +8,7 @@ utilities; it does not implement financial transaction workflows.
 from __future__ import annotations
 
 import os
+from urllib.parse import quote
 
 
 def postgres_dsn() -> str:
@@ -16,7 +17,7 @@ def postgres_dsn() -> str:
     database = os.getenv("POSTGRES_DB", "bank_fraud")
     user = os.getenv("POSTGRES_USER", "bank_admin")
     password = os.environ["POSTGRES_PASSWORD"]
-    return f"postgresql://{user}:{password}@{host}:{port}/{database}"
+    return f"postgresql://{quote(user, safe='')}:{quote(password, safe='')}@{host}:{port}/{quote(database, safe='')}"
 
 
 POSTGRES_SCHEMA = os.getenv("POSTGRES_SCHEMA", "banking")

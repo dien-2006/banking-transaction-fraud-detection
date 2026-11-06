@@ -1,5 +1,10 @@
 .git
 .env
+.env.*
+!.env.example
+**/node_modules
+**/.next
+backend/dist
 .pytest_cache
 __pycache__
 *.pyc

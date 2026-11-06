@@ -189,6 +189,7 @@ export function EmployeesPage() {
               <EmployeesSidebar
                 rows={employeeRows}
                 ready={employeesQuery.isSuccess}
+                error={employeesQuery.isError}
                 onShowAll={reset}
               />
             </div>
@@ -353,6 +354,7 @@ export function EmployeesPage() {
           <EmployeesSidebar
             rows={employeeRows}
             ready={employeesQuery.isSuccess}
+            error={employeesQuery.isError}
             onShowAll={reset}
           />
         </section>

@@ -10,6 +10,7 @@ from data_engineering.common.config import s3a
 from data_engineering.common.spark import session
 from data_engineering.common.state import PipelineState
 from data_engineering.silver.release import configure_silver_release
+from data_engineering.gold.release import configure_release
 
 
 def _silver(spark, dataset: str):
@@ -51,9 +52,13 @@ def _with_unknown(frame, key: str):
 
 
 def run(batch_id: str = "manual") -> dict[str, int]:
-    configure_silver_release(batch_id)
+    silver_prefix = configure_silver_release(batch_id)
+    configure_release(batch_id)
     # Once validated, a release is immutable, including retries after publish.
     state = PipelineState()
+    silver_dq = state.get_json(f"runs/{batch_id}/silver_dq.json")
+    if not silver_dq or silver_dq.get('silver_prefix') != silver_prefix or silver_dq['metrics'].get('failures') != []:
+        raise ValueError('Gold requires the validated Silver snapshot for this batch')
     validated = state.get_json(f"runs/{batch_id}/gold_dq.json")
     built = state.get_json(f"runs/{batch_id}/silver_to_gold.json")
     if os.getenv("GOLD_VERSION_PREFIX") and validated and built and validated.get("gold_prefix") == os.getenv("GOLD_VERSION_PREFIX") and built.get("gold_prefix") == os.getenv("GOLD_VERSION_PREFIX") and validated["metrics"].get("failures") == []:

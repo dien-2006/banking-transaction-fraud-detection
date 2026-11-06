@@ -1,4 +1,5 @@
 "use client";
+import { RecordStatus } from "@/components/record-status";
 import { TransactionRecordResult } from "@/components/transaction-result";
 import {
   ArrowDownLeft,
@@ -14,10 +15,7 @@ import {
 import Link from "next/link";
 import { useState, type ReactNode, type Ref } from "react";
 import { Modal } from "@/components/ui";
-import {
-  customerStatuses,
-  transactionView,
-} from "@/lib/customer-data";
+import { transactionView } from "@/lib/customer-data";
 import type { ApiAccount, ApiTransaction } from "@/services/bank.service";
 import "./customer-ui.css";
 
@@ -95,18 +93,7 @@ export function CustomerMetric({
   );
 }
 export function CustomerStatus({ status }: { status: string }) {
-  const tone = ["Active", "Success", "Paid"].includes(status)
-    ? "good"
-    : ["Failed", "Cancelled", "Blocked", "Expired", "Overdue"].includes(status)
-      ? "bad"
-      : ["Pending", "Partial", "Frozen"].includes(status)
-        ? "waiting"
-        : "neutral";
-  return (
-    <span className={`customer-state ${tone}`}>
-      {customerStatuses[status] ?? (status || "Chưa cập nhật")}
-    </span>
-  );
+  return <RecordStatus status={status} />;
 }
 export function CustomerEmpty({
   children = "Chưa có dữ liệu.",

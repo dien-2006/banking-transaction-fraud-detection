@@ -26,6 +26,14 @@ export class CachedFraudModel {
   private model?: FraudArtifact;
   private mtime?: number;
   constructor(private readonly config: ConfigService) {}
+  private databaseName(version: string): string {
+    const mapping = JSON.parse(this.config.get<string>('MODEL_DB_MAPPING') || '{}') as Record<string, string>;
+    const name = mapping[version]
+      ?? (version === 'v1' ? this.config.get<string>('MODEL_DB_NAME', 'fraud_detection_v1') : undefined);
+    if (typeof name !== 'string' || !name.trim())
+      throw new ServiceUnavailableException('Fraud model version has no database mapping');
+    return name;
+  }
   snapshot(): { artifact: FraudArtifact; databaseName: string } {
     const path = this.config.get<string>('MODEL_CACHE_PATH')
       ?? resolve(process.cwd(), '../ml/artifacts/fraud_detection/v1/model.json');
@@ -33,6 +41,7 @@ export class CachedFraudModel {
       const mtime = statSync(path).mtimeMs;
       if (!this.model || mtime !== this.mtime) {
         const candidate = validateArtifact(JSON.parse(readFileSync(path, 'utf8')));
+        this.databaseName(candidate.version);
         this.model = candidate;
         this.mtime = mtime;
       }
@@ -46,12 +55,9 @@ export class CachedFraudModel {
       if (!this.model) throw new ServiceUnavailableException('No validated fraud model is available');
       Logger.warn('Fraud cache unavailable or invalid; retaining last validated artifact', 'CachedFraudModel');
     }
-    const mapping = JSON.parse(this.config.get<string>('MODEL_DB_MAPPING') || '{}') as Record<string, string>;
     // A promoted version must have an explicit, auditable existing DB identity.
     // Bootstrap v1 uses its documented convention; never tag a new candidate as v1.
-    const databaseName = mapping[this.model.version]
-      ?? (this.model.version === 'v1' ? this.config.get<string>('MODEL_DB_NAME', 'fraud_detection_v1') : undefined);
-    if (!databaseName) throw new ServiceUnavailableException('Fraud model version has no database mapping');
+    const databaseName = this.databaseName(this.model.version);
     return { artifact: this.model, databaseName };
   }
 }

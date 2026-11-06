@@ -5,7 +5,7 @@ USER root
 RUN apt-get update && apt-get install -y --no-install-recommends openjdk-17-jre-headless curl && rm -rf /var/lib/apt/lists/*
 USER airflow
 COPY docker/requirements-spark.txt /tmp/requirements.txt
-RUN pip install --no-cache-dir -r /tmp/requirements.txt pyspark==3.5.5 psycopg[binary]==3.2.13
+RUN pip install --no-cache-dir --timeout 120 --retries 3 -r /tmp/requirements.txt pyspark==3.5.5 psycopg[binary]==3.2.13
 RUN PYSPARK_JARS="$(python -c 'from pathlib import Path; import pyspark; print(Path(pyspark.__file__).parent / "jars")')" && \
     curl --retry 5 --retry-all-errors -fsSL -o "$PYSPARK_JARS/postgresql-42.7.5.jar" \
     https://repo1.maven.org/maven2/org/postgresql/postgresql/42.7.5/postgresql-42.7.5.jar

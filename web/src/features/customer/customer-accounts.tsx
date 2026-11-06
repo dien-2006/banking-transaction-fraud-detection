@@ -1,4 +1,6 @@
 "use client";
+import { AccountDetails } from "@/components/account-details";
+import { DistributionChart } from "@/components/distribution-chart";
 import {
   ArrowRight,
   ArrowUpRight,
@@ -46,7 +48,6 @@ const tabs = [
   "Biến động số dư",
   "Biểu đồ phân tích",
 ] as const;
-const colors = ["#ff1741", "#329ef5", "#ffbf20"];
 const services = {
   open: {
     title: "Mở tài khoản mới",
@@ -102,60 +103,27 @@ export function CustomerAccounts() {
             currency,
           }).format(Number(value));
   const metricAmount = (value: number) => (
-    <>
+    <span className="customer-account-metric-amount">
       {hidden ? "••••••" : number.format(value)} <em>VND</em>
-    </>
+    </span>
   );
-  const graphTotal = summary.groups.reduce(
-    (sum, row) => sum + Math.max(row.balance, 0),
-    0,
-  );
-  let boundary = 0;
-  const gradient = summary.groups
-    .map((group, i) => {
-      const start = boundary;
-      boundary += graphTotal
-        ? (Math.max(group.balance, 0) / graphTotal) * 100
-        : 0;
-      return `${colors[i]} ${start}% ${boundary}%`;
-    })
-    .join(",");
   const distribution = (
-    <div className="customer-accounts-distribution">
-      <div
-        className="customer-accounts-donut"
-        role="img"
-        aria-label={
-          hidden
-            ? "Cơ cấu số dư đã được ẩn"
-            : `Cơ cấu số dư ${amount(summary.total)}`
-        }
-        style={{
-          background:
-            hidden || !graphTotal ? "#edf1f7" : `conic-gradient(${gradient})`,
-        }}
-      >
-        <div>
-          <b>{hidden ? "••••••" : number.format(summary.total)}</b>
-          <small>VND</small>
-        </div>
-      </div>
-      <div className="customer-accounts-legend">
-        {summary.groups.map((group, i) => (
-          <p key={group.type}>
-            <i style={{ background: colors[i] }} />
-            <span>
-              {group.type}
-              <small>
-                {hidden
-                  ? "••••••"
-                  : `${graphTotal ? Math.round((Math.max(group.balance, 0) / graphTotal) * 100) : 0}% (${number.format(group.balance)})`}
-              </small>
-            </span>
-          </p>
-        ))}
-      </div>
-    </div>
+    <DistributionChart
+      items={summary.groups.map((group) => ({
+        label: group.type,
+        value: group.balance,
+      }))}
+      label="số dư VND"
+      hidden={hidden}
+      ready={query.isSuccess}
+      error={query.isError}
+      centerValue={new Intl.NumberFormat("vi-VN", {
+        notation: "compact",
+        maximumFractionDigits: 1,
+      }).format(summary.total)}
+      formatValue={(value) => formatVnd(value)}
+      emptyText="Chưa có số dư tài khoản VND đang hoạt động."
+    />
   );
   return (
     <div className="customer-screen customer-accounts-screen">
@@ -315,7 +283,11 @@ export function CustomerAccounts() {
                                   <button
                                     className="customer-account-view"
                                     onClick={() => setSelected(item)}
-                                    aria-label={hidden ? "Chi tiết tài khoản" : `Chi tiết tài khoản ${item.accountnumber}`}
+                                    aria-label={
+                                      hidden
+                                        ? "Chi tiết tài khoản"
+                                        : `Chi tiết tài khoản ${item.accountnumber}`
+                                    }
                                   >
                                     <span className="customer-account-view-full">
                                       Xem chi tiết
@@ -556,35 +528,7 @@ export function CustomerAccounts() {
         title="Chi tiết tài khoản"
         description="Thông tin tài khoản của bạn tại D4 Bank."
       >
-        {selected && (
-          <dl className="customer-record">
-            {[
-              ["Số tài khoản", hidden ? "••••••" : selected.accountnumber],
-              ["Loại tài khoản", selected.accounttypename],
-              ["Chi nhánh", selected.branchname],
-              ["Số dư", amount(selected.balance, selected.currency)],
-              [
-                "Số dư khả dụng",
-                amount(selected.availablebalance, selected.currency),
-              ],
-              [
-                "Số dư tối thiểu",
-                amount(selected.minbalance, selected.currency),
-              ],
-            ].map(([label, value]) => (
-              <div key={label}>
-                <dt>{label}</dt>
-                <dd>{value}</dd>
-              </div>
-            ))}
-            <div>
-              <dt>Trạng thái</dt>
-              <dd>
-                <CustomerStatus status={selected.status} />
-              </dd>
-            </div>
-          </dl>
-        )}
+        {selected && <AccountDetails account={selected} hidden={hidden} />}
       </Modal>
       <Modal
         open={!!service}

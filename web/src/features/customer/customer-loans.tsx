@@ -1,4 +1,5 @@
 "use client";
+import { loanStatusLabels } from "@/lib/record-status";
 import {
   ArrowRight,
   CalendarDays,
@@ -203,14 +204,8 @@ export function CustomerLoans() {
                     setPage(1);
                   }}
                 >
-                  {[
-                    ["", "Tất cả trạng thái"],
-                    ["Active", "Đang trả nợ"],
-                    ["Overdue", "Quá hạn"],
-                    ["Pending", "Chờ phê duyệt"],
-                    ["Paid", "Đã tất toán"],
-                    ["Cancelled", "Đã hủy"],
-                  ].map(([value, label]) => (
+                  <option value="">Tất cả trạng thái</option>
+                  {Object.entries(loanStatusLabels).map(([value, label]) => (
                     <option key={value} value={value}>
                       {label}
                     </option>

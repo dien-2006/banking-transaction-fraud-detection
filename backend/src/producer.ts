@@ -21,9 +21,11 @@ export async function publishBatch(database: Pick<Pool, 'connect'> = pool, trans
   const client = await database.connect();
   try {
     await client.query('BEGIN');
+    const timezone = process.env.SOURCE_TIMEZONE ?? 'Asia/Ho_Chi_Minh';
+    await client.query("SELECT set_config('TimeZone',$1,true)", [timezone]);
     const result = await client.query(
-      'SELECT * FROM banking_api.claim_ready_outbox($1,$2::bigint[])',
-      [Number(process.env.OUTBOX_BATCH_SIZE ?? 100), retry.excluded()],
+      'SELECT e.*, e.createdat AT TIME ZONE $3 AS event_occurred_at FROM banking_api.claim_ready_outbox($1,$2::bigint[]) e',
+      [Number(process.env.OUTBOX_BATCH_SIZE ?? 100), retry.excluded(), timezone],
     );
     let published = 0;
     for (const event of result.rows) {
@@ -34,7 +36,7 @@ export async function publishBatch(database: Pick<Pool, 'connect'> = pool, trans
             event_id: event.eventkey,
             event_type: event.eventtype,
             event_version: '1.0',
-            occurred_at: event.createdat,
+            occurred_at: event.event_occurred_at,
             aggregate_type: event.aggregatetype,
             aggregate_id: event.aggregateid,
             payload: event.payloadjson,

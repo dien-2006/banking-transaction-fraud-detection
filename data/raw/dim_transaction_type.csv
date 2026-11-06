@@ -1,0 +1,3 @@
+transaction_type_key,transaction_type_id,type_code,type_name,description,status
+1,1,TRANSFER,Chuyen khoan,Chuyen tien noi bo,Active
+2,2,LOAN_PAYMENT,Tra no,Thanh toan khoan vay,Active

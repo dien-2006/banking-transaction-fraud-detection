@@ -20,7 +20,8 @@ def validate_artifact(payload: dict) -> None:
     if not isinstance(weights, dict) or set(weights) != set(FEATURES):
         raise ValueError("model feature contract mismatch")
     try:
-        finite = all(not isinstance(v, bool) and math.isfinite(float(v)) for v in [payload.get("intercept"), *weights.values()])
+        finite = all(not isinstance(v, bool) and isinstance(v, (int, float)) and math.isfinite(v)
+                     for v in [payload.get("intercept"), *weights.values()])
     except (ValueError, TypeError):
         finite = False
     if not finite:

@@ -18,7 +18,7 @@ import {
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { Modal } from "@/components/ui";
@@ -117,9 +117,6 @@ function MicrosoftMark() {
 
 export function AuthForm() {
   const router = useRouter();
-  const panelRef = useRef<HTMLElement>(null);
-  const cardRef = useRef<HTMLDivElement>(null);
-  const fitRef = useRef<HTMLDivElement>(null);
   const errorRef = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
   const [error, setError] = useState("");
@@ -141,26 +138,6 @@ export function AuthForm() {
   useEffect(() => {
     if (error) errorRef.current?.focus({ preventScroll: true });
   }, [error]);
-
-  useLayoutEffect(() => {
-    const panel = panelRef.current;
-    const card = cardRef.current;
-    const fit = fitRef.current;
-    if (!panel || !card || !fit) return;
-    const resize = () => {
-      const style = getComputedStyle(panel);
-      const available = panel.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
-      const height = card.offsetHeight;
-      const scale = Math.min(1, Math.max(0, available - 2) / Math.max(1, height));
-      fit.style.height = `${height * scale}px`;
-      card.style.transform = `scale(${scale})`;
-    };
-    const observer = new ResizeObserver(resize);
-    observer.observe(panel);
-    observer.observe(card);
-    resize();
-    return () => observer.disconnect();
-  }, []);
 
   const submit = async (values: Values) => {
     try {
@@ -215,6 +192,7 @@ export function AuthForm() {
           alt=""
           fill
           priority
+          unoptimized
           sizes="(min-width: 1024px) 55vw, 100vw"
         />
         <LoginBrand />
@@ -246,7 +224,7 @@ export function AuthForm() {
           </div>
         </div>
       </section>
-      <section ref={panelRef} className="login-form-side" aria-label="Đăng nhập D4 Bank">
+      <section className="login-form-side" aria-label="Đăng nhập D4 Bank">
         <label className="login-language">
           <span className="login-flag" aria-hidden="true">
             ★
@@ -256,8 +234,8 @@ export function AuthForm() {
           </select>
           <ChevronDown aria-hidden="true" />
         </label>
-        <div ref={fitRef} className="login-card-fit">
-        <div ref={cardRef} className="login-card">
+        <div className="login-card-fit">
+        <div className="login-card">
           <div className="login-mobile-brand">
             <LoginBrand />
           </div>

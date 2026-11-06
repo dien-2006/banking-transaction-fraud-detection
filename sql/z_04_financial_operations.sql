@@ -20,6 +20,63 @@ BEGIN
 END;
 $$;
 
+-- Online features match Notebook 02: local business clock, preceding events only,
+-- minutes since last transaction, and failed/(failed+success+1).
+CREATE OR REPLACE FUNCTION banking_api.joblib_features(p_customer bigint, p_source bigint, p_amount numeric, p_channel text, p_type text, p_at timestamp)
+RETURNS jsonb LANGUAGE sql STABLE SET search_path=banking,pg_temp AS $$
+WITH history AS (
+    SELECT count(*) FILTER(WHERE transactiondate>=p_at-interval '1 hour') AS n1h,
+           count(*) FILTER(WHERE transactiondate>=p_at-interval '24 hours') AS n24h,
+           count(*) FILTER(WHERE transactiondate>=p_at-interval '7 days') AS n7d,
+           count(*) FILTER(WHERE transactiondate>=p_at-interval '30 days') AS n30d,
+           avg(amount) FILTER(WHERE transactiondate>=p_at-interval '30 days') AS avg30,
+           max(amount) FILTER(WHERE transactiondate>=p_at-interval '30 days') AS max30,
+           max(transactiondate) AS last_at
+    FROM bank_transaction WHERE initiatedbycustomerid=p_customer AND transactiondate<p_at
+), logins AS (
+    SELECT count(*) FILTER(WHERE status='Failed') AS failed24,
+           count(*) FILTER(WHERE status='Failed' AND logintime>=p_at-interval '1 hour') AS failed1,
+           count(*) FILTER(WHERE status='Success') AS success24
+    FROM login_event WHERE customerid=p_customer AND logintime>=p_at-interval '24 hours' AND logintime<p_at
+)
+SELECT jsonb_build_object(
+    'amount',p_amount,'channel',p_channel,'type_code',p_type,
+    'hour',extract(hour FROM p_at)::int,'day_of_week',extract(dow FROM p_at)::int+1,
+    'is_night_transaction',CASE WHEN extract(hour FROM p_at)>=22 OR extract(hour FROM p_at)<6 THEN 1 ELSE 0 END,
+    'account_age_days',p_at::date-a.opendate,
+    'txn_count_1h',h.n1h,'txn_count_24h',h.n24h,'txn_count_7d',h.n7d,'txn_count_30d',h.n30d,
+    'avg_amount_30d',h.avg30,'max_amount_30d',h.max30,'amount_to_avg_ratio',p_amount/NULLIF(h.avg30,0),
+    'failed_login_count_24h',l.failed24,'successful_login_count_24h',l.success24,'failed_login_count_1h',l.failed1,
+    'time_since_last_transaction',extract(epoch FROM p_at-h.last_at)/60.0,
+    'login_failure_ratio_24h',l.failed24::numeric/(l.failed24+l.success24+1)
+) FROM history h CROSS JOIN logins l CROSS JOIN bank_account a WHERE a.accountid=p_source;
+$$;
+
+CREATE OR REPLACE FUNCTION banking_api.risk_transaction_time()
+RETURNS timestamp LANGUAGE sql VOLATILE AS $$
+SELECT CASE WHEN NULLIF(current_setting('app.fraud_model',true),'')::jsonb->>'engine'='joblib'
+    THEN (NULLIF(current_setting('app.fraud_model',true),'')::jsonb->'request'->>'assessedAt')::timestamp
+    ELSE clock_timestamp()::timestamp END;
+$$;
+
+CREATE OR REPLACE FUNCTION banking_api.loan_remaining(p_loan bigint,p_schedule bigint)
+RETURNS jsonb LANGUAGE plpgsql STABLE SET search_path=banking,pg_temp AS $$
+DECLARE r record;
+BEGIN
+    SELECT s.principaldue-COALESCE(sum(p.principalpaid),0) AS principal,
+           s.interestdue-COALESCE(sum(p.interestpaid),0) AS interest,
+           s.penaltydue-COALESCE(sum(p.penaltyfee),0) AS penalty
+    INTO r FROM repayment_schedule s LEFT JOIN loan_payment p ON p.loanid=s.loanid AND p.scheduleid=s.scheduleid
+    WHERE s.loanid=p_loan AND s.scheduleid=p_schedule GROUP BY s.scheduleid;
+    IF NOT FOUND THEN PERFORM banking_api.raise_error('NOT_FOUND','loan schedule not found'); END IF;
+    IF r.principal<0 OR r.interest<0 OR r.penalty<0 THEN
+        PERFORM banking_api.raise_error('INTEGRITY','schedule has overpaid components; reconciliation required');
+    END IF;
+    RETURN jsonb_build_object('principal',r.principal,'interest',r.interest,'penalty',r.penalty,
+                             'total',r.principal+r.interest+r.penalty);
+END;
+$$;
+
 -- Risk feature calculation and ALLOW / REVIEW / BLOCK decision.
 CREATE OR REPLACE FUNCTION banking_api.calculate_risk (p_customer_id bigint, p_device_id bigint, p_amount numeric(19, 2), p_at timestamp DEFAULT clock_timestamp())
     RETURNS jsonb
@@ -113,6 +170,14 @@ BEGIN
     END IF;
     v_score := LEAST (100, v_score);
     v_model := NULLIF(current_setting('app.fraud_model', true), '')::jsonb;
+    IF v_model->>'engine'='joblib' THEN
+        IF (v_model->'request'->>'customerId')::bigint IS DISTINCT FROM p_customer_id
+           OR (v_model->'request'->>'amount')::numeric IS DISTINCT FROM p_amount
+           OR (v_model->'request'->>'assessedAt')::timestamp IS DISTINCT FROM p_at THEN
+            PERFORM banking_api.raise_error('CONFIGURATION','joblib prediction does not match transaction');
+        END IF;
+        v_probability := (v_model->>'probability')::numeric;
+    ELSE
     v_weights := v_model -> 'weights';
     IF v_model IS NULL OR v_weights IS NULL THEN
         PERFORM banking_api.raise_error('CONFIGURATION', 'validated model context is required');
@@ -128,6 +193,7 @@ BEGIN
         PERFORM banking_api.raise_error('CONFIGURATION', 'invalid model coefficients');
     END IF;
     v_probability := round((1 / (1 + exp(- GREATEST (-40.0, LEAST (40.0, v_logit)))))::numeric, 6);
+    END IF;
     v_level := CASE WHEN v_score >= 80 THEN
         'CRITICAL'
     WHEN v_score >= 60 THEN
@@ -182,6 +248,13 @@ DECLARE
     v_at timestamp;
 BEGIN
     SELECT transactiondate INTO STRICT v_at FROM bank_transaction WHERE transactionid=p_transaction_id;
+    v_artifact := NULLIF(current_setting('app.fraud_model',true),'')::jsonb;
+    IF v_artifact->>'engine'='joblib' AND NOT EXISTS (
+        SELECT 1 FROM bank_transaction t JOIN transfer_request tr USING(transactionid)
+        JOIN transaction_type tt USING(transactiontypeid) WHERE t.transactionid=p_transaction_id
+        AND tr.sourceaccountid=(v_artifact->'request'->>'sourceAccountId')::bigint
+        AND t.channel=v_artifact->'request'->>'channel' AND tt.typecode=v_artifact->'request'->>'typeCode'
+    ) THEN PERFORM banking_api.raise_error('CONFIGURATION','joblib prediction context mismatch'); END IF;
     v := banking_api.calculate_risk (p_customer_id, p_device_id, p_amount, v_at);
     v_artifact := NULLIF(current_setting('app.fraud_model',true),'')::jsonb;
     SELECT
@@ -192,6 +265,7 @@ BEGIN
         model_version
     WHERE
         status = 'ACTIVE' AND modelversionid=(v_artifact->>'modelVersionId')::bigint
+        AND (COALESCE(v_artifact->>'engine','')<>'joblib' OR modelname=v_artifact->>'databaseName')
     ORDER BY
         createdat DESC,
         modelversionid DESC
@@ -201,7 +275,7 @@ BEGIN
             banking_api.raise_error ('CONFIGURATION', 'no ACTIVE model');
     END IF;
     INSERT INTO risk_assessment (transactionid, modelversionid, rulescore, risklevel, modelprobability, decision, reasonjson)
-        VALUES (p_transaction_id, v_model, (v ->> 'ruleScore')::smallint, v ->> 'riskLevel', (v ->> 'modelProbability')::numeric, v ->> 'decision', jsonb_build_object('triggered_rules', v -> 'triggeredRules', 'features', v -> 'features', 'model_artifact_version', v_artifact->>'version'));
+        VALUES (p_transaction_id, v_model, (v ->> 'ruleScore')::smallint, v ->> 'riskLevel', (v ->> 'modelProbability')::numeric, v ->> 'decision', jsonb_build_object('triggered_rules', v -> 'triggeredRules', 'features', v -> 'features', 'model_artifact_version', v_artifact->>'version', 'model_sha256', v_artifact->>'sha256', 'metadata_sha256', v_artifact->>'metadataSha256', 'model_features', v_artifact->'modelFeatures'));
     RETURN v;
 END;
 $$;
@@ -292,6 +366,19 @@ BEGIN
     IF vd.status <> 'Active' OR vc.status <> 'Active' THEN
         PERFORM
             banking_api.raise_error ('ACCOUNT_INACTIVE', 'account is not active');
+    END IF;
+    IF v_type<>'REVERSAL' THEN
+        PERFORM c.customerid FROM customer c WHERE c.customerid=vt.initiatedbycustomerid OR c.customerid IN (
+            SELECT h.customerid FROM account_holder h WHERE h.accountid=p_credit AND h.status='Active' AND h.holdertype='PRIMARY_OWNER'
+        ) ORDER BY c.customerid FOR SHARE;
+        IF NOT EXISTS (SELECT 1 FROM customer WHERE customerid=vt.initiatedbycustomerid AND status='Active') THEN
+            PERFORM banking_api.raise_error('FORBIDDEN','initiating customer is not active');
+        END IF;
+        IF v_type='TRANSFER' AND NOT EXISTS (
+            SELECT 1 FROM account_holder h JOIN customer c USING(customerid)
+            WHERE h.accountid=p_credit AND h.holdertype='PRIMARY_OWNER' AND h.status='Active'
+            AND c.status='Active' AND h.startdate<=CURRENT_DATE AND (h.enddate IS NULL OR h.enddate>=CURRENT_DATE)
+        ) THEN PERFORM banking_api.raise_error('FORBIDDEN','recipient is not active'); END IF;
     END IF;
     IF p_check_owner AND NOT EXISTS (
         SELECT
@@ -453,13 +540,14 @@ END IF;
         AND status = 'Active';
     v_code := 'TX-' || upper(encode(public.gen_random_bytes(12), 'hex'));
 INSERT INTO bank_transaction (transactioncode, transactiontypeid, deviceid, channel, amount, fee, currency, transactiondate, ipaddress, description, status, initiatedbycustomerid)
-    VALUES (v_code, v_type, p_device, p_channel, p_amount, 0, 'VND', clock_timestamp(), p_ip, p_description, 'Pending', p_customer)
+    VALUES (v_code, v_type, p_device, p_channel, p_amount, 0, 'VND', banking_api.risk_transaction_time(), p_ip, p_description, 'Pending', p_customer)
 RETURNING
     transactionid
 INTO
     v_id;
 INSERT INTO transfer_request (transactionid, customerid, sourceaccountid, destinationaccountid, idempotencykey, amount, currency, status)
     VALUES (v_id, p_customer, p_source, p_destination, p_idempotency, p_amount, 'VND', 'Pending');
+    PERFORM pg_advisory_xact_lock(hashtextextended('risk-customer:'||COALESCE(p_customer::text,''),0));
     v_risk := banking_api.assess_transaction (v_id, p_customer, p_device, p_amount);
     IF v_risk ->> 'decision' = 'BLOCK' THEN
         UPDATE
@@ -602,8 +690,8 @@ BEGIN
     WHERE
         typecode = p_type_code
         AND status = 'Active';
-    INSERT INTO bank_transaction (transactioncode, transactiontypeid, employeeid, channel, amount, fee, currency, description, status, initiatedbycustomerid)
-        VALUES (p_transaction_code, v_type, p_employee, p_channel, p_amount, 0, 'VND', p_description, 'Pending', v_customer)
+    INSERT INTO bank_transaction (transactioncode, transactiontypeid, employeeid, channel, amount, fee, currency, transactiondate, description, status, initiatedbycustomerid)
+        VALUES (p_transaction_code, v_type, p_employee, p_channel, p_amount, 0, 'VND', banking_api.risk_transaction_time(), p_description, 'Pending', v_customer)
     RETURNING
         transactionid
     INTO
@@ -657,6 +745,9 @@ CREATE OR REPLACE FUNCTION banking_api.finalize_loan_payment (
     AS $$
 DECLARE
     v_schedule repayment_schedule%ROWTYPE;
+    v_remaining jsonb;
+    v_amount numeric;
+    v_employee integer;
 BEGIN
     SELECT *
     INTO v_schedule
@@ -672,6 +763,14 @@ BEGIN
         PERFORM banking_api.raise_error('CONFLICT', 'schedule already paid');
     END IF;
 
+    IF NOT EXISTS (SELECT 1 FROM loan WHERE loanid=p_loan AND status IN ('Active','Overdue')) THEN
+        PERFORM banking_api.raise_error('CONFLICT','loan is not payable');
+    END IF;
+    v_remaining := banking_api.loan_remaining(p_loan,p_schedule);
+    SELECT amount,employeeid INTO STRICT v_amount,v_employee FROM bank_transaction WHERE transactionid=p_transaction AND status='Success';
+    IF v_amount<>(v_remaining->>'total')::numeric THEN
+        PERFORM banking_api.raise_error('CONFLICT','loan balance changed before approval');
+    END IF;
     INSERT INTO loan_payment (
         loanid,
         scheduleid,
@@ -680,16 +779,18 @@ BEGIN
         interestpaid,
         penaltyfee,
         paymentchannel,
+        employeeid,
         transactionid
     )
     VALUES (
         p_loan,
         p_schedule,
-        v_schedule.principaldue + v_schedule.interestdue + v_schedule.penaltydue,
-        v_schedule.principaldue,
-        v_schedule.interestdue,
-        v_schedule.penaltydue,
+        (v_remaining->>'total')::numeric,
+        (v_remaining->>'principal')::numeric,
+        (v_remaining->>'interest')::numeric,
+        (v_remaining->>'penalty')::numeric,
         p_channel,
+        CASE WHEN p_channel='Counter' THEN v_employee ELSE NULL END,
         p_transaction
     );
 
@@ -843,6 +944,13 @@ BEGIN
             JOIN transaction_type tt USING (transactiontypeid)
         WHERE
             bt.transactionid = vc.transactionid;
+        IF v_type='LOAN_PAYMENT' THEN
+            PERFORM 1 FROM repayment_schedule
+            WHERE loanid=split_part(v_description,'|',2)::bigint AND scheduleid=split_part(v_description,'|',3)::bigint FOR UPDATE;
+            IF (banking_api.loan_remaining(split_part(v_description,'|',2)::bigint,split_part(v_description,'|',3)::bigint)->>'total')::numeric<>vr.amount THEN
+                PERFORM banking_api.raise_error('CONFLICT','loan balance changed before approval');
+            END IF;
+        END IF;
         v_owner := v_type IN ('TRANSFER', 'WITHDRAWAL', 'LOAN_PAYMENT');
         v_result := banking_api.post_balanced_transaction(
             vc.transactionid,
@@ -919,7 +1027,7 @@ BEGIN
         PERFORM
             banking_api.raise_error ('NOT_FOUND', 'loan schedule not found');
     END IF;
-    IF vs.loanstatus <> 'Active' OR vs.status = 'Paid' THEN
+    IF vs.loanstatus NOT IN ('Active','Overdue') OR vs.status = 'Paid' THEN
         PERFORM
             banking_api.raise_error ('CONFLICT', 'loan or schedule is not payable');
     END IF;
@@ -940,7 +1048,7 @@ BEGIN
     ) THEN
         PERFORM banking_api.raise_error('VALIDATION', 'invalid loan payment account direction');
     END IF;
-    IF p_amount <> vs.principaldue + vs.interestdue + vs.penaltydue THEN
+    IF p_amount <> (banking_api.loan_remaining(p_loan,p_schedule)->>'total')::numeric THEN
         PERFORM
             banking_api.raise_error ('VALIDATION', 'payment does not reconcile');
     END IF;
@@ -960,6 +1068,7 @@ BEGIN
         amount,
         fee,
         currency,
+        transactiondate,
         description,
         status,
         initiatedbycustomerid
@@ -971,6 +1080,7 @@ BEGIN
         p_amount,
         0,
         'VND',
+        banking_api.risk_transaction_time(),
         concat('LOAN_PAYMENT|', p_loan, '|', p_schedule, '|', p_channel),
         'Pending',
         p_customer

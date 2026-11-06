@@ -33,7 +33,7 @@ jobs:
           node-version: '22'
       - name: Reject tracked local credentials
         run: test -z "$(git ls-files -- .env)"
-      - run: pip install -r requirements.txt
+      - run: pip install -r requirements.txt -r docker/requirements-inference.txt
       - name: Initialize isolated contract database
         run: BANKING_SQL_DIR="$PWD/sql" bash docker/postgres-init.sh
       - run: python -m pytest -q
@@ -43,6 +43,9 @@ jobs:
           psql -U postgres -d d4_ci -v ON_ERROR_STOP=1 -f tests/sql/transaction_flow_rollback.sql
       - name: Backend
         working-directory: backend
+        env:
+          RUN_JOBLIB_INTEGRATION: '1'
+          PYTHON_EXECUTABLE: python3
         run: npm ci && npm run test:web && npm run typecheck
       - name: Web
         working-directory: web

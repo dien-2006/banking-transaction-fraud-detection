@@ -1,10 +1,19 @@
 name: bank-fraud-detection
 
+x-workspace-mounts: &workspace-mounts
+  - ./data_engineering:/workspace/data_engineering:ro
+  - ./streaming:/workspace/streaming:ro
+  - ./scripts:/workspace/scripts:ro
+  - ./ml:/workspace/ml:ro
+  - ./config:/workspace/config:ro
+  - ./sql:/workspace/sql:ro
+  - ./models:/workspace/models:ro
+
 x-airflow-common: &airflow-common
   build: {context: ., dockerfile: docker/Dockerfile.airflow}
   image: bank-fraud-airflow:2.10.5-spark3.5.5
   restart: unless-stopped
-  env_file: [.env]
+  env_file: ["${ETL_ENV_FILE:-.env}"]
   environment: &pipeline-environment
     TZ: ${TZ:-Asia/Ho_Chi_Minh}
     POSTGRES_HOST: postgres-bank
@@ -34,7 +43,12 @@ x-airflow-common: &airflow-common
   volumes:
     - ./airflow/dags:/opt/airflow/dags:ro
     - airflow_logs:/opt/airflow/logs
-    - ./:/workspace:ro
+    - ./data_engineering:/workspace/data_engineering:ro
+    - ./streaming:/workspace/streaming:ro
+    - ./scripts:/workspace/scripts:ro
+    - ./ml:/workspace/ml:ro
+    - ./config:/workspace/config:ro
+    - ./sql:/workspace/sql:ro
   networks: [bank-network]
   depends_on:
     postgres-airflow: {condition: service_healthy}
@@ -72,6 +86,7 @@ services:
     ports: ["${KAFKA1_PORT:-9092}:9092"]
     environment: &kafka-env
       KAFKA_NODE_ID: 1
+      KAFKA_HEAP_OPTS: ${KAFKA_HEAP_OPTS:--Xms128m -Xmx256m}
       KAFKA_PROCESS_ROLES: broker,controller
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka1:29093,2@kafka2:29093,3@kafka3:29093
       KAFKA_LISTENERS: INTERNAL://kafka1:29092,EXTERNAL://kafka1:9092,CONTROLLER://kafka1:29093
@@ -174,6 +189,11 @@ services:
     networks: [bank-network]
 
   spark-master:
+    env_file: ["${ETL_ENV_FILE:-.env}"]
+    environment:
+      MINIO_ENDPOINT: http://minio:9000
+      POSTGRES_HOST: postgres-bank
+      POSTGRES_INTERNAL_PORT: 5432
     build: {context: ., dockerfile: docker/Dockerfile.spark}
     image: bank-fraud-spark:3.5.5
     container_name: bank-spark-master
@@ -181,7 +201,7 @@ services:
     entrypoint: [/opt/spark/bin/spark-class]
     command: [org.apache.spark.deploy.master.Master, --host, spark-master, --port, "7077", --webui-port, "8080"]
     ports: ["${SPARK_MASTER_UI_PORT:-8082}:8080"]
-    volumes: [./:/workspace:ro]
+    volumes: *workspace-mounts
     healthcheck:
       test: [CMD, python3, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8080/json/', timeout=3).read()"]
       interval: 10s
@@ -190,6 +210,11 @@ services:
     networks: [bank-network]
 
   spark-worker:
+    env_file: ["${ETL_ENV_FILE:-.env}"]
+    environment:
+      MINIO_ENDPOINT: http://minio:9000
+      POSTGRES_HOST: postgres-bank
+      POSTGRES_INTERNAL_PORT: 5432
     build: {context: ., dockerfile: docker/Dockerfile.spark}
     image: bank-fraud-spark:3.5.5
     container_name: bank-spark-worker-1
@@ -198,7 +223,7 @@ services:
     command: [org.apache.spark.deploy.worker.Worker, spark://spark-master:7077, --cores, "2", --memory, 2g, --webui-port, "8081"]
     depends_on:
       spark-master: {condition: service_healthy}
-    volumes: [./:/workspace:ro]
+    volumes: *workspace-mounts
     healthcheck:
       test: [CMD, python3, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8081/json/', timeout=3).read()"]
       interval: 10s
@@ -279,7 +304,7 @@ services:
     image: bank-fraud-backend:node22
     container_name: bank-banking-api
     restart: unless-stopped
-    env_file: [.env]
+    env_file: ["${BANKING_ENV_FILE:-.env}"]
     environment:
       POSTGRES_HOST: postgres-bank
       POSTGRES_INTERNAL_PORT: 5432
@@ -293,10 +318,9 @@ services:
       BREVO_API_KEY: ${BREVO_API_KEY}
       OTP_SENDER_EMAIL: ${OTP_SENDER_EMAIL}
       OTP_SENDER_NAME: ${OTP_SENDER_NAME:-D4 Bank}
-      MODEL_CACHE_PATH: /models/current/model.json
-      MODEL_DB_NAME: ${MODEL_DB_NAME:-fraud_detection_v1}
-      MODEL_DB_MAPPING: ${MODEL_DB_MAPPING:-}
-    volumes: [model_cache:/models:ro]
+      JOBLIB_MODEL_PATH: /app/models/fraud_detection_model.joblib
+      JOBLIB_METADATA_PATH: /app/models/model_metadata.json
+      PYTHON_EXECUTABLE: /opt/inference/bin/python
     ports: ["${BANKING_API_PORT:-8000}:8000"]
     healthcheck:
       test: [CMD-SHELL, "wget -qO- http://127.0.0.1:8000/api/v1/health >/dev/null"]
@@ -332,7 +356,7 @@ services:
       POSTGRES_INTERNAL_PORT: 5432
       POSTGRES_SCHEMA: banking
     command: [python, -m, scripts.bootstrap_demo]
-    volumes: [./:/workspace:ro]
+    volumes: *workspace-mounts
     depends_on:
       postgres-bank: {condition: service_healthy}
     networks: [bank-network]
@@ -342,13 +366,11 @@ services:
     image: bank-fraud-backend:node22
     container_name: bank-outbox-publisher
     restart: unless-stopped
-    env_file: [.env]
+    env_file: ["${OUTBOX_ENV_FILE:-.env}"]
     environment:
       POSTGRES_HOST: postgres-bank
       POSTGRES_INTERNAL_PORT: 5432
       POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       KAFKA_BOOTSTRAP_SERVERS: kafka1:29092,kafka2:29092,kafka3:29092
       KAFKA_TRANSACTION_TOPIC: ${KAFKA_TRANSACTION_TOPIC:-banking.transaction-events.v1}
     profiles: [realtime]
@@ -363,7 +385,7 @@ services:
     image: bank-fraud-backend:node22
     container_name: bank-notification-sender
     restart: unless-stopped
-    env_file: [.env]
+    env_file: ["${NOTIFICATION_ENV_FILE:-.env}"]
     environment:
       POSTGRES_HOST: postgres-bank
       POSTGRES_INTERNAL_PORT: 5432
@@ -381,10 +403,10 @@ services:
     container_name: bank-bronze-consumer
     restart: unless-stopped
     profiles: [realtime]
-    env_file: [.env]
+    env_file: ["${ETL_ENV_FILE:-.env}"]
     environment: {<<: *pipeline-environment}
     command: [python, -m, streaming.consumer.service]
-    volumes: [./:/workspace:ro]
+    volumes: *workspace-mounts
     healthcheck:
       test: [CMD, python, -m, streaming.healthcheck, consumer]
       interval: 15s
@@ -400,7 +422,7 @@ services:
     image: bank-fraud-streaming:3.11
     container_name: bank-model-sync
     restart: unless-stopped
-    env_file: [.env]
+    env_file: ["${ETL_ENV_FILE:-.env}"]
     profiles: [ml]
     environment:
       <<: *pipeline-environment
@@ -408,7 +430,12 @@ services:
       MODEL_SYNC_INTERVAL_SECONDS: 60
     command: [python, -m, ml.sync]
     volumes:
-      - ./:/workspace:ro
+      - ./data_engineering:/workspace/data_engineering:ro
+      - ./streaming:/workspace/streaming:ro
+      - ./scripts:/workspace/scripts:ro
+      - ./ml:/workspace/ml:ro
+      - ./config:/workspace/config:ro
+      - ./sql:/workspace/sql:ro
       - model_cache:/models
     depends_on:
       minio-init: {condition: service_completed_successfully}
@@ -420,10 +447,13 @@ services:
     restart: unless-stopped
     environment:
       SERVICE_NAME: metastore
+      SERVICE_OPTS: -Xmx512m
       HADOOP_OPTIONAL_TOOLS: hadoop-aws
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
       AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
     volumes:
+      - hive_metastore_data:/opt/hive/metastore_db
+      # Keep existing managed warehouse locations valid when upgrading old volumes.
       - hive_metastore_data:/opt/hive/data
       - ./docker/hive/conf/core-site.xml:/opt/hive/conf/core-site.xml:ro
     healthcheck:
@@ -442,7 +472,7 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     volumes:
       - ./docker/trino/etc:/etc/trino:ro
-    ports: ["${TRINO_PORT:-8084}:8080"]
+    ports: ["127.0.0.1:${TRINO_PORT:-8084}:8080"]
     healthcheck:
       test: [CMD, /usr/lib/trino/bin/health-check]
       interval: 10s
@@ -461,7 +491,7 @@ services:
       TRINO_URL: http://trino:8080
       GOLD_BUCKET: ${MINIO_BUCKET_GOLD:-gold}
     command: [python, -m, scripts.register_trino]
-    volumes: [./:/workspace:ro]
+    volumes: *workspace-mounts
     depends_on:
       trino: {condition: service_healthy}
     networks: [bank-network]

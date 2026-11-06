@@ -1,4 +1,5 @@
 "use client";
+import { DistributionChart } from "@/components/distribution-chart";
 
 import {
   AlertTriangle,
@@ -117,14 +118,6 @@ export function FraudPage({ role = "admin" }: { role?: "admin" | "employee" }) {
     label,
     count: alerts.filter((x) => x.risk === label).length,
   }));
-  let boundary = 0;
-  const gradient = riskCounts
-    .map((item, index) => {
-      const start = boundary;
-      boundary += (item.count / Math.max(alerts.length, 1)) * 100;
-      return `${riskColors[index]} ${start}% ${boundary}%`;
-    })
-    .join(", ");
   const types = Array.from(new Set(alerts.map((x) => x.type))).sort();
   const typeCounts = types.map((label) => ({
     label,
@@ -404,45 +397,16 @@ export function FraudPage({ role = "admin" }: { role?: "admin" | "employee" }) {
               <h2 className="text-base font-black">
                 Review theo mức độ rủi ro
               </h2>
-              <div className="flex items-center gap-3 pt-2">
-                <div
-                  className="grid size-20 shrink-0 place-items-center rounded-full"
-                  style={{
-                    background: alerts.length
-                      ? `conic-gradient(${gradient})`
-                      : "#edf0f5",
-                  }}
-                >
-                  <div className="grid size-12 place-items-center rounded-full bg-white text-center">
-                    <b className="text-base">
-                      {reviewsQuery.data ? alerts.length : "—"}
-                    </b>
-                    <span className="text-[9px]">review</span>
-                  </div>
-                </div>
-                <div className="min-w-0 space-y-1 text-[10px]">
-                  {riskCounts.map(
-                    (item, index) =>
-                      item.count > 0 && (
-                        <p
-                          className="flex min-w-0 items-center gap-2"
-                          key={item.label}
-                        >
-                          <i
-                            className="size-2 shrink-0 rounded-full"
-                            style={{ background: riskColors[index] }}
-                          />
-                          <span className="truncate" title={item.label}>
-                            {item.label}
-                          </span>
-                          <b className="whitespace-nowrap">
-                            {percent(item.count)}% ({item.count})
-                          </b>
-                        </p>
-                      ),
-                  )}
-                </div>
-              </div>
+              <DistributionChart
+                items={riskCounts.map((item, index) => ({
+                  label: item.label,
+                  value: item.count,
+                  color: riskColors[index],
+                }))}
+                label="review"
+                ready={reviewsQuery.isSuccess}
+                error={reviewsQuery.isError}
+              />
             </article>
             <article className="card p-3">
               <h2 className="text-base font-black">

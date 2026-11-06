@@ -1,4 +1,6 @@
 "use client";
+import { RecordStatus } from "@/components/record-status";
+import { DistributionChart } from "@/components/distribution-chart";
 
 import {
   BadgePlus,
@@ -23,14 +25,15 @@ import { loadCards, type BankCard, type CardStatus } from "@/lib/card-data";
 import { ResourceCreateDialog } from "@/features/live/resource-create-dialog";
 
 const typeTone: Record<BankCard["type"], string> = {
-  Debit: "bg-rose-50 text-red-500",
-  Credit: "bg-blue-50 text-blue-600",
+  "Thẻ ghi nợ": "bg-rose-50 text-red-500",
+  "Thẻ tín dụng": "bg-blue-50 text-blue-600",
+  "Thẻ ảo": "bg-violet-100 text-violet-600",
   Gold: "bg-amber-50 text-amber-600",
   Platinum: "bg-violet-100 text-violet-600",
 };
 const statusTone: Record<CardStatus, string> = {
   "Đang hoạt động": "bg-emerald-50 text-emerald-600",
-  "Tạm khóa": "bg-amber-50 text-orange-500",
+  "Đã khóa": "bg-amber-50 text-orange-500",
   "Đã đóng": "bg-rose-50 text-red-500",
   "Hết hạn": "bg-red-50 text-red-500",
 };
@@ -97,7 +100,6 @@ export function CardsPage() {
     [Ban, "Thẻ bị khóa", String(countStatus("Tạm khóa"))],
   ];
   const types = Array.from(new Set(bankCards.map((card) => card.type))).sort();
-  const palette = ["#f5223e", "#ff8f9d", "#ffb42c", "#2764df"];
   const typeCounts = types.map((label) => ({
     label,
     count: bankCards.filter((card) => card.type === label).length,
@@ -116,14 +118,6 @@ export function CardsPage() {
       : typeCounts;
   const percent = (count: number) =>
     bankCards.length ? Math.round((count / bankCards.length) * 100) : 0;
-  let boundary = 0;
-  const gradient = composition
-    .map((item, index) => {
-      const start = boundary;
-      boundary += (item.count / Math.max(bankCards.length, 1)) * 100;
-      return `${palette[index]} ${start}% ${boundary}%`;
-    })
-    .join(", ");
   const latestCards = [...bankCards]
     .sort(
       (a, b) =>
@@ -326,16 +320,21 @@ export function CardsPage() {
                       <td className="p-1.5">{card.expiry}</td>
                       <td className="p-1.5">{card.limit}</td>
                       <td className="p-1.5">
-                        <span
-                          className={`inline-block rounded px-1 text-center ${statusTone[card.status] ?? "bg-slate-100 text-slate-600"}`}
-                        >
-                          {card.status}
-                        </span>
+                        <RecordStatus status={card.statusCode} domain="card" />
                       </td>
                       <td className="p-1.5">{card.issuedAt}</td>
                       <td className="p-1.5 text-center">
                         <RecordViewButton
-                          record={card}
+                          record={{
+                            number: card.number,
+                            holder: card.holder,
+                            account: card.account,
+                            type: card.type,
+                            expiry: card.expiry,
+                            limit: card.limit,
+                            status: card.status,
+                            issuedAt: card.issuedAt,
+                          }}
                           title={`Chi tiết thẻ ${index + 1}`}
                         />
                       </td>
@@ -349,44 +348,15 @@ export function CardsPage() {
           <aside className="staff-secondary-panels grid min-h-0 grid-rows-[1.1fr_.95fr_1.15fr] gap-3">
             <article className="card p-3">
               <h2 className="text-base font-black">Cơ cấu thẻ theo loại</h2>
-              <div className="flex items-center gap-4 pt-2">
-                <div
-                  className="grid size-28 shrink-0 place-items-center rounded-full"
-                  style={{
-                    background: bankCards.length
-                      ? `conic-gradient(${gradient})`
-                      : "#edf0f5",
-                  }}
-                >
-                  <div className="grid size-16 place-items-center rounded-full bg-white text-center">
-                    <b className="text-xl">
-                      {cardsQuery.data
-                        ? bankCards.length.toLocaleString("vi-VN")
-                        : "—"}
-                    </b>
-                    <span className="text-[9px]">thẻ</span>
-                  </div>
-                </div>
-                <div className="space-y-2 text-[10px]">
-                  {composition.map((item, index) => (
-                    <p
-                      className="flex min-w-0 items-center gap-2"
-                      key={item.label}
-                    >
-                      <i
-                        className="size-2.5 shrink-0 rounded-full"
-                        style={{ background: palette[index] }}
-                      />
-                      <span className="min-w-0 truncate" title={item.label}>
-                        {item.label}
-                      </span>
-                      <b className="whitespace-nowrap">
-                        {percent(item.count)}% ({item.count})
-                      </b>
-                    </p>
-                  ))}
-                </div>
-              </div>
+              <DistributionChart
+                items={composition.map((item) => ({
+                  label: item.label,
+                  value: item.count,
+                }))}
+                label="thẻ"
+                ready={cardsQuery.isSuccess}
+                error={cardsQuery.isError}
+              />
             </article>
             <article className="card p-3">
               <h2 className="text-base font-black">Thẻ theo trạng thái</h2>

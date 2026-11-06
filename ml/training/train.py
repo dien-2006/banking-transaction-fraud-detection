@@ -52,6 +52,7 @@ def _evaluate(rows: list, intercept: float, weights: dict[str, float]) -> dict[s
         loss += -(label * math.log(clipped) + (1 - label) * math.log(1 - clipped))
     return {
         "samples": len(rows),
+        "classes": sorted({int(row['label']) for row in rows}),
         "accuracy": correct / len(rows),
         "log_loss": loss / len(rows),
     }
@@ -85,6 +86,7 @@ def run(batch_id: str) -> dict[str, object]:
         .filter(F.col("label").isin("FRAUD", "LEGITIMATE"))
         .select(
             "transaction_id",
+            "labeled_at",
             F.when(F.col("label") == "FRAUD", 1.0).otherwise(0.0).alias("label"),
         )
     )
@@ -98,7 +100,7 @@ def run(batch_id: str) -> dict[str, object]:
         transaction.join(latest_labels, "transaction_id")
         .join(assessments, "transaction_id")
         .select(
-            "transaction_id", "label",
+            "transaction_id", "transaction_at", "labeled_at", "label",
             (F.log1p(F.col("amount").cast("double")) / 20).alias("amount_log"),
             F.get_json_object("reason_json", "$.features.isNewDevice").cast("boolean").cast("double").alias("is_new_device"),
             F.when(F.hour(F.from_utc_timestamp("transaction_at", os.getenv("SOURCE_TIMEZONE", "Asia/Ho_Chi_Minh"))).between(0, 4), 1.0).otherwise(0.0).alias("is_unusual_time"),
@@ -113,12 +115,12 @@ def run(batch_id: str) -> dict[str, object]:
     # Legacy assessments without point-in-time features are explicitly reported,
     # never reconstructed using today's device trust or later history.
     feature_mart = feature_mart.filter(~missing)
-    feature_path = s3a("MINIO_BUCKET_ML", "fraud_detection/feature-mart")
+    feature_path = s3a("MINIO_BUCKET_ML", f"fraud_detection/feature-mart/batch_id={batch_id}")
     feature_mart.write.mode("overwrite").parquet(feature_path)
     total_samples = feature_mart.count()
     max_samples = max(4, int(os.getenv("ML_MAX_TRAINING_ROWS", "50000")))
     rows = (
-        feature_mart.orderBy(F.xxhash64("transaction_id"))
+        feature_mart.orderBy(F.col('transaction_at').desc(), F.col('transaction_id').desc())
         .limit(max_samples)
         .collect()
     )
@@ -136,8 +138,14 @@ def run(batch_id: str) -> dict[str, object]:
         result.update({"status": "SKIPPED", "reason": "at least four curated labels spanning both classes are required"})
         state.record_stage(batch_id, "ml_training", result)
         return result
-    train_rows = [row for row in rows if int(row["transaction_id"]) % 5 != 0] or rows
-    test_rows = [row for row in rows if int(row["transaction_id"]) % 5 == 0]
+    rows.sort(key=lambda row: (row['transaction_at'], row['transaction_id']))
+    cutoff = rows[int(len(rows) * .8)]['transaction_at']
+    train_rows = [row for row in rows if row['transaction_at'] < cutoff and row['labeled_at'] <= cutoff]
+    test_rows = [row for row in rows if row['transaction_at'] >= cutoff]
+    if any(sorted({int(row['label']) for row in split}) != [0, 1] for split in (train_rows, test_rows)):
+        result.update(status='SKIPPED', reason='chronological train/test splits require both classes and mature training labels')
+        state.record_stage(batch_id, 'ml_training', result)
+        return result
     intercept, weights = _fit(train_rows)
     metrics = {"train": _evaluate(train_rows, intercept, weights), "test": _evaluate(test_rows, intercept, weights)}
     version = f"candidate-{batch_id}"

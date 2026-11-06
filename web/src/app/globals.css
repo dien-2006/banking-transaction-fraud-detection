@@ -2,6 +2,56 @@
 @tailwind components;
 @tailwind utilities;
 
+.d4-record-status {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.d4-record-status.good {
+  background: #e8f7ef;
+  color: #15803d;
+}
+.d4-record-status.bad {
+  background: #fff0f1;
+  color: #be123c;
+}
+.d4-record-status.waiting {
+  background: #fff7e5;
+  color: #a16207;
+}
+.d4-record-status.neutral {
+  background: #f1f5f9;
+  color: #475569;
+}
+.d4-record-details {
+  padding: 0 16px;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+.d4-record-details > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 12px 0;
+  border-bottom: 1px solid #e2e8f0;
+  font-size: 13px;
+}
+.d4-record-details > div:last-child {
+  border-bottom: 0;
+}
+.d4-record-details dt {
+  color: #64748b;
+}
+.d4-record-details dd {
+  max-width: 65%;
+  text-align: right;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
 /* Paginated workspaces share one row geometry, including nested cell content. */
 .dashboard-shell main .d4-list-panel {
   --d4-list-row-height: 34px;
@@ -2100,5 +2150,93 @@ main table tbody td :is(.size-10, .size-9, .size-8) {
   .dashboard-shell .staff-secondary-panels > article {
     overflow: auto;
     scrollbar-width: thin;
+  }
+}
+
+/* Shared charts keep complete legends inside their allocated panel. */
+.dashboard-shell main article.card:has(> .d4-distribution) {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+.dashboard-shell main .d4-distribution-legend :is(span, strong) {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+.dashboard-shell main .employee-summary-panels .d4-distribution-legend {
+  gap: 6px;
+}
+.dashboard-shell main .employee-summary-panels .d4-distribution { padding-block: 8px 0; }
+@media (min-width: 1100px) and (min-height: 740px) {
+  .dashboard-shell main .employee-summary-panels {
+    grid-template-rows: minmax(0, 1.35fr) minmax(0, 1fr);
+  }
+}
+.dashboard-shell main .insight-panel-body:has(.d4-distribution) {
+  overflow: auto;
+  scrollbar-width: thin;
+}
+.dashboard-shell main .insights-overview-grid .d4-distribution,
+.dashboard-shell main .admin-overview-fit .d4-distribution {
+  padding-block: 4px;
+}
+.dashboard-shell main .insights-overview-grid .d4-distribution-ring,
+.dashboard-shell main .admin-overview-fit .d4-distribution-ring {
+  width: 56px;
+}
+.dashboard-shell main .insights-overview-grid .d4-distribution-center,
+.dashboard-shell main .admin-overview-fit .d4-distribution-center {
+  gap: 1px;
+  padding: 2px;
+}
+.dashboard-shell main .insights-overview-grid .d4-distribution-center b,
+.dashboard-shell main .admin-overview-fit .d4-distribution-center b {
+  font-size: 12px;
+}
+.dashboard-shell main .insights-overview-grid .d4-distribution-center small,
+.dashboard-shell main .admin-overview-fit .d4-distribution-center small {
+  font-size: 8px;
+}
+.dashboard-shell main .insights-overview-grid .d4-distribution-legend,
+.dashboard-shell main .admin-overview-fit .d4-distribution-legend {
+  gap: 4px;
+}
+.dashboard-shell main .d4-list-panel > .d4-transaction-filters {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  align-items: end;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.dashboard-shell main .d4-list-panel > .d4-transaction-filters > label {
+  display: grid;
+  grid-column: auto;
+  gap: 4px;
+  min-width: 0;
+  font-size: 10px;
+  color: #64748b;
+}
+.dashboard-shell
+  main
+  .d4-list-panel
+  .d4-transaction-filters
+  :is(input, select, button) {
+  width: 100%;
+  min-width: 0;
+  height: 36px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding-inline: 8px;
+  font-size: 11px;
+}
+.dashboard-shell main .d4-list-panel .d4-transaction-filters input[type="text"],
+.dashboard-shell main .d4-list-panel .d4-transaction-filters input:not([type]) {
+  padding-left: 30px;
+}
+@media (max-width: 639px) {
+  .dashboard-shell main .d4-list-panel > .d4-transaction-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
   }
 }

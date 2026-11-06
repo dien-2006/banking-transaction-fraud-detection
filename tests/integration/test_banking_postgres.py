@@ -23,10 +23,13 @@ pytestmark = pytest.mark.skipif(
 
 @pytest.fixture(scope="module")
 def demo():
+    if not os.environ.get('POSTGRES_DB', '').startswith('d4_'):
+        pytest.skip('banking write fixtures require an isolated d4_* database')
     bootstrap_demo()
     with psycopg.connect(
         postgres_dsn(), row_factory=dict_row, options=f"-c search_path={POSTGRES_SCHEMA}"
     ) as connection:
+        connection.execute("UPDATE bank_account SET balance=100000000 WHERE accountnumber IN ('DEMO-0001','DEMO-0002')")
         return connection.execute(
             """
             SELECT c.customerid, d.deviceid,
@@ -44,9 +47,13 @@ def demo():
         ).fetchone()
 
 
-def model_context(connection):
+def model_context(connection, *, neutral=False):
     artifact = json.loads((Path(__file__).resolve().parents[2] / "ml/artifacts/fraud_detection/v1/model.json").read_text())
     artifact["modelVersionId"] = connection.execute("SELECT modelversionid FROM banking.model_version WHERE modelname='fraud_detection_v1' AND status='ACTIVE' ORDER BY modelversionid DESC LIMIT 1").fetchone()["modelversionid"]
+    if neutral:
+        # Financial concurrency/retry tests isolate ML history effects; actual
+        # coefficients and decision thresholds have separate integration tests.
+        artifact.update(intercept=-40, weights=dict.fromkeys(artifact['weights'], 0))
     connection.execute("SELECT set_config('app.fraud_model',%s,true)", (json.dumps(artifact),))
 
 
@@ -58,7 +65,7 @@ def create_transfer(
     customer_id: int | None = None,
 ) -> dict:
     with psycopg.connect(postgres_dsn(), row_factory=dict_row) as connection:
-        model_context(connection)
+        model_context(connection, neutral=True)
         row = connection.execute(
             """
             SELECT banking_api.create_transfer(

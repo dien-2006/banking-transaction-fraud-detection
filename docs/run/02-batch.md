@@ -8,7 +8,7 @@ PostgreSQL
   -> Bronze DQ
   -> Silver + Quarantine
   -> Silver DQ
-  -> commit watermark
+  -> validated Silver release
   -> Gold
   -> Gold DQ
 ```
@@ -62,7 +62,7 @@ Mở MinIO Console tại `http://localhost:9001`. Các bucket/path chính:
 - `quarantine/`: record không hợp lệ kèm lý do lỗi.
 - `gold/dimensions/` và `gold/facts/`: 10 dimension và 7 fact.
 - `pipeline-control/runs/<batch_id>/`: metric từng stage.
-- `pipeline-control/watermarks/`: watermark đã commit.
+- `pipeline-control/silver/active_release.json`: Silver đã qua DQ cho training; Gold pin snapshot theo batch. V1 dùng full snapshot nhất quán, chưa đẩy incremental watermark.
 
 Xem lệnh CLI tại [hướng dẫn MinIO và Trino](04-minio-trino.md).
 

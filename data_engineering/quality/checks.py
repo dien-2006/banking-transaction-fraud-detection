@@ -10,7 +10,8 @@ from data_engineering.gold.catalog import GOLD_DATASETS, GOLD_RELATIONSHIPS
 from data_engineering.common.spark import session
 from data_engineering.common.state import PipelineState
 from data_engineering.silver.release import configure_silver_release
-from data_engineering.quality.quarantine import quarantine_business_violations, _transaction_violations
+from data_engineering.gold.release import configure_release
+from data_engineering.quality.quarantine import quarantine_business_violations, quarantine_loan_violations, _transaction_violations
 
 
 
@@ -37,6 +38,7 @@ def _silver_quality(spark, batch_id: str) -> dict[str, Any]:
         for dataset in CONTRACTS
     }
     quarantine_metrics = quarantine_business_violations(spark, frames, batch_id)
+    quarantine_metrics['invalid_loan_payment_domain'] = quarantine_loan_violations(spark, frames, batch_id)
     metrics: dict[str, Any] = {
         dataset: _grain(frame, CONTRACTS[dataset].primary_key)
         for dataset, frame in frames.items()
@@ -161,6 +163,8 @@ def run(layer: str = "silver", batch_id: str = "manual") -> dict[str, Any]:
     if layer not in {"silver", "gold"}:
         raise ValueError(f"unsupported DQ layer: {layer}")
     prefix = configure_silver_release(batch_id)
+    if layer == 'gold':
+        configure_release(batch_id)
     state = PipelineState()
     completed = state.get_json(f'runs/{batch_id}/{layer}_dq.json')
     if layer == 'silver' and completed and completed.get('silver_prefix') == prefix:

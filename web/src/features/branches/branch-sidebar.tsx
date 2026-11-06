@@ -1,10 +1,74 @@
+import { DistributionChart } from "@/components/distribution-chart";
 import { ChevronRight } from "lucide-react";
 import Image from "next/image";
 
-export type BranchView={id:number;code:string;name:string;address:string;city:string;region:string;staff:number;customers:number;status:string;image:string};
-export function BranchSidebar({rows}:{rows:BranchView[]}){
-  const regions=["Miền Bắc","Miền Trung","Miền Nam"].map(name=>({name,count:rows.filter(row=>row.region===name).length})),total=Math.max(rows.length,1);
-  const best=[...rows].sort((a,b)=>b.customers-a.customers).slice(0,3);
-  let cursor=0;const colors=["#ff2442","#ffabb7","#ffba4b"];const parts=regions.map((item,index)=>{const start=cursor;cursor+=item.count/total*100;return `${colors[index]} ${start}% ${cursor}%`});
-  return <aside className="grid min-h-0 grid-rows-2 gap-3"><article className="card p-3"><h2 className="text-base font-black">Phân bố chi nhánh theo khu vực</h2><div className="mt-3 flex items-center gap-4"><div className="grid size-28 place-items-center rounded-full" style={{background:rows.length?`conic-gradient(${parts.join(",")})`:"#edf0f5"}}><div className="grid size-16 place-items-center rounded-full bg-white text-center"><b className="text-xl">{rows.length}</b><small>chi nhánh</small></div></div><div className="text-[10px] leading-7">{regions.map((item,index)=><p key={item.name}><span style={{color:colors[index]}}>●</span> {item.name}　{Math.round(item.count/total*100)}% ({item.count})</p>)}</div></div></article><article className="card p-3"><h2 className="text-base font-black">Chi nhánh có nhiều khách hàng nhất</h2>{best.map((item,index)=><div className="mt-2 flex items-center gap-2" key={item.code}><b className="grid size-5 place-items-center rounded-full bg-coral text-[9px] text-white">{index+1}</b><span className="relative size-10 overflow-hidden rounded"><Image alt={item.name} className="object-cover" fill sizes="40px" src={item.image}/></span><span className="min-w-0 flex-1 text-[10px]"><b>{item.name}</b><br/>{item.customers.toLocaleString("vi-VN")} khách hàng</span><ChevronRight className="text-coral" size={15}/></div>)}</article></aside>;
+export type BranchView = {
+  id: number;
+  code: string;
+  name: string;
+  address: string;
+  city: string;
+  region: string;
+  staff: number;
+  customers: number;
+  status: string;
+  image: string;
+};
+export function BranchSidebar({
+  rows,
+  ready = true,
+  error = false,
+}: {
+  rows: BranchView[];
+  ready?: boolean;
+  error?: boolean;
+}) {
+  const regions = ["Miền Bắc", "Miền Trung", "Miền Nam"].map((name) => ({
+    name,
+    count: rows.filter((row) => row.region === name).length,
+  }));
+  const best = [...rows].sort((a, b) => b.customers - a.customers).slice(0, 3);
+  return (
+    <aside className="grid min-h-0 grid-rows-2 gap-3">
+      <article className="card p-3">
+        <h2 className="text-base font-black">Phân bố chi nhánh theo khu vực</h2>
+        <DistributionChart
+          items={regions.map((item) => ({
+            label: item.name,
+            value: item.count,
+          }))}
+          label="chi nhánh"
+          ready={ready}
+          error={error}
+        />
+      </article>
+      <article className="card p-3">
+        <h2 className="text-base font-black">
+          Chi nhánh có nhiều khách hàng nhất
+        </h2>
+        {best.map((item, index) => (
+          <div className="mt-2 flex items-center gap-2" key={item.code}>
+            <b className="grid size-5 place-items-center rounded-full bg-coral text-[9px] text-white">
+              {index + 1}
+            </b>
+            <span className="relative size-10 overflow-hidden rounded">
+              <Image
+                alt={item.name}
+                className="object-cover"
+                fill
+                sizes="40px"
+                src={item.image}
+              />
+            </span>
+            <span className="min-w-0 flex-1 text-[10px]">
+              <b>{item.name}</b>
+              <br />
+              {item.customers.toLocaleString("vi-VN")} khách hàng
+            </span>
+            <ChevronRight className="text-coral" size={15} />
+          </div>
+        ))}
+      </article>
+    </aside>
+  );
 }

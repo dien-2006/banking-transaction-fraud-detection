@@ -1,4 +1,6 @@
 "use client";
+import { DistributionChart } from "@/components/distribution-chart";
+
 import {
   CircleArrowUp,
   CircleDollarSign,
@@ -14,11 +16,16 @@ import {
   ListPagination,
   useListPagination,
 } from "@/components/list-pagination";
-import { RecordViewButton } from "@/components/record-view-button";
+import { AccountDetailsButton } from "@/components/account-details";
+import { RecordStatus } from "@/components/record-status";
 import { bankService } from "@/services/bank.service";
 import { useSessionUser } from "@/components/session-context";
 import { loadAllPages } from "@/lib/paged-data";
-import { customerStatuses, accountKind, formatCurrency } from "@/lib/customer-data";
+import {
+  customerStatuses,
+  accountKind,
+  formatCurrency,
+} from "@/lib/customer-data";
 import { ResourceCreateDialog } from "@/features/live/resource-create-dialog";
 
 const money = new Intl.NumberFormat("vi-VN", {
@@ -98,15 +105,6 @@ export function AccountsPage() {
           },
         ]
       : types;
-  const colors = ["#ff2143", "#ff9dad", "#ffbb4b", "#459cdb", "#8459e5"];
-  let boundary = 0;
-  const gradient = groups
-    .map((group, i) => {
-      const start = boundary;
-      boundary += (group.count / Math.max(accounts.length, 1)) * 100;
-      return `${colors[i]} ${start}% ${boundary}%`;
-    })
-    .join(",");
   const cards = [
     [WalletCards, "Tổng tài khoản", display(accounts.length)],
     [Landmark, "Đang hoạt động", display(activeCount)],
@@ -250,34 +248,21 @@ export function AccountsPage() {
                   </tr>
                 )}
                 {accountsQuery.isSuccess &&
-                  data.map((x) => (
+                  data.map((x, index) => (
                     <tr className="border-t" key={x[0]}>
                       <td className="p-1 font-semibold">{x[0]}</td>
                       <td className="p-1">{x[1]}</td>
                       <td className="p-1">{x[2]}</td>
                       <td className="p-1 font-semibold">{x[3]}</td>
                       <td className="p-1">
-                        <span
-                          className={
-                            x[4] === "Đang hoạt động"
-                              ? "rounded bg-emerald-100 px-1 text-emerald-600"
-                              : "rounded bg-amber-100 px-1 text-amber-600"
-                          }
-                        >
-                          {x[4]}
-                        </span>
+                        <RecordStatus
+                          status={pagination.visibleItems[index].status}
+                          domain="account"
+                        />
                       </td>
                       <td className="p-1">
-                        <RecordViewButton
-                          record={x}
-                          title="Chi tiết tài khoản"
-                          labels={[
-                            "Số tài khoản",
-                            "Chủ tài khoản",
-                            "Loại tài khoản",
-                            "Số dư",
-                            "Trạng thái",
-                          ]}
+                        <AccountDetailsButton
+                          account={pagination.visibleItems[index]}
                         />
                       </td>
                     </tr>
@@ -290,39 +275,15 @@ export function AccountsPage() {
         <aside className="grid min-h-0 grid-rows-2 gap-3">
           <article className="card p-3">
             <h2 className="text-base font-black">Cơ cấu tài khoản</h2>
-            <div className="flex items-center gap-4 pt-2">
-              <div
-                className="grid size-28 place-items-center rounded-full"
-                style={{
-                  background: accounts.length
-                    ? `conic-gradient(${gradient})`
-                    : "#edf0f5",
-                }}
-              >
-                <div className="grid size-16 place-items-center rounded-full bg-white text-center">
-                  <b className="text-xl">{display(accounts.length)}</b>
-                  <span className="text-[9px]">tài khoản</span>
-                </div>
-              </div>
-              <div className="space-y-2 text-[10px]">
-                {groups.map((group, i) => (
-                  <p key={group.label}>
-                    <i
-                      className="mr-1 inline-block size-2 rounded-full"
-                      style={{ background: colors[i] }}
-                    />
-                    {group.label}{" "}
-                    <b>
-                      {Math.round((group.count / accounts.length) * 100)}% (
-                      {group.count})
-                    </b>
-                  </p>
-                ))}
-                {accountsQuery.isSuccess && !accounts.length && (
-                  <p>Chưa có dữ liệu tài khoản.</p>
-                )}
-              </div>
-            </div>
+            <DistributionChart
+              items={groups.map((group) => ({
+                label: group.label,
+                value: group.count,
+              }))}
+              label="tài khoản"
+              ready={accountsQuery.isSuccess}
+              error={accountsQuery.isError}
+            />
           </article>
           <article className="card flex flex-col p-3">
             <h2 className="text-base font-black">Tài khoản mở gần đây</h2>
@@ -339,10 +300,10 @@ export function AccountsPage() {
                     <b className="block">{x[1]}</b>
                     <span className="text-slate-500">{x[0]}</span>
                   </p>
-                  <RecordViewButton
-                    record={x}
-                    title="Chi tiết tài khoản"
-                    labels={["Số tài khoản", "Chủ tài khoản"]}
+                  <AccountDetailsButton
+                    account={accounts.find(
+                      (account) => account.accountnumber === x[0],
+                    )!}
                   />
                 </div>
               ))}

@@ -14,6 +14,14 @@ from ml.inference.predictor import validate_artifact
 LOG = logging.getLogger("model-sync")
 
 
+def install_cached_artifact(temporary: Path, target: Path) -> None:
+    validate_artifact(json.loads(temporary.read_text(encoding="utf-8")))
+    # Sync runs as root, API runs as node. Model coefficients are non-secret;
+    # the API mounts this volume read-only and must be able to read the file.
+    temporary.chmod(0o644)
+    temporary.replace(target)
+
+
 def main() -> None:
     logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
     endpoint = os.environ["MINIO_ENDPOINT"].removeprefix("http://").removeprefix("https://")
@@ -38,8 +46,7 @@ def main() -> None:
             with tempfile.NamedTemporaryFile(dir=target.parent, delete=False) as handle:
                 temporary = Path(handle.name)
             client.fget_object(bucket, object_name, str(temporary))
-            validate_artifact(json.loads(temporary.read_text(encoding="utf-8")))
-            temporary.replace(target)
+            install_cached_artifact(temporary, target)
             temporary = None
             LOG.info("model_cache_updated object=%s target=%s", object_name, target)
         except Exception:

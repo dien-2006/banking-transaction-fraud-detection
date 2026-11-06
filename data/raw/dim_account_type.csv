@@ -1,0 +1,4 @@
+account_type_key,account_type_id,type_name,minimum_balance,interest_rate,description,status
+1,1,Payment,0,0,Tai khoan thanh toan,Active
+2,2,Savings,50000,0.05,Tai khoan tiet kiem,Active
+3,3,Internal,0,0,Tai khoan noi bo,Active

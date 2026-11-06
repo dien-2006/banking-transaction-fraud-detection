@@ -89,6 +89,11 @@ export class CounterTransferService {
             "Quyền hoặc chi nhánh đã thay đổi. Vui lòng đăng nhập lại",
           );
         // The core takes the same lock. Namespacing prevents collision with online transfers.
+        // Match the online path's lock order: customer first, then request key.
+        await client.query(
+          "SELECT pg_advisory_xact_lock(hashtextextended('risk-customer:'||$1::text,0))",
+          [dto.customerId],
+        );
         await client.query(
           "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
           [key],
@@ -147,6 +152,10 @@ export class CounterTransferService {
           throw new UnprocessableEntityException(
             "Tài khoản nhận không hợp lệ hoặc không hoạt động",
           );
+        await this.db.prepareRisk(client, 'banking_api.create_transfer', [
+          dto.customerId, dto.sourceAccountId, dto.destinationAccountId, dto.amount,
+          key, 'Counter', null, ip ?? null, description,
+        ]);
         // Preserve the existing risk decision, locking, postings, status and outbox implementation.
         const result = await client.query(
           `SELECT banking_api.create_transfer($1,$2,$3,$4,$5,'Counter',NULL,$6,$7) AS result`,

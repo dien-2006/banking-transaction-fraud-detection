@@ -1,5 +1,10 @@
 "use client";
+import {
+  DistributionChart,
+  distributionColors,
+} from "@/components/distribution-chart";
 
+import { transactionTypes, customerStatuses } from "@/lib/customer-data";
 import { formatDateTime } from "@/lib/presentation";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -31,14 +36,7 @@ type RiskRow = {
   decision: RiskDecision;
 };
 const number = new Intl.NumberFormat("vi-VN");
-const colors = [
-  "#f80820",
-  "#ff7585",
-  "#ffb54a",
-  "#ff8a00",
-  "#ffc1c8",
-  "#6f7ba7",
-];
+const colors = distributionColors;
 const icons = {
   customers: Users,
   accounts: WalletCards,
@@ -46,20 +44,8 @@ const icons = {
   loans: HandCoins,
   risks: ShieldAlert,
 } as const;
-const typeLabels: Record<string, string> = {
-  TRANSFER: "Chuyển tiền",
-  DEPOSIT: "Nạp tiền",
-  WITHDRAWAL: "Rút tiền",
-  LOAN_PAYMENT: "Trả khoản vay",
-  OPENING_BALANCE: "Số dư mở tài khoản",
-  REVERSAL: "Hoàn giao dịch",
-};
-const statusLabels: Record<string, string> = {
-  Success: "Thành công",
-  Pending: "Đang xử lý",
-  Failed: "Thất bại",
-  Cancelled: "Đã hủy",
-};
+const typeLabels = transactionTypes;
+const statusLabels = customerStatuses;
 const decisionTone: Record<RiskDecision, string> = {
   ALLOW: "bg-[#eafaf2] text-[#128653]",
   REVIEW: "bg-[#fff2dc] text-[#c66b00]",
@@ -217,56 +203,15 @@ function LineChart({ rows }: { rows: AdminOverviewData["dailyTransactions"] }) {
 }
 
 function Donut({ rows }: { rows: AdminOverviewData["transactionTypes"] }) {
-  const total = rows.reduce((sum, row) => sum + row.count, 0);
-  let cursor = 0;
-  const segments = rows.map((row, index) => {
-    const start = cursor;
-    cursor += total ? (row.count / total) * 100 : 0;
-    return `${colors[index % colors.length]} ${start}% ${cursor}%`;
-  });
-  const background = total
-    ? `conic-gradient(${segments.join(",")})`
-    : "#edf0f5";
   return (
-    <div
-      className="flex h-[82px] min-w-0 items-center justify-center gap-3 sm:gap-6"
-      role="img"
-      aria-label={`Cơ cấu ${number.format(total)} giao dịch theo loại`}
-    >
-      <div
-        className="grid size-[76px] shrink-0 place-items-center rounded-full"
-        style={{ background }}
-      >
-        <div className="grid size-[48px] place-items-center rounded-full bg-white text-center">
-          <span>
-            <b
-              className="block max-w-11 truncate text-[14px]"
-              title={number.format(total)}
-            >
-              {compactNumber.format(total)}
-            </b>
-            <small className="text-[9px]">giao dịch</small>
-          </span>
-        </div>
-      </div>
-      <div className="min-w-0 flex-1 space-y-0.5 text-[10px] leading-3">
-        {rows.map((row, index) => (
-          <div className="flex items-center gap-2" key={row.code}>
-            <span
-              className="size-2.5 shrink-0 rounded-full"
-              style={{ background: colors[index % colors.length] }}
-            />
-            <span className="truncate">
-              {typeLabels[row.code] ?? row.label}
-            </span>
-            <b className="ml-auto font-medium">
-              {total ? Math.round((row.count / total) * 100) : 0}%
-            </b>
-          </div>
-        ))}
-        {rows.length === 0 && <span>Chưa có giao dịch tháng này</span>}
-      </div>
-    </div>
+    <DistributionChart
+      items={rows.map((row) => ({
+        label: typeLabels[row.code] ?? row.label,
+        value: row.count,
+      }))}
+      label="giao dịch"
+      emptyText="Chưa có giao dịch tháng này."
+    />
   );
 }
 

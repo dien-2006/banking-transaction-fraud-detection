@@ -1,7 +1,7 @@
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Pool, PoolClient } from 'pg';
-import { CachedFraudModel } from './fraud-model';
+import { JoblibFraudModel } from './joblib-model';
 import type { AuthUser } from '../security/auth.guard';
 
 export interface RequestContext { userId?: number; ipAddress?: string; risk?: boolean }
@@ -23,9 +23,11 @@ export interface AuthResult {
 export class DatabaseService implements OnModuleDestroy {
   readonly pool: Pool;
   private readonly cryptoReady = new WeakSet<PoolClient>();
-  private readonly fraudModel: CachedFraudModel;
+  private readonly fraudModel: JoblibFraudModel;
+  private readonly sourceTimezone: string;
   constructor(config: ConfigService) {
-    this.fraudModel = new CachedFraudModel(config);
+    this.fraudModel = new JoblibFraudModel(config);
+    this.sourceTimezone = config.get<string>('SOURCE_TIMEZONE', 'Asia/Ho_Chi_Minh');
     this.pool = new Pool({
       host: config.get('POSTGRES_HOST', 'localhost'),
       port: config.get<number>('POSTGRES_INTERNAL_PORT', 5432),
@@ -306,6 +308,7 @@ export class DatabaseService implements OnModuleDestroy {
     if (!/^banking_api\.[a-z0-9_]+$/.test(name)) throw new Error('Unsafe database function name');
     if (['banking_api.create_transfer', 'banking_api.create_account_movement', 'banking_api.pay_loan'].includes(name)) context = { ...context, risk: true };
     return this.transaction(context, async (client) => {
+      if (context.risk) await this.prepareRisk(client, name, args);
       const placeholders = args.map((_, i) => `$${i + 1}`).join(', ');
       const result = await client.query<{ result: T }>(`SELECT ${name}(${placeholders}) AS result`, args);
       return result.rows[0]?.result;
@@ -360,16 +363,52 @@ export class DatabaseService implements OnModuleDestroy {
   }
 
   private async setContext(client: PoolClient, context: RequestContext): Promise<void> {
+    await client.query("SELECT set_config('TimeZone',$1,true)", [this.sourceTimezone]);
     await client.query("SELECT set_config('app.user_id', $1, true), set_config('app.ip_address', $2, true)",
       [context.userId?.toString() ?? '', context.ipAddress ?? '']);
-    if (context.risk) {
-      const { artifact, databaseName } = this.fraudModel.snapshot();
-      const result = await client.query<{ modelversionid: number }>(
-        "SELECT modelversionid FROM banking.model_version WHERE modelname=$1 AND status='ACTIVE' ORDER BY modelversionid DESC LIMIT 1", [databaseName]);
-      if (!result.rows.length) throw new Error('CONFIGURATION:No ACTIVE database identity for the loaded model');
-      await client.query("SELECT set_config('app.fraud_model',$1,true)",
-        [JSON.stringify({ ...artifact, modelVersionId: result.rows[0].modelversionid })]);
-    }
+    await client.query("SELECT set_config('app.fraud_model','',true)");
   }
-  async onModuleDestroy(): Promise<void> { await this.pool.end(); }
+
+  async prepareRisk(client: PoolClient, name: string, args: unknown[]): Promise<void> {
+    let customer = args[0], source = args[1], amount = args[3], channel = args[5];
+    let type: unknown = 'TRANSFER';
+    if (name === 'banking_api.create_account_movement') {
+      [type, customer, source, , amount] = args;
+      channel = args[6];
+      if (customer == null) {
+        const ownerAccount = type === 'WITHDRAWAL' ? args[2] : args[3];
+        const owner = await client.query(`SELECT customerid FROM banking.account_holder
+          WHERE accountid=$1 AND status='Active' AND startdate<=CURRENT_DATE
+          AND (enddate IS NULL OR enddate>=CURRENT_DATE)
+          ORDER BY CASE holdertype WHEN 'PRIMARY_OWNER' THEN 0 ELSE 1 END,customerid LIMIT 1`, [ownerAccount]);
+        customer = owner.rows[0]?.customerid;
+      }
+    } else if (name === 'banking_api.pay_loan') {
+      customer = args[0]; source = args[3]; amount = args[5]; type = 'LOAN_PAYMENT';
+      channel = args[7] === 'Counter' ? 'Counter' : 'InternetBanking';
+    }
+    if (customer == null) throw new Error('VALIDATION:Customer is required for inference');
+    await client.query("SELECT pg_advisory_xact_lock(hashtextextended('risk-customer:'||$1::text,0))", [customer]);
+    const clock = await client.query("SELECT clock_timestamp()::timestamp::text AS assessed_at");
+    const request = { customerId: Number(customer), sourceAccountId: Number(source),
+      amount: String(amount), channel, typeCode: type, assessedAt: clock.rows[0].assessed_at };
+    const features = await client.query(`SELECT banking_api.joblib_features($1,$2,$3,$4,$5,$6) AS features`,
+      [customer, source, amount, channel, type, request.assessedAt]);
+    if (!features.rows[0]?.features) throw new Error('VALIDATION:Source account not found');
+    const prediction = await this.fraudModel.predict(features.rows[0].features);
+    const identity = await client.query(`SELECT modelversionid FROM banking.model_version
+      WHERE modelname=$1 AND status='ACTIVE' ORDER BY modelversionid DESC LIMIT 1`, [prediction.databaseName]);
+    if (!identity.rows.length) throw new Error('CONFIGURATION:Joblib artifact has no ACTIVE database identity; register it before deployment');
+    await client.query("SELECT set_config('app.fraud_model',$1,true)", [JSON.stringify({
+      engine: 'joblib', ...prediction, modelVersionId: identity.rows[0].modelversionid,
+      request, modelFeatures: features.rows[0].features,
+    })]);
+  }
+  async riskModelHealth() {
+    const identity = await this.fraudModel.identity();
+    const row = await this.pool.query("SELECT modelversionid FROM banking.model_version WHERE modelname=$1 AND status='ACTIVE' LIMIT 1", [identity.databaseName]);
+    if (!row.rows.length) throw new Error('CONFIGURATION:Online joblib identity is not ACTIVE');
+    return { engine: 'joblib', version: identity.version, modelVersionId: row.rows[0].modelversionid };
+  }
+  async onModuleDestroy(): Promise<void> { this.fraudModel.close(); await this.pool.end(); }
 }

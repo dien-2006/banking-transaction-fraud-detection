@@ -25,6 +25,7 @@ async function processBatch():Promise<number>{
   const client=await pool.connect();
   try{
     await client.query('BEGIN');
+    await client.query("SELECT set_config('TimeZone',$1,true)",[process.env.SOURCE_TIMEZONE??'Asia/Ho_Chi_Minh']);
     const claimed=await client.query<Notification>('SELECT * FROM banking_api.claim_ready_notifications($1,$2::bigint[])',[Number(process.env.NOTIFICATION_BATCH_SIZE??20),retries.excluded()]);
     for(const notification of claimed.rows){
       try{

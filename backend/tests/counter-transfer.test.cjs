@@ -56,6 +56,7 @@ function fixture(options = {}) {
     },
   };
   const db = {
+    prepareRisk: async (_client, name, args) => { calls.push({ inference: name, args }); },
     pool: { query: client.query },
     transaction: async (context, fn) => {
       calls.push({ context });
@@ -94,6 +95,7 @@ test("counter transfers preserve core status/risk flow, use Counter and record e
     const result = await service.create(user, input, "127.0.0.1");
     assert.equal(result.status, status);
     assert.deepEqual(calls[0].context, { userId: 1, ipAddress: "127.0.0.1", risk: true });
+    assert.ok(calls.findIndex(c=>c.sql?.includes('risk-customer:')) < calls.findIndex(c=>c.sql?.includes('hashtextextended($1, 0)')));
     const core = calls.find((c) =>
       c.sql?.includes("banking_api.create_transfer"),
     );

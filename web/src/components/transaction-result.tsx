@@ -197,10 +197,12 @@ export function TransactionRecordResult({
   transaction,
   account,
   hidden = false,
+  staffDetails = [],
 }: {
   transaction: ApiTransaction;
   account: string;
   hidden?: boolean;
+  staffDetails?: ReadonlyArray<readonly [string, string]>;
 }) {
   return (
     <TransactionResult
@@ -225,7 +227,29 @@ export function TransactionRecordResult({
             ? "••••••"
             : formatCurrency(transaction.fee ?? "0", transaction.currency),
         ],
+        ...staffDetails,
       ]}
     />
+  );
+}
+
+export function TransactionRecordButton(
+  props: Parameters<typeof TransactionRecordResult>[0],
+) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button className="d4-view-button" onClick={() => setOpen(true)}>
+        Xem
+      </button>
+      <Modal
+        open={open}
+        onOpenChange={setOpen}
+        title="Chi tiết giao dịch"
+        description="Trạng thái và thông tin thực tế của giao dịch."
+      >
+        <TransactionRecordResult {...props} />
+      </Modal>
+    </>
   );
 }

@@ -261,6 +261,8 @@ Risk Level chỉ dùng để mô tả mức rủi ro; quyết định cuối cù
 
 ## 5.3 ML Model
 
+Online hiện dùng pipeline XGBoost tại `models/fraud_detection_model.joblib`, với 19 feature đúng contract của notebook training. Banking API giữ worker Python/cache model trong bộ nhớ, lấy feature trước giao dịch tại cùng mốc thời gian và truyền xác suất cùng artifact identity vào SQL. `reasonjson` giữ feature snapshot và hash để truy vết. MinIO chỉ lưu bản artifact theo version trong bước triển khai; không tham gia critical path. Xem cách đăng ký artifact và cập nhật API tại [running.md](running.md).
+
 Model trả về:
 
 ```text
@@ -466,7 +468,7 @@ _ingestion_mode = BATCH
 
 ### Full load và Incremental load
 
-**Implementation strategy đề xuất:** lần chạy đầu có thể full load; các lần tiếp theo ưu tiên incremental cho dataset có cột thời gian/khóa phù hợp. Watermark phải được quản lý bên ngoài business schema PostgreSQL để tuân thủ nguyên tắc DB cố định.
+**V1 hiện tại:** 20 bảng dùng full snapshot và cùng một exported PostgreSQL snapshot. Event timestamp/sequence không bảo đảm thứ tự commit nên chưa dùng làm incremental watermark. Bronze/Silver/Gold được pin theo batch; khi bổ sung CDC/incremental phải kiểm chứng late commit và reconciliation, không thay schema nghiệp vụ.
 
 ---
 
@@ -1291,7 +1293,7 @@ Compose tự thực hiện:
 Airflow DAG `banking_bronze_silver_gold` chạy tự động lần đầu khi stack sẵn sàng, sau đó chạy theo schedule `01:00 Asia/Ho_Chi_Minh`. Không cần chạy từng ETL file bằng tay. Chuỗi Batch mặc định là:
 
 ```text
-PostgreSQL -> Bronze -> Bronze DQ -> Silver -> Silver DQ -> commit watermark -> Gold -> Gold DQ -> Trino tables/views
+PostgreSQL -> Bronze -> Bronze DQ -> Silver -> Silver DQ -> validated Silver snapshot -> Gold -> Gold DQ -> Trino tables/views
 ```
 
 Kafka/realtime là profile riêng: khởi động bằng `docker compose --profile realtime up -d --build`. Khi bật, outbox publisher đẩy event sang Kafka và consumer ghi MinIO Bronze bền vững. PostgreSQL Batch vẫn là nguồn duy nhất tạo các bảng Silver nghiệp vụ; Kafka event không ghi đè `silver/bank_transaction`. Nếu chủ động bật `ENABLE_REALTIME_SILVER_MERGE`, Batch chỉ materialize `silver/domain_event` để phân tích và đối soát. Model sync dùng profile `ml`; DAG Batch không tự training model.
@@ -1303,6 +1305,10 @@ cd web
 npm install
 npm run dev
 ```
+
+Web dùng chung nhãn trạng thái, chi tiết tài khoản, biên nhận giao dịch và biểu đồ vòng giữa các role. Khoản vay `Paid` hiển thị “Đã tất toán”; kỳ trả nợ `Paid` hiển thị “Đã thanh toán”. Admin/nhân viên có bộ lọc giao dịch theo ngày, tài khoản và khoảng tiền như khách hàng. Biểu đồ thống kê toàn bộ dữ liệu trong phạm vi quyền của role; chú giải dài xuống dòng và có thể cuộn trong ô biểu đồ nhỏ. Chức năng ẩn số dư của khách hàng cũng ẩn giá trị và tỷ lệ trên biểu đồ.
+
+Trang đăng nhập giữ kích thước chữ và nút theo CSS, cuộn dọc trong biểu mẫu khi thiếu chiều cao thay vì thu nhỏ toàn bộ khung. CSS đăng nhập tự thiết lập box sizing và kiểu nút để khung không tràn ngang khi stylesheet chung tải chậm.
 
 Sau khi bật Realtime, chạy `conda run -n bank-fraud python -m scripts.healthcheck` để kiểm tra cả Kafka và các service còn lại.
 
@@ -1349,7 +1355,7 @@ docker compose exec airflow-webserver airflow dags list-runs -d banking_bronze_s
 python -m scripts.healthcheck
 ```
 
-Run/batch metrics và watermark nằm trong MinIO bucket `pipeline-control`; rejected record nằm trong `quarantine`; raw replayable data nằm trong `bronze`.
+Run/batch metrics và release manifests nằm trong MinIO bucket `pipeline-control`; rejected record nằm trong `quarantine`; raw replayable data nằm trong `bronze`.
 
 ## 30.6 Query Gold bằng Trino
 
@@ -1386,5 +1392,7 @@ Script E2E fail ngay tại stage không đạt và in summary chứa transaction
 - Banking recovery loop tiếp tục các transaction `Pending + ALLOW` nếu process chết giữa risk commit và financial processing.
 - Publisher dùng at-least-once; Silver deduplicate event theo `event_id` và transaction theo `transaction_id`.
 - Kafka offset chỉ commit sau khi Parquet Bronze đã được ghi và `stat_object` thành công.
-- Airflow retry từng stage; watermark commit sau Silver DQ. Gold overwrite deterministic nên rerun không nhân bản.
-- Model sync cập nhật file cache atomically; Risk API reload định kỳ và tiếp tục dùng model cache nếu MinIO tạm lỗi.
+- Airflow retry từng stage; Silver và Gold có release theo batch. Gold chỉ đọc Silver đã qua DQ của đúng batch, nên retry batch cũ không đọc snapshot mới.
+- Worker joblib giữ model đã validate trong memory, kiểm tra thay đổi artifact local và giữ bản tốt nếu reload lỗi. Khi chưa có model hợp lệ, giao dịch mới fail closed. Artifact JSON/profile model-sync cũ không thay thế model joblib online.
+
+Chi tiết cập nhật function, runtime roles, artifact mapping và kiểm thử: [running.md](running.md), [platform-integrity-fixes.md](docs/audit/platform-integrity-fixes.md).

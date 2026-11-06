@@ -1,4 +1,8 @@
 "use client";
+import {
+  DistributionChart,
+  distributionColors,
+} from "@/components/distribution-chart";
 
 import {
   FileClock,
@@ -133,15 +137,7 @@ export function AuditLogsPage({
     }))
     .sort((a, b) => b.count - a.count)
     .slice(0, 3);
-  const colors = ["#f5223e", "#ff9aa6", "#ffbd49", "#3aa3e8"];
-  let boundary = 0;
-  const gradient = actionCounts
-    .map((item, index) => {
-      const start = boundary;
-      boundary += (item.count / Math.max(logs.length, 1)) * 100;
-      return `${colors[index % colors.length]} ${start}% ${boundary}%`;
-    })
-    .join(", ");
+  const colors = distributionColors;
   return (
     <div className="staff-data-page customers-page-content flex flex-col gap-2.5 text-navy">
       <AuditHero />
@@ -402,48 +398,19 @@ export function AuditLogsPage({
           <aside className="staff-secondary-panels grid min-h-0 grid-rows-[1.15fr_1fr_1.1fr] gap-3">
             <article className="card p-3">
               <h2 className="text-sm font-black">Cơ cấu hoạt động theo loại</h2>
-              <div className="flex min-w-0 items-center gap-3 pt-2">
-                <div
-                  className="grid size-20 shrink-0 place-items-center rounded-full"
-                  style={{
-                    background: logs.length
-                      ? `conic-gradient(${gradient})`
-                      : "#edf0f5",
-                  }}
-                >
-                  <div className="grid size-12 place-items-center rounded-full bg-white text-center">
-                    <b className="text-sm" title={String(logs.length)}>
-                      {auditQuery.data
-                        ? logs.length.toLocaleString("vi-VN", {
-                            notation: "compact",
-                            maximumFractionDigits: 1,
-                          })
-                        : "—"}
-                    </b>
-                    <span className="text-[9px]">hoạt động</span>
-                  </div>
-                </div>
-                <div className="min-w-0 flex-1 space-y-1.5 text-[10px]">
-                  {actionCounts.map((item, index) => (
-                    <p
-                      className="flex min-w-0 items-center gap-2"
-                      key={item.label}
-                    >
-                      <i
-                        className="size-2 shrink-0 rounded-full"
-                        style={{ background: colors[index % colors.length] }}
-                      />
-                      <span
-                        className="min-w-0 flex-1 truncate"
-                        title={item.label}
-                      >
-                        {item.label}
-                      </span>
-                      <b>{percent(item.count)}%</b>
-                    </p>
-                  ))}
-                </div>
-              </div>
+              <DistributionChart
+                items={actionCounts.map((item) => ({
+                  label: item.label,
+                  value: item.count,
+                }))}
+                label="hoạt động"
+                ready={auditQuery.isSuccess}
+                error={auditQuery.isError}
+                centerValue={logs.length.toLocaleString("vi-VN", {
+                  notation: "compact",
+                  maximumFractionDigits: 1,
+                })}
+              />
             </article>
             <article className="card p-3">
               <h2 className="text-sm font-black">Hoạt động theo đối tượng</h2>
