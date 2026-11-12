@@ -78,7 +78,7 @@ export function AuditLogsPage({
       ),
     [q, type, level, user, day, logs],
   );
-  const pagination = useListPagination(data, { fitViewportOnly: true });
+  const pagination = useListPagination(data, { fitViewportOnly: true, pageSize: role === "admin" ? 11 : undefined });
   useEffect(() => pagination.setPage(1), [q, type, level, user, day]);
   const users = Array.from(
     new Map(logs.map((x) => [x.userKey, x.user])).entries(),
@@ -233,6 +233,7 @@ export function AuditLogsPage({
         <section className="grid min-h-0 flex-1 grid-cols-[2.05fr_.62fr] gap-3">
           <article
             ref={pagination.panelRef}
+            data-fixed-page-size={role === "admin" ? 11 : undefined}
             className="d4-list-panel card flex min-h-0 flex-col p-3"
           >
             <div className="grid grid-cols-[1.4fr_.58fr_.58fr_.55fr_.75fr_.3fr] gap-2">

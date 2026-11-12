@@ -4,7 +4,7 @@ import { moduleUrl } from "./module-loader.mjs";
 const { dateKey, formatDateTime, formatDate, formatTime, formatCurrency } =
   await import(await moduleUrl("presentation"));
 const { loadCards } = await import(await moduleUrl("card-data"));
-const { loadFraudReviews } = await import(await moduleUrl("fraud-data"));
+const { loadFraudReviews, presentFraudReview } = await import(await moduleUrl("fraud-data"));
 const { loadAuditLogs } = await import(await moduleUrl("audit-data"));
 const { loadAllPages } = await import(await moduleUrl("paged-data"));
 test("all roles use Vietnam dates, preserve foreign money and reject nonfinite display values", () => {
@@ -45,4 +45,48 @@ test("naive bank timestamps display the same clock time in every browser timezon
   assert.equal(formatTime("2026-11-01T00:30:00"), "00:30");
   assert.equal(formatTime("2026-10-31T17:30:00Z"), "00:30");
   assert.equal(formatTime("invalid"), "Chưa cập nhật");
+});
+
+test("fraud review preserves bank time and separates approval from financial success", () => {
+  const review = presentFraudReview({
+    reviewcaseid: 7,
+    reviewstatus: "APPROVED",
+    reviewcreatedat: "2026-11-01T00:30:00",
+    transactioncode: "TX-7",
+    amount: "100.25",
+    currency: "USD",
+    status: "Failed",
+    typecode: "TRANSFER",
+    decision: "ALLOW",
+    rulescore: 30,
+    modelprobability: "0.2",
+    reviewreason: "Đã xác minh yêu cầu của khách hàng.",
+    reviewedat: "2026-11-01T01:00:00",
+  });
+  assert.match(review.time, /00:30:00 1\/11\/2026/);
+  assert.equal(review.status, "Đã phê duyệt");
+  assert.equal(review.reviewStatus, "APPROVED");
+  assert.equal(review.reviewReason, "Đã xác minh yêu cầu của khách hàng.");
+  assert.match(review.reviewedAt, /01:00:00 1\/11\/2026/);
+  assert.equal(review.transactionStatus, "Failed");
+  assert.equal(review.pending, false);
+  assert.equal(review.canResolve, false);
+  assert.doesNotMatch(review.detail, /₫|NaN/);
+  assert.equal(review.mlProbability, "20%");
+});
+
+test("review actions require both an open case and a pending REVIEW transaction", () => {
+  const row = {
+    reviewcaseid: 8, reviewstatus: "OPEN", transactioncode: "TX-8",
+    amount: "1000", currency: "VND", status: "Pending", decision: "REVIEW",
+    reviewcreatedat: "2026-11-01T10:00:00", typecode: "TRANSFER",
+  };
+  assert.equal(presentFraudReview(row).canResolve, true);
+  assert.equal(presentFraudReview({ ...row, status: "Success" }).canResolve, false);
+  assert.equal(presentFraudReview({ ...row, status: "Success" }).needsReconciliation, true);
+  assert.equal(presentFraudReview({ ...row, status: "Failed" }).canResolve, false);
+  assert.equal(presentFraudReview({ ...row, decision: "BLOCK" }).canResolve, false);
+  assert.equal(presentFraudReview({ ...row, decision: "ALLOW" }).canResolve, false);
+  assert.equal(presentFraudReview({ ...row, reviewstatus: "REJECTED" }).canResolve, false);
+  assert.equal(presentFraudReview({ ...row, reviewstatus: "REJECTED", status: "Success" }).needsReconciliation, true);
 });

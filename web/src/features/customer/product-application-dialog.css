@@ -1,0 +1,22 @@
+.product-application-dialog {max-width:640px;display:flex;flex-direction:column;overflow:hidden;}
+.product-application-dialog > div:first-child {flex-shrink:0;}
+.product-application-form {display:flex;flex-direction:column;min-height:0;overflow:hidden;}
+.product-application-form > .resource-create-fields {min-height:0;overflow-y:auto;padding-right:5px;}
+.product-application-form fieldset {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:12px;}
+.product-application-form label {display:flex;flex-direction:column;gap:6px;font-size:14px;font-weight:600;}
+.product-application-form .field {width:100%;min-width:0;min-height:44px;font-weight:400;}
+.product-application-form small,.product-application-note {color:#63789e;font-size:12px;line-height:1.6;font-weight:400;}
+.product-application-note {grid-column:1/-1;}
+.product-application-form .product-application-consent {grid-column:1/-1;display:flex;flex-direction:row;align-items:center;font-size:13px;font-weight:400;}
+.product-application-consent input {width:18px;height:18px;flex-shrink:0;accent-color:#ff003a;}
+.product-application-form footer {display:flex;justify-content:flex-end;gap:10px;margin-top:18px;padding-top:14px;border-top:1px solid #e6ebf4;flex-shrink:0;}
+.product-application-error {margin-top:12px;padding:10px;border-radius:10px;background:#fff0f3;color:#b91c39;font-size:13px;line-height:1.5;max-height:120px;overflow-y:auto;}
+.product-application-result {overflow-y:auto;text-align:center;}
+.product-application-result > svg {color:#009b78;margin:8px auto 16px;}
+.product-application-result h3 {font-size:21px;font-weight:700;}
+.product-application-result dl {margin:20px 0;border:1px solid #e6ebf4;border-radius:12px;padding:10px;}
+.product-application-result dl > div {display:flex;justify-content:space-between;gap:12px;padding:10px;}
+.product-application-result dt,.product-application-result p {color:#63789e;font-size:13px;}
+.product-application-result dd {font-weight:600;overflow-wrap:anywhere;}
+.product-application-result button {margin-top:20px;}
+@media(max-width:480px){.product-application-form fieldset{grid-template-columns:minmax(0,1fr);}.product-application-result dl>div{padding:8px 0;}}

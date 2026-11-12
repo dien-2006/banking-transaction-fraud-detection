@@ -406,7 +406,7 @@
   }
   .dashboard-shell.customer-shell .customer-overview {
     grid-template-rows:
-      clamp(70px, 11vh, 98px) var(--admin-kpi-height)
+      var(--customer-banner-height) var(--admin-kpi-height)
       minmax(0, 1fr) !important;
   }
   .customer-home-main {

@@ -26,6 +26,7 @@ export function presentTransaction(row: ApiTransaction) {
     time: formatDateTime(row.transactiondate, "—"),
     status: transactionStatusLabels[row.status] || row.status,
     risk: transactionRiskLabels[row.risklevel ?? ""] || "Chưa đánh giá",
+    decision: row.decision,
   };
 }
 export function transactionSummary(rows: ApiTransaction[]) {

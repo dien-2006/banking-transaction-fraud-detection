@@ -3,6 +3,7 @@ import {
   HttpException,
   HttpStatus,
   Injectable,
+  Logger,
   ServiceUnavailableException,
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
@@ -34,6 +35,7 @@ interface Authorization {
 
 @Injectable()
 export class OtpService {
+  private readonly logger = new Logger(OtpService.name);
   private readonly secret: string;
   constructor(
     private readonly redis: RedisService,
@@ -61,46 +63,48 @@ export class OtpService {
     const customerId = this.customer(user);
     this.redis.assertReady();
     const rateKey = `otp:rate:${customerId}`;
-    if (!(await this.redis.client.set(rateKey, "1", { NX: true, EX: 60 })))
+    if (!(await this.redis.client.set(rateKey, "1", { NX: true, EX: 60 }))) {
+      const retryAfter = Math.max(1, await this.redis.client.ttl(rateKey));
       throw new HttpException(
-        "Vui lòng chờ 60 giây trước khi gửi lại OTP",
+        { message: `Vui lòng chờ ${retryAfter} giây trước khi gửi lại OTP`, retryAfter },
         HttpStatus.TOO_MANY_REQUESTS,
       );
-    const profile = await this.db.function<Profile>(
-      "banking_api.get_customer_profile",
-      [customerId],
-    );
-    if (!profile?.email) {
-      await this.redis.client.del(rateKey);
-      throw new ServiceUnavailableException("Customer email is not configured");
     }
-    const code = String(randomInt(0, 1_000_000)).padStart(6, "0"),
-      challengeId = randomUUID();
-    const challenge: Challenge = {
-      customerId,
-      context: this.context(customerId, dto),
-      codeHash: this.hash(code),
-      attempts: 0,
-    };
-    await this.redis.client.set(
-      `otp:challenge:${challengeId}`,
-      JSON.stringify(challenge),
-      { EX: 300 },
-    );
+    const challengeId = randomUUID();
     try {
+      const profile = await this.db.function<Profile>(
+        "banking_api.get_customer_profile",
+        [customerId],
+      );
+      if (!profile?.email) {
+        throw new ServiceUnavailableException("Hồ sơ khách hàng chưa có email nhận OTP. Vui lòng cập nhật email trước khi chuyển tiền.");
+      }
+      const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
+      const challenge: Challenge = {
+        customerId,
+        context: this.context(customerId, dto),
+        codeHash: this.hash(code),
+        attempts: 0,
+      };
+      await this.redis.client.set(
+        `otp:challenge:${challengeId}`,
+        JSON.stringify(challenge),
+        { EX: 300 },
+      );
       const messageId = await this.send(profile.email, profile.fullname ?? "Quý khách", code);
       // Acceptance is not delivery. Keep provider correlation outside business DB.
       await this.redis.client.set(`otp:delivery:${challengeId}`, JSON.stringify({ status: 'ACCEPTED', messageId }), { EX: 600 });
+      return {
+        challengeId,
+        expiresIn: 300,
+        destinationMasked: this.mask(profile.email),
+        resendAfter: 60,
+        deliveryStatus: 'ACCEPTED',
+      };
     } catch (error) {
       await this.redis.client.del([`otp:challenge:${challengeId}`, rateKey]);
       throw error;
     }
-    return {
-      challengeId,
-      expiresIn: 300,
-      destinationMasked: this.mask(profile.email),
-      deliveryStatus: 'ACCEPTED',
-    };
   }
   async verify(user: AuthUser, dto: TransferOtpVerifyDto) {
     this.redis.assertReady();
@@ -228,28 +232,39 @@ export class OtpService {
       sender = this.config.get<string>("OTP_SENDER_EMAIL");
     if (!apiKey || !sender)
       throw new ServiceUnavailableException(
-        "OTP email provider is not configured",
+        "Dịch vụ gửi OTP chưa được cấu hình. Vui lòng liên hệ quản trị viên.",
       );
-    const response = await fetch("https://api.brevo.com/v3/smtp/email", {
-      method: "POST",
-      signal: AbortSignal.timeout(10000),
-      headers: {
-        accept: "application/json",
-        "api-key": apiKey,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        sender: {
-          email: sender,
-          name: this.config.get<string>("OTP_SENDER_NAME", "D4 Bank"),
+    let response: Response;
+    try {
+      response = await fetch("https://api.brevo.com/v3/smtp/email", {
+        method: "POST",
+        signal: AbortSignal.timeout(10000),
+        headers: {
+          accept: "application/json",
+          "api-key": apiKey,
+          "content-type": "application/json",
         },
-        to: [{ email, name }],
-        subject: "Mã xác thực giao dịch D4 Bank",
-        textContent: `Mã OTP của bạn là ${code}. Mã có hiệu lực trong 5 phút. Không cung cấp mã này cho bất kỳ ai.`,
-      }),
-    });
-    if (!response.ok)
+        body: JSON.stringify({
+          sender: {
+            email: sender,
+            name: this.config.get<string>("OTP_SENDER_NAME", "D4 Bank"),
+          },
+          to: [{ email, name }],
+          subject: "Mã xác thực giao dịch D4 Bank",
+          textContent: `Mã OTP của bạn là ${code}. Mã có hiệu lực trong 5 phút. Không cung cấp mã này cho bất kỳ ai.`,
+        }),
+      });
+    } catch {
+      this.logger.warn('OTP email provider connection failed');
+      throw new ServiceUnavailableException("Không kết nối được dịch vụ gửi OTP. Vui lòng thử lại.");
+    }
+    if (!response.ok) {
+      // Only status/code are logged; provider messages can include email addresses.
+      const detail = await response.json().catch(() => ({})) as { code?: string };
+      const code = typeof detail.code === 'string' && /^[a-z_]{1,50}$/.test(detail.code) ? detail.code : 'unknown';
+      this.logger.warn(`OTP email rejected: status=${response.status}, code=${code}`);
       throw new ServiceUnavailableException("Không thể gửi email OTP");
+    }
     const receipt = await response.json() as { messageId?: string };
     return receipt.messageId ?? null;
   }

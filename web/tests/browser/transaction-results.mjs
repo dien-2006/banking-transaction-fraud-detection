@@ -29,6 +29,12 @@ async function fixture(role, status, viewport = { width: 1366, height: 768 }) {
   let otpContext;
   page.on("pageerror", (e) => errors.push(e.message));
   await page.addInitScript((role) => {
+    window.__receiptText = [];
+    const fillText = CanvasRenderingContext2D.prototype.fillText;
+    CanvasRenderingContext2D.prototype.fillText = function (...args) {
+      window.__receiptText.push(String(args[0]));
+      return fillText.apply(this, args);
+    };
     localStorage.setItem("d4-access-token", "test-only");
     localStorage.setItem(
       "d4-session",
@@ -169,6 +175,29 @@ async function result(page, status) {
     );
   return box;
 }
+async function downloadReceipt(page, box, name) {
+  await page.evaluate(() => { window.__receiptText = []; });
+  const pending = page.waitForEvent("download");
+  await box.getByRole("button", { name: "Tải ảnh giao dịch", exact: true }).click();
+  const download = await pending;
+  assert.match(download.suggestedFilename(), /^D4Bank-.+\.png$/);
+  const image = await readFile(await download.path());
+  assert.deepEqual([...image.subarray(0, 8)], [137,80,78,71,13,10,26,10], "Download must be a real PNG");
+  assert.equal(image.readUInt32BE(16), 1800, "Export resolution is independent of the viewport");
+  const size = await page.evaluate(async base64 => {
+    const image = new Image();
+    image.src = "data:image/png;base64," + base64;
+    await image.decode();
+    return [image.naturalWidth, image.naturalHeight];
+  }, image.toString("base64"));
+  assert.ok(size[1] > 600, "Full receipt decodes as a nonempty image");
+  const painted = await page.evaluate(() => window.__receiptText);
+  const status = (await box.locator(".d4-result-badge").innerText()).trim();
+  assert.ok(painted.includes(status), "Export preserves the actual transaction status");
+  assert.ok(painted.includes("Mã giao dịch"));
+  await download.saveAs(`/tmp/d4-results/receipt-${name}.png`);
+  return painted;
+}
 try {
   for (const status of cases([
     "Success",
@@ -200,20 +229,20 @@ try {
     assert.equal(writes.length, 1);
     if (typeof status === "string" && status !== "MALFORMED") {
       assert.match(await box.innerText(), /TX-RESULT-001/);
-      const download = page.waitForEvent("download");
-      await box
-        .getByRole("button", { name: "Tải thông tin giao dịch", exact: true })
-        .click();
-      const file = await download;
-      assert.match(file.suggestedFilename(), /TX-RESULT-001/);
-      const content = await readFile(await file.path(), "utf8");
+      const content = await downloadReceipt(page, box, `customer-${status}`);
+      assert.ok(content.includes("TX-RESULT-001"));
       const labels = {
         Success: "Thành công",
         Failed: "Thất bại",
-        Pending: "Đang xử lý",
+        Pending: "Chờ phê duyệt",
         Cancelled: "Đã hủy",
       };
-      assert.ok(content.includes(`Trạng thái: ${labels[status]}`));
+      assert.ok(content.includes(labels[status]));
+      if (status === "Pending") {
+        await box.getByRole("heading", { name: "Giao dịch đang chờ nhân viên phê duyệt", exact: true }).waitFor();
+        assert.match(await box.innerText(), /Tiền chưa được hạch toán/);
+        await page.screenshot({ path: "/tmp/d4-customer-pending-review.png" });
+      }
       if (status === "Success") {
         await page
           .context()
@@ -232,7 +261,7 @@ try {
     } else
       assert.equal(
         await box
-          .getByRole("button", { name: "Tải thông tin giao dịch", exact: true })
+          .getByRole("button", { name: "Tải ảnh giao dịch", exact: true })
           .count(),
         0,
       );
@@ -292,7 +321,10 @@ try {
       await dialog
         .getByRole("button", { name: "Xác nhận chuyển khoản", exact: true })
         .click();
-      await result(page, status);
+      const box = await result(page, status);
+      if (["Success", "Failed", "Pending", "Cancelled"].includes(status)) {
+        await downloadReceipt(page, box, `${role}-counter-${status}`);
+      }
       assert.equal(writes.length, 1);
       await page.close();
       console.log("PASS", role, "counter result", status);
@@ -317,7 +349,10 @@ try {
         await dialog
           .getByRole("button", { name: "Xác nhận giao dịch", exact: true })
           .click();
-        await result(page, status);
+        const box = await result(page, status);
+        if (["Success", "Failed"].includes(status)) {
+          await downloadReceipt(page, box, `${role}-${type}-${status}`);
+        }
         assert.equal(writes.length, 1);
         assert.equal(writes[0].type, type);
         await page.close();
@@ -344,6 +379,20 @@ try {
         await box.getAttribute("data-outcome"),
       ),
     );
+    await downloadReceipt(page, box, `${role}-history`);
+    if (role === "customer") {
+      // A browser export failure must show feedback and allow a later retry.
+      await page.evaluate(() => {
+        const original = HTMLCanvasElement.prototype.toBlob;
+        HTMLCanvasElement.prototype.toBlob = function (callback) {
+          HTMLCanvasElement.prototype.toBlob = original;
+          callback(null);
+        };
+      });
+      await box.getByRole("button", { name: "Tải ảnh giao dịch", exact: true }).click();
+      await box.getByText("Không thể tải ảnh giao dịch. Vui lòng thử lại.", { exact: true }).waitFor();
+      await downloadReceipt(page, box, "customer-history-retry");
+    }
     await page.close();
     console.log("PASS", role, "history result screen");
   }
@@ -366,6 +415,8 @@ try {
         await result.locator(".d4-result-heading > strong").innerText(),
         /•/,
       );
+    const painted = await downloadReceipt(page, result, route.replaceAll("/", "-"));
+    if (route === "/customer") assert.ok(painted.includes("••••••"), "Hidden amounts remain hidden in the exported image");
     await page.close();
     console.log("PASS shared customer detail", route);
   }

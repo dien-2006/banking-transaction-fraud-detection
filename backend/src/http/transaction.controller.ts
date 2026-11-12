@@ -8,6 +8,7 @@ import {
   Post,
   Query,
   Req,
+  ServiceUnavailableException,
 } from "@nestjs/common";
 import { Request } from "express";
 import { DatabaseService } from "../database/database.service";
@@ -22,9 +23,11 @@ import {
 } from "./dto";
 import { OtpService } from "../security/otp.service";
 import { ConfigService } from "@nestjs/config";
+import { loanSettlementAccountId } from './loan-payment-options';
 import {
   assertResourceBranch,
   employeeBranch,
+  staffReadBranch,
 } from "../security/branch-access";
 
 @Controller("transactions")
@@ -51,7 +54,7 @@ export class TransactionController {
       q.to ?? null,
       Number(q.page ?? 1),
       Number(q.pageSize ?? 20),
-      user.role === "employee" ? user.branchId : null,
+      user.role === "customer" ? null : staffReadBranch(user, q.branchId),
     ]);
   }
 
@@ -145,16 +148,11 @@ export class TransactionController {
 
   @Post("loan-payments")
   loanPayment(@CurrentUser() user: AuthUser, @Body() dto: LoanPaymentDto) {
-    if (!user.customerId)
+    if (user.role !== 'customer' || !user.customerId)
       throw new ForbiddenException("Customer identity required");
-    const internalCreditAccountId = Number(
-      this.config.get("LOAN_SETTLEMENT_ACCOUNT_ID"),
-    );
-    if (
-      !Number.isInteger(internalCreditAccountId) ||
-      internalCreditAccountId <= 0
-    ) {
-      throw new ForbiddenException("Loan settlement account is not configured");
+    const internalCreditAccountId = loanSettlementAccountId(this.config);
+    if (!internalCreditAccountId) {
+      throw new ServiceUnavailableException("Ngân hàng chưa cấu hình tài khoản nhận tiền trả nợ. Vui lòng liên hệ chi nhánh.");
     }
     return this.db.function("banking_api.pay_loan", [
       user.customerId,

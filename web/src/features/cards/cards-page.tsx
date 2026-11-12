@@ -77,7 +77,10 @@ export function CardsPage() {
       ),
     [query, type, status, bankCards],
   );
-  const pagination = useListPagination(data, { fitViewportOnly: true });
+  const pagination = useListPagination(data, {
+    fitViewportOnly: true,
+    pageSize: role === "employee" ? 11 : 12,
+  });
   useEffect(() => pagination.setPage(1), [query, type, status]);
   const countStatus = (value: string) =>
     bankCards.filter((card) => card.status === value).length;
@@ -184,6 +187,7 @@ export function CardsPage() {
         <ResourceCreateDialog
           resource="cards"
           onCreated={() => {
+            setQuery(""); setType(""); setStatus(""); setTab("Danh sách thẻ"); pagination.setPage(1);
             void cardsQuery.refetch();
           }}
         />
@@ -199,6 +203,7 @@ export function CardsPage() {
         <section className="grid min-h-0 flex-1 grid-cols-[1.9fr_.7fr] gap-3">
           <article
             ref={pagination.panelRef}
+            data-fixed-page-size={role === "employee" ? 11 : 12}
             className="d4-list-panel card flex min-h-0 flex-col p-3"
           >
             <div className="grid grid-cols-[1.7fr_.65fr_.65fr_.3fr] gap-2">

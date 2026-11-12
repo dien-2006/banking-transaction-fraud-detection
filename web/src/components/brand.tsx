@@ -1,8 +1,24 @@
 import { cn } from "@/lib/utils";
+import { useId } from "react";
 
 export function BrandMark() {
-  return <span aria-hidden="true" className="flex h-[34px] w-7 shrink-0 items-end gap-[3px]">
-    {[46, 72, 100].map(height => <i key={height} className="block flex-1 rounded-full" style={{height: `${height}%`, background: "linear-gradient(180deg, #ff0829 0%, #ff6a81 69%, #0648f5 70%)"}} />)}
+  const gradientId = useId();
+  return <span aria-hidden="true" className="flex h-[34px] w-7 shrink-0">
+    <svg viewBox="0 0 55 65" width="100%" height="100%" fill="none">
+      <defs>
+        <linearGradient id={gradientId} x1="27.5" y1="0" x2="27.5" y2="65" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#ff0024" />
+          <stop offset=".6" stopColor="#ff6b82" />
+          <stop offset="1" stopColor="#0648f5" />
+        </linearGradient>
+      </defs>
+      <rect x="0" y="35" width="15" height="30" rx="7.5" fill="#0648f5" />
+      <rect x="20" y="19" width="15" height="46" rx="7.5" fill="#ff0024" />
+      <rect x="40" y="0" width="15" height="65" rx="7.5" fill="#0648f5" />
+      <rect x="0" y="35" width="15" height="22" rx="7.5" fill="#ff6b82" />
+      <rect x="20" y="19" width="15" height="37" rx="7.5" fill={`url(#${gradientId})`} />
+      <rect x="40" y="0" width="15" height="55" rx="7.5" fill={`url(#${gradientId})`} />
+    </svg>
   </span>;
 }
 

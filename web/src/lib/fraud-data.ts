@@ -1,5 +1,5 @@
 import { loadAllPages } from "./paged-data";
-import { formatDateTime } from "./presentation";
+import { dateKey, formatCurrency, formatDate, formatDateTime, formatTime } from "./presentation";
 import { transactionTypes } from "./customer-data";
 import type { ApiFraudReview, PageResult } from "@/services/bank.service";
 
@@ -10,19 +10,19 @@ export const riskLabels: Record<string, string> = {
   LOW: "Thấp",
 };
 export const reviewLabels: Record<string, string> = {
-  OPEN: "Chờ review",
-  IN_REVIEW: "Đang xử lý",
-  APPROVED: "Đã duyệt",
+  OPEN: "Chờ thẩm định",
+  IN_REVIEW: "Đang thẩm định",
+  APPROVED: "Đã phê duyệt",
   REJECTED: "Đã từ chối",
   CLOSED: "Đã đóng",
 };
 
 export function presentFraudReview(row: ApiFraudReview) {
+  const pending = row.reviewstatus === "OPEN" || row.reviewstatus === "IN_REVIEW";
+  const needsReconciliation = (pending && (row.status !== "Pending" || row.decision !== "REVIEW"))
+    || (row.reviewstatus === "REJECTED" && row.status === "Success");
   const timestamp = row.reviewcreatedat || row.transactiondate;
-  const amount = Number(row.amount).toLocaleString("vi-VN", {
-    style: "currency",
-    currency: row.currency || "VND",
-  });
+  const amount = formatCurrency(row.amount, row.currency || "VND");
   const probability =
     row.modelprobability == null
       ? "Chưa đánh giá"
@@ -31,7 +31,10 @@ export function presentFraudReview(row: ApiFraudReview) {
     id: `RVW${row.reviewcaseid}`,
     reviewId: row.reviewcaseid,
     transaction: row.transactioncode,
+    transactionStatus: row.status,
     time: formatDateTime(timestamp, "—"),
+    date: formatDate(dateKey(timestamp), "—"),
+    clock: formatTime(timestamp, "—"),
     customer:
       row.initiatedbycustomerid == null
         ? "—"
@@ -41,6 +44,9 @@ export function presentFraudReview(row: ApiFraudReview) {
     detail: `${row.transactioncode} · ${amount}${row.description ? ` · ${row.description}` : ""}`,
     risk: riskLabels[row.risklevel ?? ""] ?? "Chưa đánh giá",
     status: reviewLabels[row.reviewstatus] ?? row.reviewstatus,
+    reviewStatus: row.reviewstatus,
+    reviewReason: row.reviewreason?.trim() || null,
+    reviewedAt: formatDateTime(row.reviewedat, "Chưa ghi nhận"),
     assignee:
       row.revieweruserid == null
         ? "Chưa phân công"
@@ -48,7 +54,9 @@ export function presentFraudReview(row: ApiFraudReview) {
     ruleScore: row.rulescore == null ? "Chưa đánh giá" : String(row.rulescore),
     mlProbability: probability,
     decision: row.decision ?? "Chưa đánh giá",
-    pending: row.reviewstatus === "OPEN" || row.reviewstatus === "IN_REVIEW",
+    pending,
+    canResolve: pending && row.status === "Pending" && row.decision === "REVIEW",
+    needsReconciliation,
     createdAt: timestamp,
   };
 }

@@ -27,24 +27,47 @@ Dự án kết hợp ba lĩnh vực: **ứng dụng ngân hàng**, **phát hiệ
 
 - Đăng nhập và quản lý hồ sơ cá nhân.
 - Xem tài khoản, số dư, thẻ và lịch sử giao dịch.
+- Tự mở thêm tài khoản khách hàng tại chi nhánh và sản phẩm đang hoạt động; số tài khoản được tự cấp, số dư ban đầu bằng 0. Tự phát hành thẻ ghi nợ mô phỏng trên tài khoản VND mà mình đứng tên chính, với PIN được băm và số thẻ chỉ trả về dạng đã che. Hạn mức thẻ do server cấu hình qua `CUSTOMER_CARD_DAILY_LIMIT` (mặc định 50.000.000 VND/ngày), hiệu lực 3 năm; không tự phát hành thẻ tín dụng.
+- Gửi hồ sơ vay theo lãi suất và giới hạn của sản phẩm trong DB. Hồ sơ lưu ở trạng thái `Pending`; hệ thống chọn nhân viên đang hoạt động của chi nhánh để tiếp nhận. Nhân viên/admin xử lý tại trang Khoản vay, nút **Xử lý**, chọn phê duyệt hoặc từ chối và nhập lý do. Phê duyệt tạo lịch trả nợ theo nghiệp vụ hiện có, không tự giải ngân; từ chối chuyển hồ sơ sang `Cancelled`.
+- Ba thao tác đăng ký dùng mã yêu cầu để chống tạo trùng khi gửi lại. Kết quả và dấu kiểm tra yêu cầu được ghi vào audit log trong cùng transaction với sản phẩm; PIN không được lưu trong audit log. Không thêm bảng hoặc đổi schema.
+- Form tự mở thẻ có lựa chọn bắt buộc: ghi nợ tiêu chuẩn, ghi nợ nội địa (Napas), ghi nợ Visa hoặc ghi nợ Mastercard. Danh sách do API cung cấp; loại đã chọn được kiểm tra ở server, ghi vào `card.cardtype` và tham gia kiểm tra gửi lại yêu cầu. Đây là các biến thể mô phỏng của thẻ ghi nợ, chưa tích hợp các mạng thanh toán thực tế.
 - Chuyển tiền với xác minh người nhận và OTP qua email.
-- Theo dõi kết quả giao dịch và xem biên nhận.
+- Người nhận gần đây được lấy từ toàn bộ lịch sử chuyển tiền thành công của khách hàng, dùng được khi đăng nhập lại hoặc đổi thiết bị. Danh sách gộp theo tài khoản nhận và sắp xếp lần chuyển mới nhất trước; chỉ gợi ý tài khoản khách hàng VND đang hoạt động và xác minh lại trước khi chuyển. Bốn người nhận đầu hiển thị trên trang, nút “Xem tất cả” mở danh sách đầy đủ.
+- Mỗi tài khoản khách hàng VND đang hoạt động có mã QR nhận tiền với biểu tượng D4 Bank ở giữa. Ảnh PNG tải xuống gồm logo ngân hàng, tên chủ tài khoản, số tài khoản và QR. Trang Chuyển tiền đọc QR qua camera hoặc ảnh, xác minh người nhận từ DB và tiếp tục qua xác nhận/OTP như chuyển khoản thông thường. QR này dùng trong D4 Bank, chưa tích hợp mạng thanh toán ngân hàng bên ngoài.
+- Camera quét QR ưu tiên độ nét cao, hỗ trợ chọn thiết bị và tự động lấy nét nếu camera cho phép. QR mới dùng dữ liệu ngắn để giảm mật độ ô; QR JSON đã tải ở phiên bản trước vẫn được đọc bình thường.
+- Theo dõi kết quả giao dịch, xem và tải ảnh PNG biên nhận theo đúng trạng thái giao dịch.
+- Nhấn thông báo có giao dịch liên kết để mở ngay chi tiết bằng `notification_outbox.transactionid`, kể cả giao dịch ngoài trang lịch sử đang xem. API kiểm tra quyền sở hữu trước khi trả thông tin chuyển/nhận; trạng thái lấy từ giao dịch hiện tại, không suy ra từ nội dung thông báo. Thông báo không liên kết giao dịch vẫn hiển thị nội dung thông thường.
 - Tra cứu khoản vay, lịch trả nợ và trạng thái từng kỳ.
+- Trong chi tiết khoản vay có phần thanh toán bên dưới lịch trả nợ: chọn kỳ và tài khoản nguồn, kiểm tra gốc/lãi/phí còn lại do DB đối chiếu, rồi xác nhận trả nợ. Dùng API `pay_loan` hiện có và giữ đúng kết quả Success/Pending/Cancelled/Failed. Cần cấu hình `LOAN_SETTLEMENT_ACCOUNT_ID` là tài khoản INTERNAL VND đang hoạt động của ngân hàng; nếu chưa có, form vẫn hiển thị nhưng không cho gửi lệnh. Mã giao dịch được giữ nguyên khi thử lại sau lỗi mạng.
 - Quản lý thiết bị, đổi mật khẩu, đổi PIN thẻ và xem thông báo.
+- Trong chi tiết thẻ, chính chủ có thể nhấn **Hiện số thẻ** và xác thực bằng mật khẩu đăng nhập. Số đầy đủ chỉ hiện trong hộp thoại tối đa 30 giây; tự che khi chuyển cửa sổ, ẩn tab hoặc đóng hộp thoại. API chỉ cho khách hàng xem thẻ của mình, giới hạn 5 lần thử/15 phút theo khách hàng và trả `Cache-Control: no-store`. Nhật ký chỉ lưu việc truy cập, không lưu mật khẩu hoặc số thẻ đầy đủ; API danh sách vẫn trả số đã che.
 
 ### Nhân viên ngân hàng
 
+- Thêm khách hàng với mã tự cấp dạng `C0000001` theo ID tự tăng; không cần nhập mã thủ công. Dãy số có thể có khoảng trống khi thao tác tạo không hoàn tất.
+- Form tạo khách hàng chỉ bắt buộc họ tên (tối đa 150 ký tự). Các thông tin khác có thể bỏ trống và lưu NULL; nếu nhập thì kiểm tra định dạng, độ dài theo schema, ngày sinh hợp lệ và không ở tương lai. Giấy tờ định danh phải duy nhất khi được cung cấp.
+- Hai form tạo khách hàng/mở tài khoản hiển thị lỗi bằng tiếng Việt, chỉ rõ giấy tờ hoặc số tài khoản bị trùng và các lựa chọn không còn tồn tại. Lỗi kết nối yêu cầu kiểm tra danh sách trước khi gửi lại vì kết quả lưu có thể chưa xác định.
+- Hồ sơ chưa gắn tài khoản hoặc khoản vay hiển thị cho chính nhân viên đã tạo, dựa trên audit log. Khi hồ sơ đã gắn chi nhánh, quyền truy cập tuân theo chi nhánh.
+- Tạo hồ sơ khách hàng mới tại trang Khách hàng. Trang Tài khoản chỉ mở tài khoản cho khách hàng đã có hồ sơ bằng cách tìm tên hoặc mã; không tạo thêm hồ sơ khách hàng từ form mở tài khoản.
+- Form mở tài khoản chỉ phục vụ khách hàng, không có lựa chọn nhóm tài khoản nội bộ. API bắt buộc có khách hàng sở hữu và từ chối yêu cầu tạo tài khoản nội bộ cho cả admin lẫn nhân viên.
+- Số tài khoản được tự cấp khi mở, dựa trên identity sequence hiện có (thông thường 16 chữ số), không cần nhập thủ công. Cơ chế cấp số giữ constraint duy nhất và bỏ qua số đã tồn tại; không thay đổi schema.
+- Phát hành thẻ yêu cầu ID khách hàng đã có và tài khoản đang hoạt động thực sự thuộc khách hàng đó. Số thẻ mô phỏng được tự cấp, kết quả chỉ trả số đã che; PIN 4–6 chữ số được xác nhận trên form, băm khi lưu và không trả lại qua API.
+- Tạo khoản vay yêu cầu ID khách hàng đã có; mã `LN...` tự cấp. Lãi suất mặc định, số tiền và kỳ hạn tối đa lấy từ sản phẩm vay. Hồ sơ mới có trạng thái `Pending`, không tự duyệt hoặc giải ngân.
+- Cả bốn form hiển thị kết quả sau khi lưu, gồm mã/số thực tế do backend trả về. Không yêu cầu nhập ID bằng tay: tìm tên/mã/ID để chọn đúng hồ sơ, giữ nguyên phạm vi chi nhánh theo quyền.
 - Tra cứu khách hàng, tài khoản, thẻ, khoản vay và giao dịch trong phạm vi chi nhánh.
 - Thực hiện chuyển khoản tại quầy sau khi xác minh yêu cầu của khách hàng.
 - Xử lý các nghiệp vụ nạp/rút tiền và quản lý tài khoản.
 - Kiểm tra giao dịch cần duyệt, đưa ra quyết định chấp thuận hoặc từ chối.
+- Trang giám sát có tab Giao dịch nghi ngờ lọc quyết định REVIEW/BLOCK từ các hồ sơ review được cấp quyền. Tab Tài khoản cần review gom hồ sơ OPEN/IN_REVIEW theo tài khoản nguồn; nút Xem hồ sơ mở đúng danh sách chưa hoàn tất của tài khoản đã chọn.
 - Quản lý khoản vay và ghi nhận nhãn gian lận phục vụ phân tích, Machine Learning.
 
 ### Quản trị viên
 
+- Mặc định xem dữ liệu toàn bộ chi nhánh. Các API danh sách khách hàng, tài khoản, thẻ, khoản vay, giao dịch và hồ sơ review hỗ trợ lọc `branchId`; tham số này không thể thay đổi phạm vi chi nhánh của nhân viên.
 - Theo dõi hoạt động ngân hàng qua dashboard tổng quan.
 - Quản lý chi nhánh, nhân viên và tài khoản hệ thống.
 - Tra cứu giao dịch rủi ro và nhật ký thao tác.
+- Tạo cảnh báo thủ công bằng mã giao dịch và lý do tại trang Giám sát rủi ro. API chỉ tạo hồ sơ OPEN khi giao dịch còn Pending và quyết định Risk mới nhất là REVIEW; hồ sơ đã có được trả lại, không mở lại hoặc ghi đè lý do. Thao tác ghi audit bằng trigger hiện có, không đổi quyết định Risk, số dư hoặc posting.
 - Xem báo cáo trên dữ liệu Gold qua Trino tại khu vực D4 Insights.
 
 ### Xử lý dữ liệu và Machine Learning
@@ -329,7 +352,7 @@ test -f .env || cp .env.example .env
 
 OTP sử dụng email khách hàng trong database và sender đã được xác minh trên Brevo. Các tài khoản PostgreSQL, MinIO và Airflow dùng giá trị do người triển khai cấu hình.
 
-Các file `.env.banking`, `.env.outbox`, `.env.notification`, `.env.etl` phục vụ cấu hình theo service. Compose chọn chúng qua các biến `BANKING_ENV_FILE`, `OUTBOX_ENV_FILE`, `NOTIFICATION_ENV_FILE`, `ETL_ENV_FILE`; mặc định đọc `.env`.
+Chỉ dùng `.env` để cấu hình local; `.env.example` là bản mẫu không chứa secret thật. Chạy `python -m scripts.provision_runtime_roles --apply` sau khi PostgreSQL sẵn sàng để tạo tài khoản runtime và lưu bốn cặp `BANKING_DB_*`, `OUTBOX_DB_*`, `NOTIFICATION_DB_*`, `ETL_DB_*` vào cùng `.env`. Docker Compose chọn từng biến cần thiết và truyền đúng tài khoản DB cho mỗi dịch vụ; không truyền toàn bộ `.env` hay credential quản trị vào API/worker. Sau khi sửa cấu hình, tạo lại các container liên quan bằng `docker compose up -d --no-deps --force-recreate <service>`.
 
 ### 3. Khởi động các dịch vụ
 
@@ -488,6 +511,14 @@ RUN_BANKING_INTEGRATION=1 python -m pytest -q tests/integration
 ```
 
 Tests bao phủ risk boundary, idempotency, posting/rollback, review, snapshot và phân quyền runtime. Các bài kiểm tra cần Redis hoặc worker joblib được bật riêng bằng `RUN_REDIS_INTEGRATION=1` và `RUN_JOBLIB_INTEGRATION=1` trong môi trường test backend.
+
+Luồng review chỉ nhận quyết định mới khi hồ sơ còn `OPEN/IN_REVIEW`, giao dịch còn `Pending`, quyết định rủi ro mới nhất là `REVIEW` và chưa có bút toán. Retry cùng người xử lý, hành động và lý do trả về kết quả cũ, kể cả khi phê duyệt dẫn tới `Failed` do thiếu số dư. Giao dịch đã hoàn tất hoặc dữ liệu lệch trạng thái bị trả về HTTP 409; lỗi `IMMUTABLE` cũng trả về 409 thay vì 500. Các bản ghi cũ cần đối soát riêng, không tự động đổi trạng thái.
+
+Chạy riêng các test chống xử lý review lặp/đồng thời và rollback trên database thử đã nạp SQL mới:
+
+```bash
+RUN_BANKING_INTEGRATION=1 python -m pytest -q tests/integration/test_review_guards.py
+```
 
 Để kiểm chứng toàn tuyến API → PostgreSQL → Outbox → Kafka → Bronze → Batch → Trino, sử dụng [`scripts/e2e_test.py`](scripts/e2e_test.py). Script yêu cầu `E2E_ACCESS_TOKEN` của admin/nhân viên và `E2E_ALLOW_DEMO_TRANSFER=1`, vì bài kiểm tra tạo một giao dịch demo có commit thật.
 

@@ -12,10 +12,8 @@ import {
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { ApiError } from "@/services/api.client";
-import {
-  outcomePresentation,
-  transactionOutcome,
-} from "@/lib/transaction-outcome";
+import { transactionPresentation } from "@/lib/transaction-outcome";
+import { transactionReceiptPng } from "@/lib/transaction-image";
 import { Modal } from "./ui";
 import "./transaction-result.css";
 import type { ApiTransaction } from "@/services/bank.service";
@@ -23,6 +21,7 @@ import { formatCurrency, formatDateTime } from "@/lib/presentation";
 
 export interface TransactionResultProps {
   status?: string;
+  decision?: string;
   error?: unknown;
   operation?: string;
   amount?: string;
@@ -35,6 +34,7 @@ export interface TransactionResultProps {
 
 export function TransactionResult({
   status,
+  decision,
   error,
   operation = "Giao dịch",
   amount,
@@ -45,18 +45,19 @@ export function TransactionResult({
   actions,
 }: TransactionResultProps) {
   const [feedback, setFeedback] = useState("");
+  const [downloading, setDownloading] = useState(false);
   const root = useRef<HTMLElement>(null);
   useEffect(() => {
     root.current?.focus({ preventScroll: true });
     root.current
       ?.querySelector(".d4-result-heading")
       ?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }, [status, error, reference]);
-  const state = transactionOutcome(
+  }, [status, decision, error, reference]);
+  const { outcome: state, ...view } = transactionPresentation(
       status,
+      decision,
       error instanceof ApiError ? error.status : undefined,
-    ),
-    view = outcomePresentation[state];
+    );
   const Icon =
     state === "success"
       ? CheckCircle2
@@ -73,21 +74,32 @@ export function TransactionResult({
     ...details,
     ["Trạng thái", view.label] as const,
   ];
-  const download = () => {
-    const content = [
-      "D4 BANK - THÔNG TIN GIAO DỊCH",
-      operation,
-      `Số tiền: ${amount ?? "Chưa cập nhật"}`,
-      ...fields.map(([key, value]) => `${key}: ${value}`),
-    ].join("\n");
-    const url = URL.createObjectURL(
-      new Blob(["\ufeff" + content], { type: "text/plain;charset=utf-8" }),
-    );
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `D4Bank-${(reference ?? "giao-dich").replace(/[^\w-]/g, "_")}.txt`;
-    anchor.click();
-    URL.revokeObjectURL(url);
+  const download = async () => {
+    if (downloading) return;
+    setDownloading(true);
+    setFeedback("");
+    try {
+      const blob = await transactionReceiptPng({
+        operation, outcome: state, ...view, amount, fields,
+        reason: error == null ? undefined : error instanceof Error ? error.message : String(error),
+      });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `D4Bank-${(reference ?? "giao-dich").replace(/[^\w-]/g, "_")}.png`;
+      document.body.appendChild(anchor);
+      try {
+        anchor.click();
+        setFeedback("Đã tạo ảnh biên nhận giao dịch.");
+      } finally {
+        anchor.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }
+    } catch {
+      setFeedback("Không thể tải ảnh giao dịch. Vui lòng thử lại.");
+    } finally {
+      setDownloading(false);
+    }
   };
   return (
     <section
@@ -151,9 +163,11 @@ export function TransactionResult({
                 type="button"
                 className="btn-secondary"
                 onClick={download}
+                disabled={downloading}
+                aria-busy={downloading}
               >
                 <Download size={15} />
-                Tải thông tin giao dịch
+                {downloading ? "Đang tạo ảnh…" : "Tải ảnh giao dịch"}
               </button>
             </>
           )}
@@ -196,17 +210,20 @@ export function TransactionResultButton(props: TransactionResultProps) {
 export function TransactionRecordResult({
   transaction,
   account,
+  accountLabel = "Tài khoản",
   hidden = false,
   staffDetails = [],
 }: {
   transaction: ApiTransaction;
   account: string;
+  accountLabel?: string;
   hidden?: boolean;
   staffDetails?: ReadonlyArray<readonly [string, string]>;
 }) {
   return (
     <TransactionResult
       status={transaction.status}
+      decision={transaction.decision}
       operation={transaction.typename || "Giao dịch"}
       amount={
         hidden
@@ -216,7 +233,7 @@ export function TransactionRecordResult({
       reference={transaction.transactioncode}
       time={formatDateTime(transaction.transactiondate)}
       details={[
-        ["Tài khoản", hidden ? "••••••" : account],
+        [accountLabel, hidden ? "••••••" : account],
         [
           "Nội dung",
           transaction.description || transaction.typename || "Không có",

@@ -1,0 +1,42 @@
+.dashboard-shell main .branches-page-content .branch-summary-panels {
+  grid-template-rows: auto auto;
+  align-content: start;
+  min-width: 0;
+}
+.dashboard-shell main .branch-summary-panels > article {
+  min-width: 0;
+  overflow: visible;
+}
+.dashboard-shell main .branch-summary-panels h2 {
+  font-size: 13px;
+  line-height: 1.4;
+}
+.dashboard-shell main .branch-summary-panels .branch-distribution-panel {
+  min-height: 164px;
+}
+.dashboard-shell main .branch-distribution-panel > .d4-distribution {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding-block: 8px 0;
+}
+.dashboard-shell main .branch-distribution-panel .d4-distribution-ring {
+  width: min(96px, 100%);
+}
+.dashboard-shell main .branch-distribution-panel .d4-distribution-layout {
+  grid-template-columns: minmax(76px, .8fr) minmax(0, 1.2fr);
+  gap: 12px;
+}
+.dashboard-shell main .branch-summary-panels .branch-ranking-panel {
+  min-height: 210px;
+}
+@media (min-width: 1100px) and (min-height: 640px) {
+  .dashboard-shell main .branches-page-content .branch-summary-panels {
+    grid-template-rows: minmax(164px, .85fr) minmax(210px, 1.15fr);
+    align-content: stretch;
+    overflow-y: auto;
+    overflow-x: hidden;
+    scrollbar-width: thin;
+  }
+}

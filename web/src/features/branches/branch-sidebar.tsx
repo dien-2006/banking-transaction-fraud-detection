@@ -1,6 +1,7 @@
 import { DistributionChart } from "@/components/distribution-chart";
 import { ChevronRight } from "lucide-react";
 import Image from "next/image";
+import "./branch-sidebar.css";
 
 export type BranchView = {
   id: number;
@@ -29,8 +30,8 @@ export function BranchSidebar({
   }));
   const best = [...rows].sort((a, b) => b.customers - a.customers).slice(0, 3);
   return (
-    <aside className="grid min-h-0 grid-rows-2 gap-3">
-      <article className="card p-3">
+    <aside className="branch-summary-panels grid min-h-0 gap-3">
+      <article className="branch-distribution-panel card p-3">
         <h2 className="text-base font-black">Phân bố chi nhánh theo khu vực</h2>
         <DistributionChart
           items={regions.map((item) => ({
@@ -42,7 +43,7 @@ export function BranchSidebar({
           error={error}
         />
       </article>
-      <article className="card p-3">
+      <article className="branch-ranking-panel card p-3">
         <h2 className="text-base font-black">
           Chi nhánh có nhiều khách hàng nhất
         </h2>

@@ -1,4 +1,5 @@
 "use client";
+import { ManagementBanner } from "@/components/management-banner";
 import { DistributionChart } from "@/components/distribution-chart";
 
 import {
@@ -9,7 +10,6 @@ import {
   ShieldCheck,
   UsersRound,
 } from "lucide-react";
-import Image from "next/image";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import {
@@ -72,7 +72,10 @@ export function CustomersPage() {
       ),
     [customers, status, q],
   );
-  const pagination = useListPagination(filtered, { fitViewportOnly: true });
+  const pagination = useListPagination(filtered, {
+    fitViewportOnly: true,
+    pageSize: 7,
+  });
   const data = pagination.visibleItems;
   const reset = () => {
     setQ("");
@@ -126,15 +129,7 @@ export function CustomersPage() {
   ] as const;
   return (
     <div className="staff-data-page customers-page-content flex flex-col gap-2.5 text-navy">
-      <section className="relative h-60 overflow-hidden rounded-xl border border-red-100">
-        <Image
-          src="/customers-hero.png"
-          alt="Danh sách khách hàng"
-          fill
-          priority
-          className="object-contain"
-        />
-      </section>
+      <ManagementBanner src="/customers-hero.png" title="Danh sách khách hàng" description="Tra cứu và quản lý hồ sơ khách hàng." />
       <section className="grid grid-cols-4 gap-3">
         {cards.map(([I, l, v]) => (
           <article className="card flex items-center gap-3 p-3" key={l}>
@@ -157,12 +152,18 @@ export function CustomersPage() {
         </div>
         <ResourceCreateDialog
           resource="customers"
-          onCreated={() => void customersQuery.refetch()}
+          onCreated={() => {
+            setQ("");
+            setStatus("");
+            pagination.setPage(1);
+            void customersQuery.refetch();
+          }}
         />
       </section>
       <section className="grid min-h-0 flex-1 grid-cols-[1.9fr_.7fr] gap-3">
         <article
           ref={pagination.panelRef}
+          data-fixed-page-size={7}
           className="card flex min-h-0 flex-col p-3"
         >
           <div className="grid grid-cols-[1.5fr_.7fr_.35fr] gap-2">

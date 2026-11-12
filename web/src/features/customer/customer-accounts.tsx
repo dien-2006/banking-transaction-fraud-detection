@@ -1,5 +1,7 @@
 "use client";
+import { ProductApplicationDialog } from "./product-application-dialog";
 import { AccountDetails } from "@/components/account-details";
+import { AccountQrButton, AccountQrDialog } from "@/components/payment-qr";
 import { DistributionChart } from "@/components/distribution-chart";
 import {
   ArrowRight,
@@ -52,7 +54,7 @@ const services = {
   open: {
     title: "Mở tài khoản mới",
     description:
-      "Để mở thêm tài khoản, vui lòng liên hệ chi nhánh D4 Bank quản lý tài khoản của bạn. Nhân viên sẽ hỗ trợ lựa chọn sản phẩm và hoàn tất đăng ký.",
+      "Chọn chi nhánh và sản phẩm đang hoạt động để mở thêm tài khoản. Số tài khoản được hệ thống cấp tự động, số dư ban đầu bằng 0.",
   },
   deposit: {
     title: "Nạp tiền",
@@ -81,10 +83,11 @@ export function CustomerAccounts() {
     transactions = useCustomerTransactions();
   const [hidden, setHidden] = useState(false);
   const [selected, setSelected] = useState<ApiAccount | null>(null);
+  const [qrAccountId,setQrAccountId]=useState<number|null>(null);
   const [service, setService] = useState<Service | null>(null);
   const [tab, setTab] = useState<(typeof tabs)[number]>(tabs[0]);
-  const accounts = query.data ?? [];
-  const list = useListPagination(accounts, { fitViewportOnly: true });
+  const accounts = [...(query.data ?? [])].sort((a,b)=>b.accountid-a.accountid);
+  const list = useListPagination(accounts, { fitViewportOnly: true, pageSize: 2 });
   const recent = useListPagination(transactions.data ?? [], {
     fitViewportOnly: true,
   });
@@ -280,22 +283,26 @@ export function CustomerAccounts() {
                                   <CustomerStatus status={item.status} />
                                 </td>
                                 <td>
-                                  <button
-                                    className="customer-account-view"
-                                    onClick={() => setSelected(item)}
-                                    aria-label={
-                                      hidden
-                                        ? "Chi tiết tài khoản"
-                                        : `Chi tiết tài khoản ${item.accountnumber}`
-                                    }
-                                  >
-                                    <span className="customer-account-view-full">
-                                      Xem chi tiết
-                                    </span>
-                                    <span className="customer-account-view-short">
-                                      Xem
-                                    </span>
-                                  </button>
+                                  <div className="customer-account-actions">
+                                    <button
+                                      type="button"
+                                      className="customer-account-view"
+                                      onClick={() => setSelected(item)}
+                                      aria-label={
+                                        hidden
+                                          ? "Chi tiết tài khoản"
+                                          : `Chi tiết tài khoản ${item.accountnumber}`
+                                      }
+                                    >
+                                      <span className="customer-account-view-full">
+                                        Chi tiết
+                                      </span>
+                                      <span className="customer-account-view-short">
+                                        Xem
+                                      </span>
+                                    </button>
+                                    <AccountQrButton account={item} owner={user.name} hidden={hidden} onOpen={account=>setQrAccountId(account.accountid)} />
+                                  </div>
                                 </td>
                               </tr>
                             );
@@ -531,7 +538,7 @@ export function CustomerAccounts() {
         {selected && <AccountDetails account={selected} hidden={hidden} />}
       </Modal>
       <Modal
-        open={!!service}
+        open={!!service && service !== "open"}
         onOpenChange={(open) => !open && setService(null)}
         title={service ? services[service].title : "Dịch vụ tài khoản"}
         description="Hỗ trợ dịch vụ tài khoản D4 Bank."
@@ -548,6 +555,8 @@ export function CustomerAccounts() {
           </div>
         )}
       </Modal>
+      <ProductApplicationDialog kind="accounts" open={service === "open"} onOpenChange={open => !open && setService(null)} onCreated={()=>list.setPage(1)} />
+      <AccountQrDialog account={accounts.find(account=>account.accountid===qrAccountId)??null} owner={user.name} hidden={hidden} onOpenChange={open=>!open&&setQrAccountId(null)} />
     </div>
   );
 }

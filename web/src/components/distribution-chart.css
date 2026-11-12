@@ -43,7 +43,7 @@
 }
 .d4-distribution-legend {
   display: grid;
-  gap: 10px;
+  gap: 4px;
   min-width: 0;
   margin: 0;
   padding: 0;
@@ -51,10 +51,10 @@
 }
 .d4-distribution-legend li {
   display: grid;
-  grid-template-columns: 9px minmax(0, 1fr);
+  grid-template-columns: 9px minmax(44px, 1fr) minmax(0, max-content);
   column-gap: 7px;
-  row-gap: 2px;
-  align-items: start;
+  align-items: center;
+  min-height: 22px;
   min-width: 0;
   font-size: 11px;
   line-height: 1.4;
@@ -62,20 +62,25 @@
 .d4-distribution-legend i {
   width: 9px;
   height: 9px;
-  margin-top: 3px;
   border-radius: 50%;
 }
 .d4-distribution-legend span {
-  overflow-wrap: anywhere;
-  white-space: normal;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .d4-distribution-legend strong {
-  grid-column: 2;
+  min-width: 0;
+  max-width: 140px;
   color: #64748b;
   font-size: 10px;
   font-weight: 500;
-  white-space: normal;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 .d4-distribution-message {
   color: #64748b;

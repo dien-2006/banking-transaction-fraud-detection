@@ -45,9 +45,11 @@ export function useCardGallery(total: number) {
 export function CustomerCardFace({
   card,
   holder,
+  revealedNumber,
 }: {
   card: ApiCard;
   holder: string;
+  revealedNumber?: string;
 }) {
   const scheme = /mastercard/i.test(card.cardtype)
     ? "Mastercard"
@@ -73,7 +75,7 @@ export function CustomerCardFace({
       <span className="cards-face-type" title={customerCardType(card)}>
         {customerCardType(card)}
       </span>
-      <strong className="cards-face-number">{customerCardMask(card)}</strong>
+      <strong className="cards-face-number">{revealedNumber??customerCardMask(card)}</strong>
       <div className="cards-face-bottom">
         <span title={holder}>{holder || "Chưa cập nhật tên"}</span>
         {scheme ? (

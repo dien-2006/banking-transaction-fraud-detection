@@ -1,4 +1,6 @@
 "use client";
+import { LoanDecisionButtons } from "./loan-decision-buttons";
+import { ManagementBanner } from "@/components/management-banner";
 import { RecordStatus } from "@/components/record-status";
 import { recordStatus } from "@/lib/record-status";
 import { DistributionChart } from "@/components/distribution-chart";
@@ -11,7 +13,6 @@ import {
   Filter,
   Search,
 } from "lucide-react";
-import Image from "next/image";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
@@ -36,6 +37,7 @@ export function LoansPage() {
   const user = useSessionUser();
   const loansQuery = useQuery({
     queryKey: ["staff-loans", user.role, user.id, user.branchId],
+    refetchInterval: 15_000,
     queryFn: async () => {
       const rows = await loadAllPages(bankService.loans, (row) =>
         recordText(row, ["loanid", "loancode"]),
@@ -60,6 +62,7 @@ export function LoansPage() {
         ),
         `${recordText(row, ["interestrate"], "0")}%`,
         recordText(row, ["status"]),
+        recordText(row, ["loanid"]),
       ]),
     [loansQuery.data],
   );
@@ -80,7 +83,7 @@ export function LoansPage() {
       ),
     [q, loans, status, product],
   );
-  const pagination = useListPagination(filtered, { fitViewportOnly: true });
+  const pagination = useListPagination(filtered, { fitViewportOnly: true, pageSize: user.role === "admin" ? 7 : undefined });
   const data = pagination.visibleItems;
   const reset = () => {
     setQ("");
@@ -120,15 +123,7 @@ export function LoansPage() {
   ] as const;
   return (
     <div className="staff-data-page customers-page-content flex flex-col gap-2.5 text-navy">
-      <section className="relative h-60 overflow-hidden rounded-xl border border-red-100">
-        <Image
-          src="/loans-hero.png"
-          alt="Quản lý khoản vay"
-          fill
-          priority
-          className="object-contain"
-        />
-      </section>
+      <ManagementBanner src="/loans-hero.png" title="Quản lý khoản vay" description="Quản lý hồ sơ vay và lịch trả nợ." />
       <section className="grid grid-cols-4 gap-3">
         {cards.map(([I, l, v]) => (
           <article className="card flex items-center gap-3 p-3" key={l}>
@@ -163,7 +158,10 @@ export function LoansPage() {
         </div>
         <ResourceCreateDialog
           resource="loans"
-          onCreated={() => void loansQuery.refetch()}
+          onCreated={() => {
+            setQ(""); setStatus(""); setProduct(""); setTab("Danh sách khoản vay"); pagination.setPage(1);
+            void loansQuery.refetch();
+          }}
         />
       </section>
       {tab !== "Danh sách khoản vay" ? (
@@ -205,6 +203,7 @@ export function LoansPage() {
         <section className="grid min-h-0 flex-1 grid-cols-[1.9fr_.7fr] gap-3">
           <article
             ref={pagination.panelRef}
+            data-fixed-page-size={user.role === "admin" ? 7 : undefined}
             className="card flex min-h-0 flex-col p-3"
           >
             <div className="grid grid-cols-[1.5fr_.7fr_.7fr_.35fr] gap-2">
@@ -323,7 +322,7 @@ export function LoansPage() {
                           <RecordStatus status={x[5]} domain="loan" />
                         </td>
                         <td className="p-2">
-                          <RecordViewButton
+                          {x[5] === "Pending" ? <LoanDecisionButtons id={Number(x[6])} code={x[0]} customer={x[1]} amount={x[3]} /> : <RecordViewButton
                             record={[
                               ...x.slice(0, 5),
                               recordStatus(x[5], "loan").label,
@@ -337,7 +336,7 @@ export function LoansPage() {
                               "Lãi suất",
                               "Trạng thái",
                             ]}
-                          />
+                          />}
                         </td>
                       </tr>
                     ))}

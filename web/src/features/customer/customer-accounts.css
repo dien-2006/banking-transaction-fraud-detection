@@ -156,24 +156,50 @@
 .customer-account-view-short {
   display: none;
 }
+.customer-account-actions {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  vertical-align: middle;
+}
+.customer-account-actions > .customer-account-view {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  height: 30px;
+  min-height: 30px;
+  padding: 0 9px;
+  border-color: #dce4f0;
+  border-radius: 7px;
+  color: #334b7b;
+  font-size: 11px;
+  line-height: 1;
+}
+.customer-account-actions > .customer-account-view:hover { background: #f5f8fd; }
+.customer-account-actions > .account-qr-trigger { border-color: #ffd3dd; background: #fff1f5; color: #f71340; }
+.customer-account-actions > .account-qr-trigger:hover { background: #ffe5ec; }
 .customer-accounts-table col:nth-child(1) {
   width: 20%;
 }
 .customer-accounts-table col:nth-child(2) {
-  width: 19%;
-}
-.customer-accounts-table col:nth-child(3) {
-  width: 13%;
-}
-.customer-accounts-table col:nth-child(4) {
   width: 18%;
 }
-.customer-accounts-table col:nth-child(5) {
+.customer-accounts-table col:nth-child(3) {
+  width: 12%;
+}
+.customer-accounts-table col:nth-child(4) {
   width: 17%;
 }
-.customer-accounts-table col:nth-child(6) {
-  width: 13%;
+.customer-accounts-table col:nth-child(5) {
+  width: 16%;
 }
+.customer-accounts-table col:nth-child(6) {
+  width: 17%;
+}
+.customer-accounts-table tbody td { vertical-align: middle; }
 .customer-accounts-table :is(th, td):nth-child(4) {
   text-align: right;
 }
@@ -408,7 +434,7 @@
 @media (min-width: 1100px) and (min-height: 640px) {
   .dashboard-shell.customer-shell
     .customer-screen.customer-accounts-screen:has(> .customer-metrics) {
-    grid-template-rows: clamp(88px, 14vh, 150px) clamp(64px, 9vh, 104px) minmax(
+    grid-template-rows: var(--customer-banner-height) clamp(64px, 9vh, 104px) minmax(
         0,
         1fr
       );

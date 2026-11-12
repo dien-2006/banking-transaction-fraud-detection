@@ -703,7 +703,7 @@
   .dashboard-shell.customer-shell .transfer-page-content:has(> .transfer-hero) {
     height: 100%;
     min-height: 0;
-    grid-template-rows: clamp(88px, 14vh, 150px) clamp(64px, 9vh, 104px) minmax(
+    grid-template-rows: var(--customer-banner-height) clamp(64px, 9vh, 104px) minmax(
         0,
         1fr
       );
@@ -822,7 +822,7 @@
 }
 @media (min-width: 1100px) and (min-height: 640px) and (max-height: 719px) {
   .dashboard-shell.customer-shell .transfer-page-content:has(> .transfer-hero) {
-    grid-template-rows: 76px 56px minmax(0, 1fr);
+    grid-template-rows: var(--customer-banner-height) 56px minmax(0, 1fr);
   }
   .dashboard-shell.customer-shell .transfer-hero {
     padding: 6px 16px;

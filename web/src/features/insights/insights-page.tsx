@@ -8,7 +8,7 @@ import {
   RefreshCw,
   ShieldAlert,
 } from "lucide-react";
-import { StaffHero } from "@/components/staff-hero";
+import "./insights-page.css";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState, type FormEvent } from "react";
 import { apiRequest, toQuery } from "@/services/api.client";
@@ -58,13 +58,10 @@ const money = (value: unknown) => number(value) + " ₫";
 
 function InsightHero() {
   return (
-    <StaffHero
-      kind="insights"
-      eyebrow="D4 INSIGHTS"
-      title="Phân tích"
-      accent="dữ liệu"
-      description="Theo dõi giao dịch, rủi ro và hiệu suất từ dữ liệu Gold."
-    />
+    <header className="insights-heading">
+      <h1>D4 <span>Insights</span></h1>
+      <p>Phân tích giao dịch, sản phẩm và kiểm soát rủi ro toàn hệ thống.</p>
+    </header>
   );
 }
 

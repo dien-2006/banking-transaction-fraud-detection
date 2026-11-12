@@ -1,22 +1,24 @@
-import { Body, Controller, Param, ParseIntPipe, Patch, Post, Req } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Req } from '@nestjs/common';
 import { Request } from 'express';
 import { DatabaseService } from '../database/database.service';
 import { AuthUser } from '../security/auth.guard';
-import { assertBranch, assertResourceBranch } from '../security/branch-access';
+import { assertBranch, assertResourceBranch, employeeBranch } from '../security/branch-access';
 import { CurrentUser, Roles } from '../security/decorators';
+import { CustomerProductsService } from './customer-products.service';
+import { LoanApprovalDto } from './customer-products.dto';
 import { AccountOpenDto, BranchCreateDto, BranchUpdateDto, CardIssueDto, CustomerCreateDto, CustomerUpdateDto, DeviceStatusDto, EmployeeCreateDto, EmployeeUpdateDto, FraudLabelDto, LimitDto, LoanCreateDto, RegisterLoginDto, StatusDto } from './management.dto';
 
 @Controller('management')
 @Roles('admin','employee')
 export class ManagementController {
-  constructor(private readonly db:DatabaseService){}
+  constructor(private readonly db:DatabaseService, private readonly products:CustomerProductsService){}
   private context(user:AuthUser,req:Request){return {userId:user.userId,ipAddress:req.ip};}
 
   @Post('branches') @Roles('admin') createBranch(@Body()d:BranchCreateDto,@CurrentUser()u:AuthUser,@Req()r:Request){return this.db.function('banking_api.create_branch',[d.code,d.name,d.address,d.city,d.phone,d.openDate],this.context(u,r));}
   @Patch('branches/:id') @Roles('admin') updateBranch(@Param('id',ParseIntPipe)id:number,@Body()d:BranchUpdateDto,@CurrentUser()u:AuthUser,@Req()r:Request){return this.db.function('banking_api.update_branch',[id,d.name,d.address,d.city,d.phone],this.context(u,r));}
   @Patch('branches/:id/status') @Roles('admin') branchStatus(@Param('id',ParseIntPipe)id:number,@Body()d:StatusDto,@CurrentUser()u:AuthUser,@Req()r:Request){return this.db.function('banking_api.change_branch_status',[id,d.status],this.context(u,r));}
 
-  @Post('customers') createCustomer(@Body()d:CustomerCreateDto,@CurrentUser()u:AuthUser,@Req()r:Request){return this.db.function('banking_api.create_customer',[d.code,d.name,d.gender,d.birthDate,d.nationalId,d.phone,d.email,d.address,d.occupation,d.customerType,d.segment],this.context(u,r));}
+  @Post('customers') createCustomer(@Body()d:CustomerCreateDto,@CurrentUser()u:AuthUser,@Req()r:Request){return this.db.function('banking_api.create_customer',[d.code ?? null,d.name,d.gender ?? null,d.birthDate ?? null,d.nationalId ?? null,d.phone ?? null,d.email ?? null,d.address ?? null,d.occupation ?? null,d.customerType ?? null,d.segment ?? null],this.context(u,r));}
   @Patch('customers/:id') async updateCustomer(@Param('id',ParseIntPipe)id:number,@Body()d:CustomerUpdateDto,@CurrentUser()u:AuthUser,@Req()r:Request){await assertResourceBranch(this.db,u,'customer',id);return this.db.function('banking_api.update_customer',[id,d.name,d.phone,d.email,d.address,d.occupation,d.customerType,d.segment],this.context(u,r));}
   @Patch('customers/:id/status') async customerStatus(@Param('id',ParseIntPipe)id:number,@Body()d:StatusDto,@CurrentUser()u:AuthUser,@Req()r:Request){await assertResourceBranch(this.db,u,'customer',id);return this.db.function('banking_api.change_customer_status',[id,d.status],this.context(u,r));}
   @Post('customers/:id/login') async registerCustomer(@Param('id',ParseIntPipe)id:number,@Body()d:RegisterLoginDto,@CurrentUser()u:AuthUser,@Req()r:Request){await assertResourceBranch(this.db,u,'customer',id);return this.db.function('banking_api.register_customer_online_account',[id,d.username,d.password],this.context(u,r));}
@@ -27,13 +29,29 @@ export class ManagementController {
   @Patch('employees/:id/status') @Roles('admin') employeeStatus(@Param('id',ParseIntPipe)id:number,@Body()d:StatusDto,@CurrentUser()u:AuthUser,@Req()r:Request){return this.db.function('banking_api.change_employee_status',[id,d.status],this.context(u,r));}
   @Post('employees/:id/login') @Roles('admin') registerEmployee(@Param('id',ParseIntPipe)id:number,@Body()d:RegisterLoginDto,@CurrentUser()u:AuthUser,@Req()r:Request){return this.db.function('banking_api.register_system_user',[id,d.username,d.password],this.context(u,r));}
 
-  @Post('accounts') openAccount(@Body()d:AccountOpenDto,@CurrentUser()u:AuthUser,@Req()r:Request){assertBranch(u,d.branchId);return this.db.function('banking_api.open_account',[d.accountNumber,d.branchId,d.accountTypeId,d.customerId??null,d.category??'CUSTOMER'],this.context(u,r));}
+  @Post('accounts') openAccount(@Body()d:AccountOpenDto,@CurrentUser()u:AuthUser,@Req()r:Request) {
+    assertBranch(u,d.branchId);
+    if (d.category != null && d.category !== 'CUSTOMER') {
+      throw new BadRequestException('Chỉ hỗ trợ mở tài khoản cho khách hàng.');
+    }
+    if (d.customerId == null) {
+      throw new BadRequestException('Vui lòng chọn khách hàng đã có hồ sơ trong hệ thống.');
+    }
+    return this.db.function('banking_api.open_account',[d.accountNumber??null,d.branchId,d.accountTypeId,d.customerId,'CUSTOMER'],this.context(u,r));
+  }
   @Patch('accounts/:id/status') async accountStatus(@Param('id',ParseIntPipe)id:number,@Body()d:StatusDto,@CurrentUser()u:AuthUser,@Req()r:Request){await assertResourceBranch(this.db,u,'account',id);return this.db.function('banking_api.change_account_status',[id,d.status,d.reason??''],this.context(u,r));}
-  @Post('cards') async issueCard(@Body()d:CardIssueDto,@CurrentUser()u:AuthUser,@Req()r:Request){await assertResourceBranch(this.db,u,'account',d.accountId);return this.db.function('banking_api.issue_card',[d.cardNumber,d.accountId,d.customerId,d.issueDate,d.expiryDate,d.cardType,d.pin,d.dailyLimit],this.context(u,r));}
+  @Get('customers/:id/accounts') async customerAccounts(@Param('id',ParseIntPipe)id:number,@CurrentUser()u:AuthUser) {
+    await assertResourceBranch(this.db,u,'customer',id);
+    return (await this.db.pool.query(`SELECT accountid,accountnumber,branchid,branchname,accounttypename
+      FROM banking.vw_account_detail WHERE customerid=$1 AND status='Active' AND accountcategory='CUSTOMER'
+      AND startdate<=CURRENT_DATE AND (enddate IS NULL OR enddate>=CURRENT_DATE)
+      AND ($2::int IS NULL OR branchid=$2) ORDER BY accountid DESC`,[id,employeeBranch(u)])).rows;
+  }
+  @Post('cards') async issueCard(@Body()d:CardIssueDto,@CurrentUser()u:AuthUser,@Req()r:Request){await assertResourceBranch(this.db,u,'account',d.accountId);return this.db.function('banking_api.issue_card',[d.cardNumber??null,d.accountId,d.customerId,d.issueDate??null,d.expiryDate,d.cardType,d.pin,d.dailyLimit],this.context(u,r));}
   @Patch('cards/:id/status') async cardStatus(@Param('id',ParseIntPipe)id:number,@Body()d:StatusDto,@CurrentUser()u:AuthUser,@Req()r:Request){await assertResourceBranch(this.db,u,'card',id);return this.db.function('banking_api.change_card_status',[id,d.status],this.context(u,r));}
   @Patch('cards/:id/limit') async cardLimit(@Param('id',ParseIntPipe)id:number,@Body()d:LimitDto,@CurrentUser()u:AuthUser,@Req()r:Request){await assertResourceBranch(this.db,u,'card',id);return this.db.function('banking_api.change_card_limit',[id,d.limit],this.context(u,r));}
 
-  @Post('loans') createLoan(@Body()d:LoanCreateDto,@CurrentUser()u:AuthUser,@Req()r:Request){assertBranch(u,d.branchId);return this.db.function('banking_api.create_loan',[d.code,d.customerId,d.branchId,u.employeeId,d.loanTypeId,d.principal,d.interestRate,d.termMonths,d.startDate],this.context(u,r));}
-  @Post('loans/:id/approve') async approveLoan(@Param('id',ParseIntPipe)id:number,@CurrentUser()u:AuthUser,@Req()r:Request){await assertResourceBranch(this.db,u,'loan',id);return this.db.function('banking_api.approve_loan',[id],this.context(u,r));}
+  @Post('loans') async createLoan(@Body()d:LoanCreateDto,@CurrentUser()u:AuthUser,@Req()r:Request){assertBranch(u,d.branchId);await assertResourceBranch(this.db,u,'customer',d.customerId);return this.db.function('banking_api.create_loan',[d.code??null,d.customerId,d.branchId,u.employeeId,d.loanTypeId,d.principal,d.interestRate,d.termMonths,d.startDate],this.context(u,r));}
+  @Post('loans/:id/approve') async approveLoan(@Param('id',ParseIntPipe)id:number,@CurrentUser()u:AuthUser,@Req()r:Request,@Body()d:LoanApprovalDto){await assertResourceBranch(this.db,u,'loan',id);return this.products.decideLoan(id,{decision:'APPROVE',reason:d.reason},u,r.ip);}
   @Post('transactions/:id/fraud-label') async fraudLabel(@Param('id',ParseIntPipe)id:number,@Body()d:FraudLabelDto,@CurrentUser()u:AuthUser,@Req()r:Request){await assertResourceBranch(this.db,u,'transaction',id);return this.db.function('banking_api.add_fraud_label',[id,d.label,d.source??'MANUAL_REVIEW',d.note??null],this.context(u,r));}
 }

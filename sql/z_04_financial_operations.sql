@@ -821,12 +821,14 @@ DECLARE
     vc RECORD;
     vr RECORD;
     vu RECORD;
+    vt RECORD;
+    v_decision text;
     v_type text;
     v_owner boolean;
     v_result text;
     v_description text;
 BEGIN
-    IF upper(p_action)
+    IF p_action IS NULL OR upper(p_action)
         NOT IN ('APPROVE', 'REJECT') THEN
         PERFORM
             banking_api.raise_error ('VALIDATION', 'invalid action');
@@ -870,6 +872,12 @@ BEGIN
             'review case is outside employee branch scope'
         );
     END IF;
+    -- Serialize all review cases for this transaction before checking its state.
+    SELECT * INTO vt FROM bank_transaction
+    WHERE transactionid = vc.transactionid FOR UPDATE;
+    IF NOT FOUND THEN
+        PERFORM banking_api.raise_error('NOT_FOUND', 'transaction not found');
+    END IF;
     IF vc.status NOT IN ('OPEN', 'IN_REVIEW') THEN
         IF vc.revieweruserid = p_reviewer
            AND vc.reason IS NOT DISTINCT FROM p_reason
@@ -878,6 +886,25 @@ BEGIN
             RETURN banking_api.transaction_result(vc.transactionid);
         END IF;
         PERFORM banking_api.raise_error('CONFLICT', 'review already resolved');
+    END IF;
+    -- A replay above returns the prior result; a new decision must never repair
+    -- or overwrite inconsistent historical financial records implicitly.
+    IF vt.status IS DISTINCT FROM 'Pending' THEN
+        PERFORM banking_api.raise_error('CONFLICT', 'review requires a Pending transaction');
+    END IF;
+    SELECT decision INTO v_decision FROM risk_assessment
+    WHERE transactionid = vc.transactionid
+    ORDER BY assessedat DESC, riskassessmentid DESC LIMIT 1 FOR SHARE;
+    IF v_decision IS DISTINCT FROM 'REVIEW' THEN
+        PERFORM banking_api.raise_error('CONFLICT', 'review requires a REVIEW risk decision');
+    END IF;
+    IF EXISTS (SELECT 1 FROM transaction_posting WHERE transactionid = vc.transactionid) THEN
+        PERFORM banking_api.raise_error('CONFLICT', 'transaction already has financial postings; reconciliation required');
+    END IF;
+    SELECT * INTO vr FROM transfer_request
+    WHERE transactionid = vc.transactionid FOR UPDATE;
+    IF NOT FOUND THEN
+        PERFORM banking_api.raise_error('CONFLICT', 'review has no transfer request');
     END IF;
     UPDATE
         review_case
@@ -924,15 +951,6 @@ BEGIN
             status = 'Approved'
         WHERE
             transactionid = vc.transactionid;
-        SELECT
-            *
-        INTO
-            vr
-        FROM
-            transfer_request
-        WHERE
-            transactionid = vc.transactionid
-        FOR UPDATE;
         SELECT
             tt.typecode,
             bt.description

@@ -18,7 +18,7 @@ airflow/logs/
 # Node/NestJS
 backend/node_modules/
 backend/dist/
-backend/*.tsbuildinfo
+*.tsbuildinfo
 
 web/AGENTS.md
 web/CLAUDE.md

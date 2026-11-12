@@ -1,155 +1,113 @@
 "use client";
-import { notificationText } from "@/lib/notification-data";
-import { formatDateTime } from "@/lib/presentation";
-import { useQuery } from "@tanstack/react-query";
-import {
-  AlertTriangle,
-  Bell,
-  CheckCheck,
-  ReceiptText,
-  ShieldAlert,
-} from "lucide-react";
-import { useEffect, useState } from "react";
-import { useNotificationRead } from "@/features/employee/use-notification-read";
-import { Modal } from "@/components/ui";
+
 import { useSessionUser } from "@/components/session-context";
-import { useCustomerRecordCapacity } from "./customer-layout";
-import {
-  bankService,
-  type CustomerNotification,
-} from "@/services/bank.service";
-import {
-  CustomerEmpty,
-  CustomerHero,
-  CustomerLoading,
-  CustomerPager,
-  CustomerPanel,
-} from "./customer-ui";
+import { Modal } from "@/components/ui";
+import { NotificationRow } from "@/components/notification-row";
+import { useNotificationRead } from "@/features/employee/use-notification-read";
+import { notificationText } from "@/lib/notification-data";
+import { loadAllPages } from "@/lib/paged-data";
+import { formatDateTime } from "@/lib/presentation";
+import { bankService, type CustomerNotification } from "@/services/bank.service";
+import { useQuery } from "@tanstack/react-query";
+import { CheckCheck, ChevronRight, CreditCard, Megaphone, ReceiptText, Settings, ShieldAlert } from "lucide-react";
+import Link from "next/link";
+import { useState } from "react";
+import { CustomerEmpty, CustomerLoading, CustomerPager } from "./customer-ui";
+import { NotificationTransactionDetails } from './notification-transaction-details';
+import "./customer-notifications.css";
+
+const categories = [
+  ["all", "Tất cả"],
+  ["transaction", "Giao dịch"],
+  ["promotion", "Khuyến mãi"],
+  ["product", "Sản phẩm"],
+  ["system", "Hệ thống"],
+] as const;
+type Category = (typeof categories)[number][0];
+
+function categoryOf(item: CustomerNotification): Category {
+  const type = item.notificationtype.toUpperCase();
+  if (type.startsWith("TRANSACTION_")) return "transaction";
+  if (/PROMOTION|OFFER|BIRTHDAY/.test(type)) return "promotion";
+  if (/CARD|LOAN|SAVING|PRODUCT/.test(type)) return "product";
+  return "system";
+}
 
 export function CustomerNotifications() {
   const user = useSessionUser();
-  const { readIds: read, markRead } = useNotificationRead("customer", user.id);
+  const { readIds, markRead } = useNotificationRead("customer", user.id);
+  const [category, setCategory] = useState<Category>("all");
   const [page, setPage] = useState(1);
-  const { pageSize, bodyRef } = useCustomerRecordCapacity(
-    ".customer-read-notice",
-    10,
-  );
   const [selected, setSelected] = useState<CustomerNotification | null>(null);
   const query = useQuery({
-    queryKey: ["customer", user.id, "notifications", page, pageSize],
-    queryFn: () => bankService.customerNotifications(page, pageSize),
+    queryKey: ["customer", user.id, "notifications"],
+    queryFn: () => loadAllPages(
+      ({ page, pageSize }) => bankService.customerNotifications(page, pageSize),
+      (item) => String(item.notificationoutboxid),
+    ),
     refetchInterval: 30_000,
   });
-  useEffect(() => {
-    setPage(1);
-  }, [pageSize]);
-  const items = query.data?.items ?? [];
-  const view = (item: CustomerNotification) =>
-    notificationText(item.notificationtype);
+  const items = query.data ?? [];
+  const filtered = items.filter((item) => category === "all" || categoryOf(item) === category);
+  const pageSize = 8;
+  const currentPage = Math.min(page, Math.max(1, Math.ceil(filtered.length / pageSize)));
+  const unread = (item: CustomerNotification) => !readIds.includes(String(item.notificationoutboxid));
+
   return (
-    <div className="customer-screen">
-      <CustomerHero
-        title="Thông báo"
-        description="Cập nhật giao dịch và cảnh báo mới nhất dành cho bạn."
-        icon={Bell}
-      />
-      <CustomerPanel
-        className="customer-list-panel customer-notice-panel"
-        title={`Thông báo của bạn${query.data ? ` (${query.data.total})` : ""}`}
-        action={
-          <button
-            className="customer-text-button"
-            disabled={!items.length}
-            onClick={() =>
-              markRead(items.map((item) => String(item.notificationoutboxid)))
-            }
-          >
-            <CheckCheck size={16} />
-            Đọc tất cả trên trang
-          </button>
-        }
-      >
-        <div className="customer-panel-body" ref={bodyRef}>
-          {query.isLoading ? (
-            <CustomerLoading />
-          ) : query.isError ? (
-            <CustomerEmpty error retry={() => void query.refetch()}>
-              Không thể tải thông báo.
-            </CustomerEmpty>
-          ) : items.length ? (
-            items.map((item) => {
-              const Icon =
-                item.notificationtype.includes("BLOCK") ||
-                item.notificationtype.includes("REVIEW")
-                  ? ShieldAlert
-                  : item.notificationtype.includes("FAILED") ||
-                      item.notificationtype.includes("REJECTED")
-                    ? AlertTriangle
-                    : ReceiptText;
-              return (
-                <button
-                  className={`customer-read-notice ${read.includes(String(item.notificationoutboxid)) ? "" : "unread"}`}
-                  key={item.notificationoutboxid}
-                  onClick={() => {
-                    markRead([String(item.notificationoutboxid)]);
-                    setSelected(item);
-                  }}
-                >
-                  <Icon size={24} />
-                  <div>
-                    <b>
-                      {view(item)[0]}{" "}
-                      {!read.includes(String(item.notificationoutboxid)) && (
-                        <span className="ml-1 text-xs text-rose-600">Mới</span>
-                      )}
-                    </b>
-                    <p>
-                      {view(item)[1]}
-                      {item.transactionid
-                        ? ` Giao dịch #${item.transactionid}.`
-                        : ""}
-                    </p>
-                  </div>
-                  <time>{formatDateTime(item.createdat)}</time>
-                </button>
-              );
-            })
-          ) : (
-            <CustomerEmpty>Bạn chưa có thông báo.</CustomerEmpty>
-          )}
-        </div>
-        {!query.isError && (
-          <CustomerPager
-            page={page}
-            pageSize={pageSize}
-            total={query.data?.total ?? 0}
-            onPage={setPage}
-          />
-        )}
-      </CustomerPanel>
-      <Modal
-        open={!!selected}
-        onOpenChange={(open) => !open && setSelected(null)}
-        title={selected ? view(selected)[0] : "Thông báo"}
-        description="Chi tiết thông báo dành cho tài khoản của bạn."
-      >
-        {selected && (
-          <div className="space-y-4">
-            <p>{view(selected)[1]}</p>
-            {selected.transactionid && (
-              <p className="text-sm">Mã giao dịch: #{selected.transactionid}</p>
-            )}
-            <time className="block text-sm text-slate-500">
-              {formatDateTime(selected.createdat)}
-            </time>
-            <button
-              className="customer-button"
-              onClick={() => setSelected(null)}
-            >
-              Đóng
+    <div className="customer-notifications-screen">
+      <header className="notice-hero">
+        <nav aria-label="Đường dẫn">
+          <Link href="/customer">Trang chủ</Link><ChevronRight size={15} /><span>Thông báo</span>
+        </nav>
+        <h1>Thông <span>báo</span></h1>
+        <p>Cập nhật nhanh chóng các thông tin và hoạt động mới nhất từ D4 Bank.</p>
+      </header>
+
+      <div className="notice-controls">
+        <div className="notice-categories" role="group" aria-label="Phân loại thông báo">
+          {categories.map(([key, label]) => (
+            <button key={key} aria-pressed={category === key} className={category === key ? "active" : ""}
+              onClick={() => { setCategory(key); setPage(1); }}>
+              {label} ({query.isSuccess ? (key === "all" ? items.length : items.filter((item) => categoryOf(item) === key).length) : "—"})
             </button>
-          </div>
-        )}
+          ))}
+        </div>
+        <button className="notice-mark-all" disabled={!items.some(unread)}
+          onClick={() => markRead(items.filter(unread).map((item) => String(item.notificationoutboxid)))}>
+          <CheckCheck size={16} />Đọc tất cả
+        </button>
+      </div>
+
+      <section className="notice-list-area" aria-label="Danh sách thông báo">
+        <div className="notice-list">
+          {query.isPending && <CustomerLoading />}
+          {query.isError && <CustomerEmpty error retry={() => void query.refetch()}>Không thể tải thông báo.</CustomerEmpty>}
+          {query.isSuccess && !filtered.length && <CustomerEmpty>Chưa có thông báo trong mục này.</CustomerEmpty>}
+          {query.isSuccess && filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize).map((item) => {
+            const [title, detail] = notificationText(item.notificationtype);
+            const group = categoryOf(item);
+            const warning = /BLOCK|REVIEW|FAILED|REJECTED/.test(item.notificationtype);
+            const Icon = warning ? ShieldAlert : group === "transaction" ? ReceiptText : group === "promotion" ? Megaphone : group === "product" ? CreditCard : Settings;
+            const isUnread = unread(item);
+            return (
+              <NotificationRow key={item.notificationoutboxid}
+                title={title} detail={`${detail}${item.transactionid ? ` Giao dịch ${item.transactioncode ?? `#${item.transactionid}`}.` : ""}`}
+                createdAt={item.createdat} unread={isUnread} icon={Icon} tone={warning ? "warning" : group}
+                onClick={() => { markRead([String(item.notificationoutboxid)]); setSelected(item); }} />
+            );
+          })}
+        </div>
+        {query.isSuccess && filtered.length > pageSize && <CustomerPager page={currentPage} pageSize={pageSize} total={filtered.length} onPage={setPage} />}
+      </section>
+
+      <Modal open={!!selected} onOpenChange={(open) => !open && setSelected(null)}
+        title={selected?.transactionid ? "Chi tiết giao dịch" : selected ? notificationText(selected.notificationtype)[0] : "Thông báo"}
+        description={selected?.transactionid ? "Thông tin và trạng thái hiện tại của giao dịch liên kết với thông báo." : "Chi tiết thông báo dành cho tài khoản của bạn."}
+        className={selected?.transactionid ? "notice-transaction-dialog" : ""}>
+        {selected?.transactionid ? <div className="notice-transaction-body"><NotificationTransactionDetails key={selected.transactionid} id={selected.transactionid}/></div> : selected && <div className="space-y-4 text-sm">
+          <p>{notificationText(selected.notificationtype)[1]}</p>
+          <p className="text-slate-500">{formatDateTime(selected.createdat)}</p>
+        </div>}
       </Modal>
     </div>
   );

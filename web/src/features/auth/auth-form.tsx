@@ -324,10 +324,7 @@ export function AuthForm() {
                 tabIndex={-1}
               >
                 <span className="login-failure-icon" aria-hidden="true"><ShieldAlert /></span>
-                <div>
-                  <h3>Đăng nhập chưa thành công</h3>
-                  <p>{error}</p>
-                </div>
+                <p>{error}</p>
               </div>
             )}
             {success && (

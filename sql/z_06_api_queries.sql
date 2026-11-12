@@ -339,11 +339,13 @@ CREATE OR REPLACE FUNCTION banking_api.list_fraud_reviews (p_status text DEFAULT
     AS $$
     WITH f AS (
         SELECT
-            *
+            v.*,
+            rc.reason AS reviewreason
         FROM
-            vw_transaction_detail
+            vw_transaction_detail v
+            JOIN review_case rc ON rc.reviewcaseid = v.reviewcaseid
         WHERE
-            reviewcaseid IS NOT NULL
+            v.reviewcaseid IS NOT NULL
             AND (p_status IS NULL
                 OR reviewstatus = p_status)
             AND (p_branch IS NULL OR EXISTS (
@@ -351,7 +353,7 @@ CREATE OR REPLACE FUNCTION banking_api.list_fraud_reviews (p_status text DEFAULT
                 FROM transfer_request tr
                 JOIN bank_account ba
                   ON ba.accountid IN (tr.sourceaccountid, tr.destinationaccountid)
-                WHERE tr.transactionid = vw_transaction_detail.transactionid
+                WHERE tr.transactionid = v.transactionid
                   AND ba.branchid = p_branch
             ))
 ),
@@ -434,7 +436,7 @@ CREATE OR REPLACE FUNCTION banking_api.list_customers (p_query text DEFAULT NULL
         WHERE (p_status IS NULL
             OR status = p_status)
         AND (p_query IS NULL
-            OR concat_ws(' ', customercode, fullname, phone, email)
+            OR concat_ws(' ', customerid::text, customercode, fullname, phone, email)
             ILIKE '%' || p_query || '%')
         AND (p_branch IS NULL OR EXISTS (
             SELECT 1
@@ -443,6 +445,18 @@ CREATE OR REPLACE FUNCTION banking_api.list_customers (p_query text DEFAULT NULL
             WHERE ah.customerid = vw_customer_detail.customerid
               AND ah.status = 'Active'
               AND ba.branchid = p_branch
+        ) OR EXISTS (
+            SELECT 1 FROM loan l WHERE l.customerid=vw_customer_detail.customerid AND l.branchid=p_branch
+        ) OR (
+            NOT EXISTS (SELECT 1 FROM account_holder ah WHERE ah.customerid = vw_customer_detail.customerid AND ah.status = 'Active')
+            AND NOT EXISTS (SELECT 1 FROM loan l WHERE l.customerid = vw_customer_detail.customerid)
+            AND EXISTS (
+                SELECT 1 FROM audit_log al
+                WHERE al.entitytype = 'CUSTOMER'
+                  AND al.entityid = vw_customer_detail.customerid::text
+                  AND al.action = 'INSERT'
+                  AND al.userid = banking_api.request_user_id()
+            )
         ))
 ),
 p AS (
@@ -738,7 +752,7 @@ CREATE OR REPLACE FUNCTION banking_api.get_reference_data ()
     SET search_path = banking, pg_temp
     AS $$
     SELECT
-        jsonb_build_object('branches', COALESCE((
+        jsonb_build_object('cardTypes', COALESCE((SELECT jsonb_agg(cardtype ORDER BY cardtype) FROM (SELECT DISTINCT cardtype FROM card WHERE status='Active') types),'[]'::jsonb), 'branches', COALESCE((
                 SELECT
                     jsonb_agg(jsonb_build_object('id', branchid, 'code', branchcode, 'name', branchname)
                 ORDER BY branchname)

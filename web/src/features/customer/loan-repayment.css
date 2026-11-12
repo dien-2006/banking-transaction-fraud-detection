@@ -1,0 +1,19 @@
+.d4-modal.loans-detail-dialog {max-width:760px;display:flex;flex-direction:column;overflow:hidden;}
+.loans-detail-dialog > div:first-child {flex-shrink:0;}
+.loans-detail-body {min-height:0;overflow-y:auto;overscroll-behavior:contain;padding-right:4px;}
+.loan-repayment {border-top:1px solid #e5ebf5;margin-top:22px;padding-top:20px;color:#07135c;}
+.loan-repayment h3 {font-size:18px;font-weight:800;margin-bottom:12px;}
+.loan-repayment h4 {font-size:16px;font-weight:700;}
+.loan-repayment p {font-size:13px;line-height:1.6;color:#61769c;margin:10px 0;}
+.loan-payment-fields {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin:16px 0;}
+.loan-payment-fields label {display:flex;flex-direction:column;gap:8px;font-size:14px;font-weight:600;}
+.loan-payment-fields select {min-width:0;width:100%;min-height:44px;padding:10px;border:1px solid #dce4f2;border-radius:10px;background:white;font-size:14px;font-weight:400;}
+.loan-payment-breakdown,.loan-payment-confirm dl {border:1px solid #e5ebf5;border-radius:12px;padding:4px 14px;margin:14px 0;}
+.loan-payment-breakdown>div,.loan-payment-confirm dl>div {display:flex;justify-content:space-between;gap:16px;padding:10px 0;font-size:13px;border-bottom:1px solid #edf1f7;}
+.loan-payment-breakdown>div:last-child,.loan-payment-confirm dl>div:last-child {border:0;font-weight:700;}
+.loan-repayment dt {color:#61769c;}
+.loan-repayment dd {text-align:right;overflow-wrap:anywhere;}
+.loan-repayment footer {display:flex;flex-wrap:wrap;justify-content:flex-end;gap:10px;margin-top:16px;}
+.loan-repayment .loan-payment-notice {padding:10px 12px;border-radius:10px;background:#fff8e8;color:#946011;}
+.loan-repayment .d4-transaction-result {margin-top:14px;}
+@media(max-width:639px){.loan-payment-fields{grid-template-columns:minmax(0,1fr);}.loan-repayment footer>button{flex:1;}.loan-repayment .d4-result-actions{flex-wrap:wrap;}}

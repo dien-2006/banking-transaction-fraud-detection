@@ -1,19 +1,19 @@
-import { Controller, ForbiddenException, Get, Query } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, Post, Query } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { CurrentUser, Roles } from '../security/decorators';
 import { AuthUser } from '../security/auth.guard';
-import { employeeBranch } from '../security/branch-access';
+import { staffReadBranch } from '../security/branch-access';
+import { createManualFraudReview, ManualFraudReviewDto } from './manual-fraud-review';
 
 @Controller('admin')
 export class AdminController {
   constructor(private readonly db: DatabaseService) {}
   private employee(user: AuthUser): void {
-    if (user.role === 'customer') throw new ForbiddenException();
-    employeeBranch(user);
+    staffReadBranch(user);
   }
-  @Get('dashboard') dashboard(@CurrentUser() user: AuthUser) {
+  @Get('dashboard') dashboard(@CurrentUser() user: AuthUser, @Query() q: Record<string, string> = {}) {
     this.employee(user);
-    return this.db.adminOverview(user.role === 'employee' ? user.branchId : undefined);
+    return this.db.adminOverview(staffReadBranch(user, q.branchId) ?? undefined);
   }
   @Get('profile') profile(@CurrentUser() user: AuthUser) {
     this.employee(user);
@@ -27,29 +27,33 @@ export class AdminController {
     ]);
   }
   @Get('fraud-reviews') reviews(@CurrentUser() user: AuthUser,
-    @Query('status') status?: string, @Query('page') page = '1', @Query('pageSize') size = '20') {
+    @Query('status') status?: string, @Query('page') page = '1', @Query('pageSize') size = '20', @Query('branchId') branchId?: string) {
     this.employee(user);
     return this.db.function('banking_api.list_fraud_reviews', [
-      status ?? null, Number(page), Number(size), user.role === 'employee' ? user.branchId : null,
+      status ?? null, Number(page), Number(size), staffReadBranch(user, branchId),
     ]);
+  }
+  @Roles('admin')
+  @Post('fraud-reviews') createReview(@CurrentUser() user: AuthUser, @Body() input: ManualFraudReviewDto) {
+    return createManualFraudReview(this.db, user, input);
   }
   @Get('customers') customers(@CurrentUser() user: AuthUser, @Query() q: Record<string, string>) {
     this.employee(user); return this.db.function('banking_api.list_customers', [
       q.query ?? null, q.status ?? null, Number(q.page ?? 1), Number(q.pageSize ?? 20),
-      user.role === 'employee' ? user.branchId : null,
-    ]);
+      staffReadBranch(user, q.branchId),
+    ], { userId: user.userId });
   }
   @Roles('admin')
   @Get('employees') employees(@CurrentUser() user: AuthUser, @Query() q: Record<string, string>) {
     this.employee(user); return this.db.function('banking_api.list_employees', [
-      q.query ?? null, q.status ?? null, q.branchId ? Number(q.branchId) : null,
+      q.query ?? null, q.status ?? null, staffReadBranch(user, q.branchId),
       Number(q.page ?? 1), Number(q.pageSize ?? 20),
     ]);
   }
   @Get('accounts') accounts(@CurrentUser() user: AuthUser, @Query() q: Record<string, string>) {
     this.employee(user); return this.db.function('banking_api.list_accounts', [
       q.query ?? null, q.status ?? null, Number(q.page ?? 1), Number(q.pageSize ?? 20),
-      user.role === 'employee' ? user.branchId : null,
+      staffReadBranch(user, q.branchId),
     ]);
   }
   @Roles('admin')
@@ -62,13 +66,13 @@ export class AdminController {
     this.employee(user); return this.db.function('banking_api.list_cards', [
       q.customerId ? Number(q.customerId) : null, q.accountId ? Number(q.accountId) : null,
       q.status ?? null, Number(q.page ?? 1), Number(q.pageSize ?? 20),
-      user.role === 'employee' ? user.branchId : null,
+      staffReadBranch(user, q.branchId),
     ]);
   }
   @Get('loans') loans(@CurrentUser() user: AuthUser, @Query() q: Record<string, string>) {
     this.employee(user); return this.db.function('banking_api.list_loans', [
       q.customerId ? Number(q.customerId) : null, q.status ?? null,
-      user.role === 'employee' ? user.branchId : q.branchId ? Number(q.branchId) : null,
+      staffReadBranch(user, q.branchId),
       Number(q.page ?? 1), Number(q.pageSize ?? 20),
     ]);
   }
@@ -84,9 +88,7 @@ export class AdminController {
   }
   @Get('branch-dashboard') branchDashboard(@CurrentUser() user: AuthUser, @Query() q: Record<string, string>) {
     this.employee(user);
-    const branchId = user.role === 'employee'
-      ? user.branchId
-      : q.branchId ? Number(q.branchId) : user.branchId;
+    const branchId = staffReadBranch(user, q.branchId);
     if (!branchId) throw new ForbiddenException('Branch identity required');
     if (q.from && q.to) return this.db.function('banking_api.branch_dashboard', [branchId, q.from, q.to]);
     if (q.from) return this.db.function('banking_api.branch_dashboard', [branchId, q.from]);

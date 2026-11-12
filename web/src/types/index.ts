@@ -31,4 +31,5 @@ export interface Transaction {
   time: string;
   status: string;
   risk: string;
+  decision?: "ALLOW" | "REVIEW" | "BLOCK";
 }

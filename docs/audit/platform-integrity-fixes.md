@@ -36,7 +36,7 @@ Phạm vi gồm các thay đổi của đợt rà soát và phần hoàn tất t
 
 ## Stream, xác thực và secret
 
-- Publisher TypeScript là implementation chính duy nhất; Python publisher cũ trở thành thông báo chuyển sang service chính. Test retry/ACK chạy đúng publisher đang deploy.
+- Publisher TypeScript là implementation chính duy nhất; Python publisher cũ đã được xóa. Test retry/ACK chạy đúng publisher đang deploy.
 - Outbox và notification có backoff và budget 8 lần/process. Event lỗi vẫn ở FAILED, được loại khỏi claim trong lúc backoff/hết budget để không chặn event mới; sửa nguyên nhân và restart worker để mở lượt replay. Metadata retry hiện là runtime state, không bền vững qua restart.
 - Consumer vẫn put object → stat object → commit offset. Audit sau deploy: PUBLISHED=509, lag=0 ở cả ba partition, tìm thấy 2/2 event gần nhất trong Bronze. Không tạo giao dịch live mới trong lượt khắc phục.
 - AuthGuard kiểm tra lại actor active/role/branch/device hiện tại. Token cũ không tiếp tục giữ quyền sau khi actor bị khóa hoặc đổi quyền.

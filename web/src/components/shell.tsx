@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Brand } from "@/components/brand";
 import "@/features/customer/customer-ui.css";
 import { SessionProvider } from "@/components/session-context";
@@ -29,6 +29,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { Role, SessionUser } from "@/types";
 import "@/features/customer/customer-home.css";
 import "@/features/customer/customer-workspace.css";
+import "@/features/customer/customer-banner.css";
 import { useNotificationRead } from "@/features/employee/use-notification-read";
 
 function NotificationMenu({
@@ -191,7 +192,7 @@ function AccountMenu({
       <DropdownMenu.Trigger asChild>
         <button
           aria-label="Mở menu tài khoản"
-          className="flex items-center gap-2 rounded-lg px-1 py-0.5 text-left outline-none transition hover:bg-slate-50 data-[state=open]:bg-slate-50"
+          className="dashboard-account-button flex items-center gap-2 rounded-lg px-1 py-0.5 text-left outline-none transition hover:bg-slate-50 data-[state=open]:bg-slate-50"
         >
           <span className="grid size-8 place-items-center overflow-hidden rounded-full bg-navy text-xs font-bold text-white">
             {avatarUrl ? (
@@ -257,10 +258,38 @@ export function DashboardShell({
 }) {
   const [sessionReady, setSessionReady] = useState(false);
   const [open, setOpen] = useState(false);
+  const [narrow, setNarrow] = useState(false);
+  const sidebar = useRef<HTMLElement>(null);
+  const menuButton = useRef<HTMLButtonElement>(null);
   const [session, setSession] = useState<SessionUser | null>(null);
   const [featureQuery, setFeatureQuery] = useState("");
   const pathname = usePathname();
   const router = useRouter();
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 1099px)");
+    const update = () => { setNarrow(media.matches); if (!media.matches) setOpen(false); };
+    update(); media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+  useEffect(() => { setOpen(false); }, [pathname]);
+  useEffect(() => {
+    if (narrow && !open) setFeatureQuery("");
+    if (!narrow || !open) return;
+    const focusable = () => Array.from(sidebar.current?.querySelectorAll<HTMLElement>(
+      'a[href],button:not([disabled]),input:not([disabled]),[tabindex="0"]',
+    ) ?? []).filter(node => node.getClientRects().length > 0);
+    focusable()[0]?.focus();
+    const keyboard = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { event.preventDefault(); setOpen(false); }
+      if (event.key !== "Tab") return;
+      const items = focusable(), first = items[0], last = items.at(-1);
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    };
+    document.addEventListener("keydown", keyboard);
+    return () => { document.removeEventListener("keydown", keyboard); menuButton.current?.focus(); };
+  }, [narrow, open]);
 
   useEffect(() => {
     const refresh = () => {
@@ -346,14 +375,22 @@ export function DashboardShell({
         <a className="skip-link" href="#main-content">
           Bỏ qua điều hướng
         </a>
-        {open && (
+        {open && narrow && (
           <button
-            aria-label="Đóng menu"
+            aria-label="Đóng nền menu"
+            tabIndex={-1}
             className="dashboard-menu-backdrop fixed inset-0 z-30 bg-navy/30 lg:hidden"
             onClick={() => setOpen(false)}
           />
         )}
         <aside
+          ref={sidebar}
+          id="dashboard-navigation"
+          data-open={open}
+          role={narrow ? "dialog" : undefined}
+          aria-modal={narrow && open ? true : undefined}
+          aria-label="Menu điều hướng"
+          inert={narrow && !open}
           className={cn(
             "dashboard-sidebar fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-slate-100 bg-white px-2 py-3 transition-transform",
             open ? "translate-x-0" : "-translate-x-full",
@@ -369,11 +406,16 @@ export function DashboardShell({
               <X />
             </button>
           </div>
+          {narrow && <label className="dashboard-nav-search">
+            <Search size={17} aria-hidden="true" />
+            <input aria-label="Tìm trong menu" placeholder="Tìm mục trong menu…" value={featureQuery}
+              onChange={event => setFeatureQuery(event.target.value)} />
+          </label>}
           <nav
             aria-label="Điều hướng chính"
             className="mt-4 flex-1 space-y-0.5 overflow-y-auto"
           >
-            {navigation[role].map(({ label, href, icon: Icon }) => {
+            {(narrow ? featureItems : navigation[role]).map(({ label, href, icon: Icon }) => {
               const active =
                 pathname === href ||
                 (href !== `/${role}` && pathname.startsWith(`${href}/`));
@@ -395,6 +437,7 @@ export function DashboardShell({
                 </Link>
               );
             })}
+            {narrow && !featureItems.length && <p className="p-3 text-sm text-slate-500" role="status">Không tìm thấy mục phù hợp.</p>}
           </nav>
           {role === "customer" ? (
             <Link
@@ -432,14 +475,18 @@ export function DashboardShell({
             Đăng xuất
           </button>
         </aside>
-        <header className="sticky top-0 z-20 flex h-12 items-center gap-2 border-b border-slate-100 bg-white/95 px-3 backdrop-blur md:px-4">
+        <header inert={narrow && open} className="sticky top-0 z-20 flex h-12 items-center gap-2 border-b border-slate-100 bg-white/95 px-3 backdrop-blur md:px-4">
           <button
+            ref={menuButton}
             aria-label="Mở menu"
+            aria-controls="dashboard-navigation"
+            aria-expanded={open}
             className="dashboard-menu-open grid size-8 place-items-center rounded-lg border lg:hidden"
             onClick={() => setOpen(true)}
           >
             <Menu size={18} />
           </button>
+          <Link href={`/${role}`} className="dashboard-mobile-brand" aria-label="D4 Bank, trang chủ"><Brand /></Link>
           <nav className="hidden items-center gap-1.5 text-[12px] font-semibold lg:flex">
             {[
               ["Tổng quan", `/${role}`],
@@ -460,7 +507,7 @@ export function DashboardShell({
               </Link>
             ))}
           </nav>
-          <div className="ml-auto flex items-center gap-2">
+          <div className="dashboard-header-tools ml-auto flex items-center gap-2">
             <div
               className={cn(
                 "customer-feature-search",
@@ -513,6 +560,7 @@ export function DashboardShell({
         </header>
         <main
           id="main-content"
+          inert={narrow && open}
           tabIndex={-1}
           className="h-[calc(100dvh-3rem)] overflow-y-auto overflow-x-hidden p-2 md:p-3"
         >

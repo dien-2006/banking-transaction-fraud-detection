@@ -204,27 +204,27 @@ try {
       "password validation, error/retry and pending-dialog locking (mock only)",
     );
   }
-  const report = await fixture("employee");
-  await open(report.page, "/employee/reports");
+  const report = await fixture("admin");
+  await open(report.page, "/admin/insights");
   await report.page.getByLabel("Từ ngày", { exact: true }).fill("2026-11-30");
   await report.page.getByLabel("Đến ngày", { exact: true }).fill("2026-11-01");
   await report.page
-    .getByRole("button", { name: "Áp dụng", exact: true })
+    .getByRole("button", { name: "Lọc", exact: true })
     .click();
   await report.page.locator("#main-content").getByRole("alert").waitFor();
   const before = report.calls.length;
   await report.page.getByLabel("Từ ngày", { exact: true }).fill("2026-10-01");
   await report.page
-    .getByRole("button", { name: "Áp dụng", exact: true })
+    .getByRole("button", { name: "Lọc", exact: true })
     .click();
   await report.page.waitForLoadState("networkidle");
   assert.ok(report.calls.length > before);
   const range = new URLSearchParams(report.calls.at(-1).search);
-  assert.equal(range.get("from"), "2026-10-01T00:00:00");
-  assert.equal(range.get("to"), "2026-11-02T00:00:00");
+  assert.equal(range.get("from"), "2026-10-01");
+  assert.equal(range.get("to"), "2026-11-01");
   await report.page.close();
   console.log(
-    "PASS employee report rejects reversed dates and includes end day",
+    "PASS D4 Insights rejects reversed dates and applies the Gold date range",
   );
   const transfer = await fixture("customer", async (route, url) => {
     if (url.pathname.startsWith("/api/v1/transactions/destinations/")) {

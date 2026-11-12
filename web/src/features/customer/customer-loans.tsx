@@ -1,4 +1,6 @@
 "use client";
+import { ProductApplicationDialog } from "./product-application-dialog";
+import { LoanRepayment } from "./loan-repayment";
 import { loanStatusLabels } from "@/lib/record-status";
 import {
   ArrowRight,
@@ -46,8 +48,10 @@ export function CustomerLoans() {
   const query = useQuery({
     queryKey: ["customer", user.id, "loans"],
     queryFn: bankService.customerLoans,
+    refetchInterval: 15_000,
   });
   const [selected, setSelected] = useState<ApiLoan | null>(null);
+  const [paying,setPaying]=useState(false);
   const [status, setStatus] = useState(""),
     [product, setProduct] = useState("");
   const [hidden, setHidden] = useState(false),
@@ -59,7 +63,7 @@ export function CustomerLoans() {
     3,
     true,
   );
-  const loans = query.data ?? [];
+  const loans = [...(query.data ?? [])].sort((a,b)=>b.loanid-a.loanid);
   const schedules = useQueries({
     queries: loans.map((loan) => ({
       queryKey: ["customer", user.id, "loan-schedule", loan.loanid],
@@ -402,19 +406,20 @@ export function CustomerLoans() {
       )}
       <Modal
         open={!!selected}
-        onOpenChange={(open) => !open && setSelected(null)}
+        onOpenChange={(open) => !open && !paying && setSelected(null)}
         title={selected?.loantypename ?? "Chi tiết khoản vay"}
         description={`Mã khoản vay: ${selected?.loancode ?? ""}`}
+        className="loans-detail-dialog"
       >
         {selected && (
-          <LoanScheduleDetails
-            loan={selected}
+          <div className="loans-detail-body"><LoanScheduleDetails
+            loan={loans.find(loan=>loan.loanid===selected.loanid)??selected}
             rows={selectedQuery?.data}
             pending={!!selectedQuery?.isPending}
             error={!!selectedQuery?.isError}
             hidden={hidden}
             retry={() => void selectedQuery?.refetch()}
-          />
+          /><LoanRepayment key={selected.loanid} loan={loans.find(loan=>loan.loanid===selected.loanid)??selected} hidden={hidden} onReveal={()=>setHidden(false)} onBusyChange={setPaying} /></div>
         )}
       </Modal>
       <Modal
@@ -463,30 +468,7 @@ export function CustomerLoans() {
           <CustomerEmpty>Không có kỳ thanh toán chưa tất toán.</CustomerEmpty>
         )}
       </Modal>
-      <Modal
-        open={guide}
-        onOpenChange={setGuide}
-        title="Đăng ký và hỗ trợ khoản vay"
-        description="Chi nhánh D4 Bank sẽ tư vấn sản phẩm và tiếp nhận hồ sơ của bạn."
-      >
-        <div className="loans-guide">
-          <p>
-            Để đăng ký khoản vay mới, vui lòng liên hệ chi nhánh quản lý tài
-            khoản. Nhân viên sẽ tư vấn lãi suất, kỳ hạn, hồ sơ cần chuẩn bị và
-            hướng dẫn đăng ký.
-          </p>
-          <p>
-            Bạn có thể kiểm tra thông tin cá nhân và tài khoản trước khi liên
-            hệ. Việc gửi hồ sơ vay trực tiếp trên web chưa được hỗ trợ.
-          </p>
-          <Link href="/customer/profile">
-            Kiểm tra hồ sơ cá nhân <ArrowRight size={16} />
-          </Link>
-          <Link href="/customer/accounts">
-            Xem tài khoản và chi nhánh quản lý <ArrowRight size={16} />
-          </Link>
-        </div>
-      </Modal>
+      <ProductApplicationDialog kind="loans" open={guide} onOpenChange={setGuide} onCreated={()=>{setPage(1);setStatus("");setProduct("");}} />
     </div>
   );
 }

@@ -1,12 +1,11 @@
 "use client";
 import { DistributionChart } from "@/components/distribution-chart";
+import { RecordStatus } from "@/components/record-status";
 
 import {
   AlertTriangle,
   CheckCircle2,
   Clock3,
-  Filter,
-  Plus,
   Search,
   ShieldX,
   UserRound,
@@ -20,8 +19,9 @@ import {
   useListPagination,
 } from "@/components/list-pagination";
 import { ReviewDialog } from "./review-dialog";
+import { ManualReviewDialog } from "./manual-review-dialog";
 import { bankService } from "@/services/bank.service";
-import { loadFraudReviews } from "@/lib/fraud-data";
+import { loadFraudReviews, reviewLabels } from "@/lib/fraud-data";
 import "./fraud-page.css";
 
 const riskTone: Record<string, string> = {
@@ -32,11 +32,11 @@ const riskTone: Record<string, string> = {
   "Chưa đánh giá": "bg-slate-100 text-slate-600",
 };
 const statusTone: Record<string, string> = {
-  "Đang xử lý": "bg-amber-50 text-orange-500",
-  "Chờ review": "bg-blue-50 text-blue-600",
-  "Đã duyệt": "bg-emerald-50 text-emerald-600",
-  "Đã từ chối": "bg-red-50 text-red-600",
-  "Đã đóng": "bg-slate-100 text-slate-600",
+  OPEN: "bg-blue-50 text-blue-600",
+  IN_REVIEW: "bg-amber-50 text-orange-500",
+  APPROVED: "bg-emerald-50 text-emerald-600",
+  REJECTED: "bg-red-50 text-red-600",
+  CLOSED: "bg-slate-100 text-slate-600",
 };
 
 function FraudHero() {
@@ -79,6 +79,7 @@ export function FraudPage({ role = "admin" }: { role?: "admin" | "employee" }) {
     [risk, setRisk] = useState(""),
     [status, setStatus] = useState(requestedStatus),
     [tab, setTab] = useState("Danh sách cảnh báo");
+  const [accountFilter, setAccountFilter] = useState<string | null>(null);
   useEffect(() => {
     setStatus(requestedStatus);
   }, [requestedStatus]);
@@ -86,29 +87,47 @@ export function FraudPage({ role = "admin" }: { role?: "admin" | "employee" }) {
     () =>
       alerts.filter(
         (x) =>
+          (accountFilter === null || x.account === accountFilter) &&
+          (tab !== "Giao dịch nghi ngờ" || x.decision === "REVIEW" || x.decision === "BLOCK") &&
+          (tab !== "Tài khoản cần review" || (x.pending && x.account !== "—")) &&
           (!q ||
-            Object.values(x)
+            (/^RVW\d+$/i.test(q.trim()) ? x.id.toLowerCase() === q.trim().toLowerCase() : Object.values(x)
               .join(" ")
               .toLowerCase()
-              .includes(q.toLowerCase())) &&
+              .includes(q.toLowerCase()))) &&
           (!risk || x.risk === risk) &&
           (!status ||
-            (status === "__pending" ? x.pending : x.status === status)) &&
+            (status === "__pending" ? x.pending : x.reviewStatus === status)) &&
           (!type || x.type === type),
       ),
-    [q, risk, status, type, alerts],
+    [q, risk, status, type, alerts, tab, accountFilter],
   );
-  const pagination = useListPagination(data, { fitViewportOnly: true });
-  useEffect(() => pagination.setPage(1), [q, risk, status, type]);
+  const accountGroups = useMemo(() => {
+    const groups = new Map<string, typeof data>();
+    for (const review of data) {
+      const group = groups.get(review.account) ?? [];
+      group.push(review);
+      groups.set(review.account, group);
+    }
+    return groups;
+  }, [data]);
+  const accountView = tab === "Tài khoản cần review";
+  const listItems = accountView ? Array.from(accountGroups.values(), (group) => group[0]) : data;
+  const pagination = useListPagination(listItems, {
+    fitViewportOnly: true,
+    pageSize: 11,
+  });
+  const hasFilters = Boolean(q || risk || status || type || accountFilter);
+  useEffect(() => pagination.setPage(1), [q, risk, status, type, tab, accountFilter]);
   const pendingCount = alerts.filter((x) => x.pending).length;
   const kpis: Array<[typeof AlertTriangle, string, string]> = [
     [AlertTriangle, "Tổng hồ sơ review", String(alerts.length)],
-    [Clock3, "Đang chờ xử lý", String(pendingCount)],
+    [Clock3, "Review chưa hoàn tất", String(pendingCount)],
     [CheckCircle2, "Đã xử lý", String(alerts.length - pendingCount)],
     [
       ShieldX,
       "Đã từ chối",
-      String(alerts.filter((x) => x.status === "Đã từ chối").length),
+      String(alerts.filter((x) => x.reviewStatus === "REJECTED").length),
     ],
   ];
   const percent = (count: number) =>
@@ -194,10 +213,16 @@ export function FraudPage({ role = "admin" }: { role?: "admin" | "employee" }) {
                   : "px-2 text-xs"
               }
               key={x}
-              onClick={() => setTab(x)}
-              disabled={x !== "Danh sách cảnh báo"}
+              onClick={() => {
+                setTab(x);
+                setQ(""); setRisk(""); setType(""); setStatus("");
+                setAccountFilter(null);
+                pagination.setPage(1);
+              }}
+              aria-pressed={tab === x}
+              disabled={x === "Báo cáo rủi ro" || x === "Lịch sử xử lý"}
               title={
-                x !== "Danh sách cảnh báo"
+                (x === "Báo cáo rủi ro" || x === "Lịch sử xử lý")
                   ? "Chức năng chưa được triển khai"
                   : undefined
               }
@@ -207,29 +232,33 @@ export function FraudPage({ role = "admin" }: { role?: "admin" | "employee" }) {
           ))}
         </div>
         {role === "admin" && (
-          <button
-            disabled
-            title="API chưa hỗ trợ tạo cảnh báo thủ công"
-            className="btn-primary h-8 disabled:opacity-50"
-          >
-            <Plus size={14} />
-            Tạo cảnh báo thủ công
-          </button>
+          <ManualReviewDialog onCreated={(reviewId) => {
+            setTab("Danh sách cảnh báo");
+            setQ(`RVW${reviewId}`); setRisk(""); setType(""); setStatus("");
+            setAccountFilter(null); pagination.setPage(1);
+          }} />
         )}
       </section>
-      {tab !== "Danh sách cảnh báo" ? (
-        <section className="card flex-1 p-5">
-          <h2 className="text-lg font-black">{tab}</h2>
-          <p className="mt-2 text-sm text-slate-500">
-            Dữ liệu mô phỏng cho quy trình giám sát và review rủi ro.
-          </p>
-        </section>
-      ) : (
         <section className="fraud-workspace grid min-h-0 flex-1 grid-cols-[2.05fr_.62fr] gap-3">
           <article
             ref={pagination.panelRef}
+            data-fixed-page-size={11}
             className="fraud-list-panel card flex min-h-0 flex-col p-3"
           >
+            <div className="fraud-list-heading">
+              <div className="fraud-list-title"><h2>{accountView ? "Tài khoản cần review" : tab === "Giao dịch nghi ngờ" ? "Giao dịch nghi ngờ" : "Hồ sơ cảnh báo"}</h2><span className="fraud-filter-summary">{accountView ? `${listItems.length} tài khoản · ${data.length} hồ sơ` : `${data.length} / ${alerts.length} hồ sơ`}</span></div>
+              <div className="fraud-list-tools">
+                {hasFilters && <button className="fraud-clear-filters" onClick={() => {
+                  setQ(""); setRisk(""); setType(""); setStatus(""); setAccountFilter(null); pagination.setPage(1);
+                }}>Xóa bộ lọc</button>}
+              </div>
+            </div>
+            {accountFilter && <p className="mb-2 text-xs text-slate-500">Đang xem hồ sơ chưa hoàn tất của {accountFilter}.</p>}
+            {tab !== "Danh sách cảnh báo" && <p className="mb-2 text-xs text-slate-500">
+              {accountView
+                ? "Các tài khoản nguồn có hồ sơ review chưa hoàn tất trong phạm vi được cấp quyền. Trạng thái review không đồng nghĩa tài khoản bị khóa."
+                : "Các giao dịch có quyết định REVIEW hoặc BLOCK trong danh sách hồ sơ cảnh báo được cấp quyền."}
+            </p>}
             <div className="fraud-filters grid grid-cols-[1.45fr_.65fr_.65fr_.65fr_.28fr] gap-2">
               <label className="relative">
                 <Search
@@ -273,33 +302,27 @@ export function FraudPage({ role = "admin" }: { role?: "admin" | "employee" }) {
                 aria-label="Trạng thái review"
               >
                 <option value="">Tất cả trạng thái</option>
-                <option value="__pending">Hồ sơ chờ xử lý</option>
-                {Object.keys(statusTone).map((x) => (
-                  <option key={x}>{x}</option>
+                {/* Preserve the overview's pending shortcut without another menu choice. */}
+                {status === "__pending" && <option value="__pending" hidden>Hồ sơ chưa hoàn tất</option>}
+                {Object.entries(reviewLabels).filter(([code]) => !accountView || code === "OPEN" || code === "IN_REVIEW").map(([code, label]) => (
+                  <option key={code} value={code}>{label}</option>
                 ))}
               </select>
-              <button
-                onClick={() => pagination.setPage(1)}
-                className="rounded-lg border border-coral text-[10px] text-coral"
-              >
-                <Filter className="inline" size={13} /> Lọc
-              </button>
             </div>
-            <div className="fraud-table-container mt-2 min-h-0 overflow-auto">
-              <table className="fraud-review-table w-full table-fixed text-left text-[10px]">
+            <div className="fraud-table-container mt-2 min-h-0 overflow-auto" role="region" aria-label="Bảng hồ sơ review" tabIndex={0}>
+              <table className={`fraud-review-table ${accountView ? "fraud-account-table" : ""} w-full table-fixed text-left text-[10px]`}>
                 <thead className="bg-slate-50">
                   <tr>
-                    {[
+                    {(accountView ? ["Tài khoản", "Khách hàng", "Hồ sơ chưa hoàn tất", "Thao tác"] : [
                       "Mã review",
                       "Thời gian",
                       "Khách hàng",
-                      "Loại giao dịch",
-                      "Mã giao dịch",
+                      "Giao dịch",
                       "Rủi ro",
-                      "Trạng thái",
-                      "Người xử lý",
+                      "Trạng thái review",
+                      "Trạng thái giao dịch",
                       "Thao tác",
-                    ].map((x) => (
+                    ]).map((x) => (
                       <th className="p-2 font-medium" key={x}>
                         {x}
                       </th>
@@ -310,7 +333,7 @@ export function FraudPage({ role = "admin" }: { role?: "admin" | "employee" }) {
                   {reviewsQuery.isPending && (
                     <tr>
                       <td
-                        colSpan={9}
+                        colSpan={accountView ? 4 : 8}
                         className="p-3 text-center text-slate-500"
                       >
                         Đang tải hồ sơ review…
@@ -319,7 +342,7 @@ export function FraudPage({ role = "admin" }: { role?: "admin" | "employee" }) {
                   )}
                   {reviewsQuery.isError && (
                     <tr>
-                      <td colSpan={9} className="p-3 text-center text-red-600">
+                      <td colSpan={accountView ? 4 : 8} className="p-3 text-center text-red-600">
                         Không thể tải hồ sơ review.{" "}
                         <button
                           onClick={() => {
@@ -334,38 +357,39 @@ export function FraudPage({ role = "admin" }: { role?: "admin" | "employee" }) {
                   {reviewsQuery.isSuccess && !data.length && (
                     <tr>
                       <td
-                        colSpan={9}
+                        colSpan={accountView ? 4 : 8}
                         className="p-3 text-center text-slate-500"
                       >
                         Không có hồ sơ phù hợp.
                       </td>
                     </tr>
                   )}
-                  {pagination.visibleItems.map((x) => (
+                  {accountView ? pagination.visibleItems.map((x) => (
+                    <tr className="border-t" key={x.account}>
+                      <td className="p-2 font-semibold">{x.account}</td>
+                      <td className="p-2">{Array.from(new Set(accountGroups.get(x.account)?.map((review) => review.customer))).join(", ")}</td>
+                      <td className="p-2">{accountGroups.get(x.account)?.length}</td>
+                      <td className="p-2 text-center"><button className="d4-view-button" onClick={() => {
+                        setTab("Danh sách cảnh báo");
+                        setQ(""); setRisk(""); setType(""); setStatus("__pending");
+                        setAccountFilter(x.account);
+                        pagination.setPage(1);
+                      }}>Xem hồ sơ</button></td>
+                    </tr>
+                  )) : pagination.visibleItems.map((x) => (
                     <tr className="border-t" key={x.id}>
                       <td className="p-1.5 font-semibold text-blue-600">
                         {x.id}
                       </td>
                       <td className="fraud-time-cell p-1.5">
-                        <time dateTime={x.createdAt}>
-                          <span>
-                            {new Date(x.createdAt).toLocaleDateString("vi-VN", {
-                              timeZone: "Asia/Ho_Chi_Minh",
-                            })}
-                          </span>
-                          <span>
-                            {new Date(x.createdAt).toLocaleTimeString("vi-VN", {
-                              timeZone: "Asia/Ho_Chi_Minh",
-                            })}
-                          </span>
-                        </time>
+                        <time dateTime={x.createdAt}><span>{x.date}</span><span>{x.clock}</span></time>
                       </td>
                       <td className="p-1.5">
                         <b className="block truncate">{x.customer}</b>
                       </td>
-                      <td className="p-1.5">{x.type}</td>
                       <td className="p-1.5">
-                        <span title={x.detail}>{x.transaction}</span>
+                        <span className="fraud-transaction-code" title={x.detail}>{x.transaction}</span>
+                        <small className="fraud-transaction-type">{x.type}</small>
                       </td>
                       <td className="p-1.5">
                         <span
@@ -376,12 +400,12 @@ export function FraudPage({ role = "admin" }: { role?: "admin" | "employee" }) {
                       </td>
                       <td className="p-1.5">
                         <span
-                          className={`inline-block rounded px-1 text-center ${statusTone[x.status]}`}
+                          className={`inline-block rounded px-1 text-center ${statusTone[x.reviewStatus]}`}
                         >
                           {x.status}
                         </span>
                       </td>
-                      <td className="p-1.5">{x.assignee}</td>
+                      <td className="p-1.5"><RecordStatus status={x.transactionStatus} /></td>
                       <td className="p-1.5 text-center">
                         <ReviewDialog review={x} />
                       </td>
@@ -390,7 +414,7 @@ export function FraudPage({ role = "admin" }: { role?: "admin" | "employee" }) {
                 </tbody>
               </table>
             </div>
-            <ListPagination {...pagination} noun="hồ sơ review" />
+            <ListPagination {...pagination} noun={accountView ? "tài khoản" : "hồ sơ review"} />
           </article>
           <aside className="staff-secondary-panels fraud-sidebar grid min-h-0 grid-rows-[1.1fr_1fr_1.15fr] gap-3">
             <article className="card p-3">
@@ -442,6 +466,8 @@ export function FraudPage({ role = "admin" }: { role?: "admin" | "employee" }) {
                 <h2 className="text-base font-black">Review cần xử lý</h2>
                 <button
                   onClick={() => {
+                    setTab("Danh sách cảnh báo");
+                    setAccountFilter(null);
                     setQ("");
                     setRisk("");
                     setType("");
@@ -480,7 +506,6 @@ export function FraudPage({ role = "admin" }: { role?: "admin" | "employee" }) {
             </article>
           </aside>
         </section>
-      )}
     </div>
   );
 }

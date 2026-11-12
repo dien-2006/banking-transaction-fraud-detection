@@ -32,10 +32,18 @@ thẻ, thông báo và hồ sơ. Số dư, giao dịch, khoản vay, thẻ và h
 API theo phiên đăng nhập. Cache được tách theo người dùng và xóa khi đổi phiên.
 Các fixture số dư và giao dịch cũ đã được loại bỏ.
 
+D4 Insights là trang báo cáo phân tích của admin, dùng dữ liệu Gold qua Trino.
+Các biểu đồ được bố trí theo hàng với chiều cao tối thiểu, hỗ trợ cuộn trang
+và hiển thị trên điện thoại; giữ bộ lọc ngày và các mục phân tích hiện có.
+
 Danh sách giao dịch, khách hàng, nhân viên, tài khoản và khoản vay tải đủ các
 trang API trong phạm vi được cấp quyền trước khi tìm kiếm và tính thống kê.
 Đổi trang hoặc lọc danh sách không làm thay đổi các chỉ số tổng. Phản hồi phân
 trang chồng lặp hoặc thay đổi tổng được báo lỗi để người dùng tải lại.
+Các bảng phân trang dùng chiều cao hàng thực tế để thêm/bớt bản ghi theo khung
+hiển thị, kể cả khi đổi kích thước màn hình hoặc cỡ chữ. Không thêm hàng rỗng
+và không thay đổi dữ liệu nguồn; danh sách tài khoản khách hàng vẫn cố định
+2 tài khoản/trang. Chạy `npm run test:lists` để kiểm tra bố cục các bảng.
 Thông báo nhân viên lấy từ API; trạng thái đã đọc lưu theo tài khoản trên trình
 duyệt và đồng bộ với chuông thông báo. Các nút thêm mới dùng API quản lý hiện có.
 

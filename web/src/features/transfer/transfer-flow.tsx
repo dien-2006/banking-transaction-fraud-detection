@@ -30,6 +30,7 @@ import { CustomerMetric } from "@/features/customer/customer-ui";
 import { ReferenceArtwork } from "@/features/customer/reference-artwork";
 import { TransactionResult } from "@/components/transaction-result";
 import { Modal } from "@/components/ui";
+import { ScanTransferQrButton } from "@/components/payment-qr";
 import { accountBalanceSummary } from "@/lib/account-analytics";
 import {
   transferredToday,
@@ -48,14 +49,24 @@ const steps = ["Thông tin", "Xác nhận", "OTP", "Hoàn tất"];
 const number = new Intl.NumberFormat("vi-VN");
 
 export function TransferFlow() {
+  const [session, setSession] = useState(0);
+  return (
+    <TransferForm
+      key={session}
+      onRestart={() => setSession((current) => current + 1)}
+    />
+  );
+}
+
+function TransferForm({ onRestart }: { onRestart: () => void }) {
   const user = useSessionUser(),
     queryClient = useQueryClient();
   const accountQuery = useCustomerAccounts();
   const history = useCustomerTransactions();
-  const { recipients, remember } = useRecentRecipients(user.id);
+  const recipientQuery = useRecentRecipients(user.id);
+  const recipients = recipientQuery.data ?? [];
   const [recipientDialog, setRecipientDialog] = useState(false);
   const [sourceDialog, setSourceDialog] = useState(false);
-  const [resolved, setResolved] = useState<TransferDestination | null>(null);
   const attempted = useRef(false);
   const accounts = (accountQuery.data ?? [])
     .filter((x) => x.status === "Active" && x.currency === "VND")
@@ -79,6 +90,8 @@ export function TransferFlow() {
     [sourceId, setSourceId] = useState(""),
     [expiresAt, setExpiresAt] = useState(0),
     [remaining, setRemaining] = useState(0),
+    [resendAt, setResendAt] = useState(0),
+    [resendRemaining, setResendRemaining] = useState(0),
     [hidden, setHidden] = useState(false),
     [submitFailure, setSubmitFailure] = useState<unknown>(null);
   const idempotencyKey = useRef<string>(
@@ -112,20 +125,21 @@ export function TransferFlow() {
     update("account", recipient.accountNumber);
     update("customer", "");
     setDestinationId(null);
-    setResolved(null);
     setError("");
     setRecipientDialog(false);
   };
   const update = (key: keyof typeof form, value: string) =>
     setForm((x) => ({ ...x, [key]: value }));
   useEffect(() => {
-    if (!expiresAt) return;
-    const tick = () =>
+    if (!expiresAt && !resendAt) return;
+    const tick = () => {
       setRemaining(Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000)));
+      setResendRemaining(Math.max(0, Math.ceil((resendAt - Date.now()) / 1000)));
+    };
     tick();
     const timer = window.setInterval(tick, 1000);
     return () => window.clearInterval(timer);
-  }, [expiresAt]);
+  }, [expiresAt, resendAt]);
   const requestOtp = async (context: {
     sourceAccountId: number;
     destinationAccountId: number;
@@ -144,8 +158,12 @@ export function TransferFlow() {
       setOtpDestination(challenge.destinationMasked);
       setOtp("");
       setExpiresAt(Date.now() + challenge.expiresIn * 1000);
+      setResendAt(Date.now() + (challenge.resendAfter ?? 60) * 1000);
       setStep(2);
     } catch (caught) {
+      if (caught instanceof ApiError && caught.status === 429) {
+        setResendAt(Date.now() + (caught.retryAfter ?? 60) * 1000);
+      }
       setError(caught instanceof Error ? caught.message : "Không thể gửi OTP.");
     } finally {
       setLoading(false);
@@ -176,7 +194,6 @@ export function TransferFlow() {
           Number(source.id),
         );
         confirmedSource.current = { ...source };
-        setResolved(destination);
         setDestinationId(destination.accountId);
         setForm((x) => ({
           ...x,
@@ -241,7 +258,6 @@ export function TransferFlow() {
           description: form.content || `Chuyển tiền đến ${form.customer}`,
         });
         setResult({ ...created, customer: form.customer });
-        if (created.status === "Thành công" && resolved) remember(resolved);
         setStep(3);
         void queryClient.invalidateQueries({ queryKey: ["customer", user.id] });
       } catch (caught) {
@@ -272,7 +288,7 @@ export function TransferFlow() {
     setStep((x) => Math.min(3, x + 1));
   };
   const resend = () => {
-    if (!source || !destinationId || remaining > 0) return;
+    if (loading || !source || !destinationId || resendRemaining > 0 || attempted.current) return;
     void requestOtp({
       sourceAccountId: Number(source.id),
       destinationAccountId: destinationId,
@@ -445,7 +461,6 @@ export function TransferFlow() {
                             );
                             update("customer", "");
                             setDestinationId(null);
-                            setResolved(null);
                           }}
                           placeholder="Nhập số tài khoản D4 Bank"
                         />
@@ -494,6 +509,13 @@ export function TransferFlow() {
                         </button>
                       </>
                     )}
+                  </div>
+                  <div className="transfer-qr-entry">
+                    <ScanTransferQrButton onRead={account => {
+                      setForm(current => ({ ...current, account, customer: "", bank: "D4 Bank" }));
+                      setDestinationId(null); setError("");
+                    }} />
+                    <small>Quét QR hoặc chọn ảnh để điền tài khoản nhận.</small>
                   </div>
                   <label>
                     Ngân hàng nhận
@@ -687,11 +709,11 @@ export function TransferFlow() {
                   ) : (
                     <div className="transfer-no-recipients">
                       <UserRound />
-                      <p>Chưa có người nhận gần đây.</p>
+                      <p>{recipientQuery.isPending ? "Đang tải người nhận…" : recipientQuery.isError ? "Không thể tải người nhận." : "Chưa có người nhận gần đây."}</p>
                       <small>
-                        Người nhận được lưu trong phiên này sau khi chuyển tiền
-                        thành công.
+                        Người nhận được lấy từ lịch sử chuyển tiền thành công của bạn.
                       </small>
+                      {recipientQuery.isError && <button type="button" onClick={() => void recipientQuery.refetch()}>Thử lại</button>}
                     </div>
                   )}
                 </section>
@@ -789,10 +811,10 @@ export function TransferFlow() {
                 </small>
                 <button
                   className="btn-secondary mx-auto mt-4"
-                  disabled={loading || remaining > 0}
+                  disabled={loading || resendRemaining > 0 || attempted.current}
                   onClick={resend}
                 >
-                  Gửi lại mã OTP
+                  {resendRemaining > 0 ? `Gửi lại mã OTP sau ${resendRemaining}s` : "Gửi lại mã OTP"}
                 </button>
               </article>
             )}
@@ -856,6 +878,7 @@ export function TransferFlow() {
         {step === 3 && result && (
           <TransactionResult
             status={result.status}
+            decision={result.decision}
             operation="Chuyển tiền"
             amount={money.format(result.amount)}
             reference={result.id}
@@ -868,13 +891,23 @@ export function TransferFlow() {
               ["Nội dung", form.content || "Chuyển tiền"],
             ]}
             historyHref="/customer/transactions"
+            actions={
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={onRestart}
+              >
+                <ChevronLeft size={16} />
+                Quay lại chuyển khoản
+              </button>
+            }
           />
         )}
         <Modal
           open={recipientDialog}
           onOpenChange={setRecipientDialog}
           title="Chọn người nhận"
-          description="Người nhận của các lần chuyển tiền thành công trong phiên này. Thông tin sẽ được xác minh lại trước khi chuyển."
+          description="Người nhận từ lịch sử chuyển tiền thành công, sắp xếp theo lần chuyển mới nhất. Thông tin sẽ được xác minh lại trước khi chuyển."
         >
           {recipients.length ? (
             <div className="transfer-dialog-list">
@@ -898,8 +931,8 @@ export function TransferFlow() {
             </div>
           ) : (
             <p className="transfer-note">
-              Chưa có người nhận đã lưu. Hãy nhập số tài khoản người nhận vào
-              biểu mẫu.
+              {recipientQuery.isPending ? "Đang tải người nhận…" : recipientQuery.isError ? "Không thể tải người nhận. Vui lòng thử lại." : "Chưa có người nhận từ lịch sử chuyển tiền thành công. Hãy nhập số tài khoản vào biểu mẫu."}
+              {recipientQuery.isError && <button type="button" onClick={() => void recipientQuery.refetch()}>Thử lại</button>}
             </p>
           )}
         </Modal>

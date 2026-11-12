@@ -38,7 +38,7 @@ def main():
         # If the role commit succeeded but rename failed, the protected staged
         # file retains the new credential for recovery; never print it.
         raise RuntimeError('rotation did not finish; inspect the protected .rotation-pending file before retrying') from None
-    print('Rotated four local secrets. Regenerate scoped environment files and recreate the affected services; external API keys unchanged.')
+    print('Rotated four local secrets in .env. Recreate the affected services; external API keys unchanged.')
 
 
 if __name__ == '__main__':

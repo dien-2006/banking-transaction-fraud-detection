@@ -10,6 +10,8 @@ export interface ApiErrorBody {
   statusCode?: number;
   code?: string;
   message?: string | string[];
+  field?: string;
+  retryAfter?: number;
 }
 
 export class ApiError extends Error {
@@ -17,6 +19,8 @@ export class ApiError extends Error {
     message: string,
     readonly status: number,
     readonly code?: string,
+    readonly field?: string,
+    readonly retryAfter?: number,
   ) {
     super(message);
     this.name = "ApiError";
@@ -100,6 +104,8 @@ export async function apiRequest<T>(
           : "Không thể hoàn tất yêu cầu. Vui lòng thử lại."),
       response.status,
       error.code,
+      error.field,
+      typeof error.retryAfter === "number" && Number.isFinite(error.retryAfter) && error.retryAfter > 0 ? error.retryAfter : undefined,
     );
   }
   return body as T;

@@ -83,7 +83,10 @@ export function TransactionsPage() {
         .map((row) => ({ ...presentTransaction(row), raw: row })),
     [filters, q, transactions],
   );
-  const pagination = useListPagination(data, { fitViewportOnly: true });
+  const pagination = useListPagination(data, {
+    fitViewportOnly: true,
+    pageSize: user.role === "employee" ? 6 : 5,
+  });
   const reset = () => {
     setFilters({ ...emptyHistoryFilters });
     pagination.setPage(1);
@@ -139,6 +142,7 @@ export function TransactionsPage() {
       <section className="grid min-h-0 flex-1 grid-cols-[1.9fr_.7fr] gap-3">
         <article
           ref={pagination.panelRef}
+          data-fixed-page-size={user.role === "employee" ? 6 : 5}
           className="card flex min-h-0 flex-col p-3"
         >
           <div className="d4-transaction-filters">

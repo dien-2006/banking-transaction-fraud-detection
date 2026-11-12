@@ -59,6 +59,13 @@ const routes = {
     "news",
   ],
 };
+const viewports = process.env.WEB_AUDIT_VIEWPORTS
+  ? process.env.WEB_AUDIT_VIEWPORTS.split(",").map(value => {
+      const [width, height] = value.split("x").map(Number);
+      assert.ok(Number.isSafeInteger(width) && width >= 280 && Number.isSafeInteger(height) && height >= 280, "Invalid audit viewport");
+      return { width, height };
+    })
+  : [{ width: 1536, height: 1024 }, { width: 1366, height: 768 }, { width: 375, height: 812 }, { width: 1100, height: 640 }];
 async function pageFor(role, viewport) {
   const page = await browser.newPage({
     viewport,
@@ -105,12 +112,7 @@ async function pageFor(role, viewport) {
   return { page, requests };
 }
 try {
-  for (const viewport of [
-    { width: 1536, height: 1024 },
-    { width: 1366, height: 768 },
-    { width: 375, height: 812 },
-    { width: 1100, height: 640 },
-  ])
+  for (const viewport of viewports)
     for (const role of Object.keys(routes)) {
       const { page, requests } = await pageFor(role, viewport);
       for (const slug of routes[role]) {
@@ -233,7 +235,7 @@ try {
                 `${route} last row clipped by pagination`,
               );
           const artifact = `${role}-${slug || "home"}-${viewport.width}`;
-          if (viewport.width === 1366 || viewport.width === 375)
+          if (process.env.WEB_AUDIT_SCREENSHOTS === "all" || viewport.width === 1366 || viewport.width === 375)
             await page.screenshot({
               path: `${output}/${artifact}.png`,
               fullPage: true,

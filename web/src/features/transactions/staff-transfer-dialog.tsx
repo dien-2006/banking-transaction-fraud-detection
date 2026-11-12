@@ -63,7 +63,7 @@ export function StaffTransferDialog({ onCreated }: { onCreated: () => void }) {
       onCreated();
       void client.invalidateQueries({
         predicate: (q) =>
-          /accounts|overview|branch-reports/.test(String(q.queryKey[0])),
+          /accounts|overview/.test(String(q.queryKey[0])),
       });
     },
     onError: (caught) => {

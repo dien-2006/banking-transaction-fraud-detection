@@ -58,6 +58,7 @@ export interface ApiFraudReview extends ApiTransaction {
   reviewcreatedat: string;
   reviewedat?: string | null;
   revieweruserid?: number | null;
+  reviewreason?: string | null;
 }
 
 export interface ApiCard {
@@ -138,6 +139,22 @@ export interface TransferDestination {
   bankName: string;
 }
 
+export interface CustomerProductCatalog {
+  branches: Array<{id:number;name:string;acceptingLoans:boolean}>;
+  accountTypes: Array<{id:number;name:string;minBalance:string|number}>;
+  loanTypes: Array<{id:number;name:string;maxAmount:string|number;interestRate:string|number;maxTermMonths:number}>;
+  card: {cardType:string;types:Array<{value:string;label:string}>;dailyLimit:string;validityYears:number};
+}
+export type CustomerProductKind = "accounts"|"cards"|"loans";
+
+export interface LoanPaymentOptions {
+  loanId:number;status:string;ready:boolean;unavailableReason:string|null;
+  schedules:Array<{scheduleId:number;installmentNo:number;dueDate:string;status:string;principal:string;interest:string;penalty:string;total:string;pendingPayment:boolean}>;
+}
+export interface LoanPaymentInput {
+  loanId:number;scheduleId:number;sourceAccountId:number;amount:string;transactionCode:string;
+}
+
 export interface AdminOverviewData {
   generatedAt: string;
   activeAccounts: number;
@@ -201,6 +218,12 @@ export interface CustomerNotification {
   createdat: string;
 }
 
+export interface CustomerTransactionDetail {
+  transaction:ApiTransaction;
+  postings:unknown[];
+  transfer:{sourceAccountNumber:string|null;sourceAccountName:string|null;destinationAccountNumber:string|null;destinationAccountName:string|null}|null;
+}
+
 export interface EmployeeNotification {
   id: string;
   type: "fraud" | "loan" | "work" | "system";
@@ -245,12 +268,32 @@ export const bankService = {
   },
   customerProfile: () => apiRequest<Record<string, unknown>>("/me"),
   customerAccounts: () => apiRequest<ApiAccount[]>("/me/accounts"),
+  customerRecipients: () => apiRequest<TransferDestination[]>("/me/recipients"),
+  customerProductCatalog: () => apiRequest<CustomerProductCatalog>("/me/products/catalog"),
+  createCustomerProduct: (kind:CustomerProductKind, data:Record<string,unknown>) =>
+    apiRequest<Record<string,unknown>>(`/me/products/${kind}`, {method:"POST",body:JSON.stringify(data)}),
+  decideLoan: (id:number, decision:"APPROVE"|"REJECT", reason:string) =>
+    apiRequest<Record<string,unknown>>(`/management/loans/${id}/decision`, {method:"POST",body:JSON.stringify({decision,reason})}),
   customerCards: () => apiRequest<ApiCard[]>("/me/cards"),
+  revealCardNumber: (id:number,password:string,signal?:AbortSignal) => apiRequest<{cardId:number;cardNumber:string;expiresIn:number}>(`/me/cards/${id}/reveal-number`,{method:"POST",body:JSON.stringify({password}),signal,cache:"no-store"}),
   customerLoans: () => apiRequest<ApiLoan[]>("/me/loans"),
+  loanPaymentOptions: (id:number) => apiRequest<LoanPaymentOptions>(`/me/loans/${id}/payment-options`),
+  payLoan: async (data:LoanPaymentInput) => {
+    const result=requireTransactionResult(await apiRequest<ApiTransaction>("/transactions/loan-payments",{method:"POST",body:JSON.stringify(data)}));
+    if(result.typecode!=="LOAN_PAYMENT"||result.transactioncode!==data.transactionCode||result.currency!=="VND")
+      throw new ApiError("Chưa nhận được kết quả trả nợ khớp với lệnh đã gửi. Vui lòng kiểm tra lịch sử hoặc thử lại đúng lệnh.",502,"LOAN_PAYMENT_RESULT_UNKNOWN");
+    return result;
+  },
   customerNotifications: (page = 1, pageSize = 20) =>
     apiRequest<PageResult<CustomerNotification>>(
       `/me/notifications${toQuery({ page, pageSize })}`,
     ),
+  customerTransaction: async (id:number) => {
+    const detail=await apiRequest<CustomerTransactionDetail|null>(`/me/transactions/${id}`);
+    if(!detail)throw new ApiError("Không tìm thấy giao dịch hoặc bạn không có quyền xem giao dịch này.",404);
+    if(Number(detail.transaction?.transactionid)!==id)throw new ApiError("Thông tin giao dịch trả về không khớp với thông báo. Vui lòng thử lại.",502);
+    return {...detail,transaction:requireTransactionResult(detail.transaction)};
+  },
   employeeProfile: () => apiRequest<Record<string, unknown>>("/admin/profile"),
   employeeNotifications: (page = 1, pageSize = 100) =>
     apiRequest<PageResult<EmployeeNotification>>(
@@ -297,6 +340,11 @@ export const bankService = {
     apiRequest<PageResult<ApiFraudReview>>(
       `/admin/fraud-reviews${toQuery(params)}`,
     ),
+  createFraudReview: (input: { transactionCode: string; reason: string }) =>
+    apiRequest<{ reviewId: string; status: string; reused: boolean }>("/admin/fraud-reviews", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
   auditLogs: (params: Record<string, string | number | undefined> = {}) =>
     apiRequest<PageResult<Record<string, unknown>>>(
       `/admin/audit-logs${toQuery(params)}`,
@@ -313,6 +361,7 @@ export const bankService = {
       challengeId: string;
       expiresIn: number;
       destinationMasked: string;
+      resendAfter?: number;
     }>("/security/otp/request", {
       method: "POST",
       body: JSON.stringify(input),
@@ -362,6 +411,9 @@ export const bankService = {
       body: JSON.stringify(input),
     }).then(requireTransactionResult);
   },
+  managementCustomerAccounts: (customerId: number) => apiRequest<Array<{
+    accountid: number | string; accountnumber: string; branchid: number; branchname: string; accounttypename: string;
+  }>>(`/management/customers/${customerId}/accounts`),
   managementCreate(
     resource:
       "branches" | "customers" | "employees" | "accounts" | "cards" | "loans",

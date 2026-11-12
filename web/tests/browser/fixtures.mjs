@@ -3,6 +3,7 @@ export const accountRows = Array.from({ length: 24 }, (_, i) => ({
   accountnumber: `100000000000${String(i + 1).padStart(4, "0")}`,
   customerid: 101,
   branchid: 3,
+  holdertype: "PRIMARY_OWNER",
   branchcode: "CN003",
   branchname: "Chi nhánh kiểm thử",
   accounttypeid: 1,
@@ -194,8 +195,19 @@ export function fixtureResponse(url, role) {
   if (path === "/me" || path === "/admin/profile") return profile;
   if (path === "/me/accounts")
     return accountRows.filter((row) => row.accountcategory === "CUSTOMER");
+  if (path === "/me/recipients") return [];
+  if (path === "/me/products/catalog") return {
+    branches:[{id:3,name:"Chi nhánh kiểm thử",acceptingLoans:true},{id:4,name:"Chi nhánh thứ hai",acceptingLoans:false}],
+    accountTypes:[{id:1,name:"Thanh toán",minBalance:50000}],
+    loanTypes:[{id:1,name:"Vay tiêu dùng",maxAmount:50000000,interestRate:8.5,maxTermMonths:36}],
+    card:{cardType:"Debit",types:[{value:"Debit",label:"Thẻ ghi nợ tiêu chuẩn"},{value:"Debit Napas",label:"Thẻ ghi nợ nội địa (Napas)"},{value:"Debit Visa",label:"Thẻ ghi nợ Visa"},{value:"Debit Mastercard",label:"Thẻ ghi nợ Mastercard"}],dailyLimit:"50000000",validityYears:3},
+  };
   if (path === "/me/cards") return cardRows;
   if (path === "/me/loans") return loanRows;
+  if (/^\/me\/loans\/\d+\/payment-options$/.test(path)) return {
+    loanId:Number(path.split('/')[3]),status:'Active',ready:true,unavailableReason:null,
+    schedules:[{scheduleId:417,installmentNo:1,dueDate:'2026-12-12',status:'Pending',principal:'1111',interest:'7.87',penalty:'0',total:'1118.87',pendingPayment:false}],
+  };
   if (/^\/me\/loans\/\d+\/schedule$/.test(path)) {
     const loanid = Number(path.split("/")[3]);
     return [1, 2, 3].map((n) => ({
@@ -223,6 +235,7 @@ export function fixtureResponse(url, role) {
       customerRows.map((_, i) => ({
         notificationoutboxid: i + 1,
         notificationtype: "TRANSACTION_COMPLETED",
+        transactionid: i + 1,
         transactioncode: `TX-${i + 1}`,
         createdat: "2026-11-01T10:00:00Z",
       })),
@@ -242,6 +255,9 @@ export function fixtureResponse(url, role) {
       url,
     );
   if (path === "/transactions") return page(transactionRows, url);
+  if (/^\/me\/transactions\/\d+$/.test(path)) return {
+    transaction:transactionRows.find(row=>row.transactionid===Number(path.split('/').at(-1))),postings:[],transfer:null,
+  };
   if (path === "/admin/accounts") return page(accountRows, url);
   if (path === "/admin/cards") return page(cardRows, url);
   if (path === "/admin/loans") return page(loanRows, url);
@@ -256,6 +272,7 @@ export function fixtureResponse(url, role) {
         reviewstatus: ["OPEN", "IN_REVIEW", "APPROVED", "REJECTED", "CLOSED"][
           i % 5
         ],
+        status: ["Pending", "Pending", "Success", "Cancelled", "Failed"][i % 5],
         reviewcreatedat: row.transactiondate,
         revieweruserid: i % 2 ? 1 : null,
       })),

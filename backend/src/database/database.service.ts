@@ -40,6 +40,68 @@ export class DatabaseService implements OnModuleDestroy {
     });
   }
 
+  async customerTransactionDetail(transactionId:number,customerId:number) {
+    // Authorization is enforced by the same function used by transaction history.
+    const result=await this.pool.query(`WITH detail AS MATERIALIZED (
+      SELECT banking_api.get_transaction($1::bigint,$2::bigint) AS body
+    )
+    SELECT d.body || jsonb_build_object('transfer',CASE
+      WHEN tr.transactionid IS NULL OR d.body->'transaction'->>'typecode'<>'TRANSFER' THEN NULL
+      ELSE jsonb_build_object(
+        'sourceAccountNumber',CASE WHEN src.accountcategory='CUSTOMER' THEN src.accountnumber END,
+        'sourceAccountName',sender.fullname,
+        'destinationAccountNumber',CASE WHEN dst.accountcategory='CUSTOMER' THEN dst.accountnumber END,
+        'destinationAccountName',recipient.fullname)
+      END) AS result
+    FROM detail d
+    LEFT JOIN banking.transfer_request tr ON tr.transactionid=(d.body->'transaction'->>'transactionid')::bigint
+    LEFT JOIN banking.bank_account src ON src.accountid=tr.sourceaccountid
+    LEFT JOIN banking.bank_account dst ON dst.accountid=tr.destinationaccountid
+    LEFT JOIN banking.customer sender ON sender.customerid=tr.customerid
+    LEFT JOIN LATERAL (
+      SELECT c.fullname FROM banking.account_holder h JOIN banking.customer c USING(customerid)
+      WHERE h.accountid=dst.accountid AND dst.accountcategory='CUSTOMER'
+        AND h.holdertype='PRIMARY_OWNER' AND h.status='Active' AND h.startdate<=(CURRENT_TIMESTAMP AT TIME ZONE $3)::date
+        AND (h.enddate IS NULL OR h.enddate>=(CURRENT_TIMESTAMP AT TIME ZONE $3)::date)
+      ORDER BY h.accountholderid LIMIT 1
+    ) recipient ON true
+    WHERE d.body IS NOT NULL`,[transactionId,customerId,this.sourceTimezone]);
+    return result.rows[0]?.result??null;
+  }
+
+  async recentTransferRecipients(customerId: number) {
+    // Receiving money never adds its sender: use the authenticated transfer requester.
+    const result = await this.pool.query(`
+      WITH recent AS (
+        SELECT DISTINCT ON (tr.destinationaccountid)
+          tr.destinationaccountid, bt.transactiondate, bt.transactionid
+        FROM banking.transfer_request tr
+        JOIN banking.bank_transaction bt USING (transactionid)
+        JOIN banking.transaction_type tt USING (transactiontypeid)
+        WHERE tr.customerid = $1 AND bt.status = 'Success'
+          AND tt.typecode = 'TRANSFER' AND bt.currency = 'VND'
+        ORDER BY tr.destinationaccountid, bt.transactiondate DESC, bt.transactionid DESC
+      )
+      SELECT jsonb_build_object(
+        'accountId', ba.accountid, 'accountNumber', ba.accountnumber,
+        'accountName', owner.fullname, 'currency', ba.currency, 'bankName', 'D4 Bank'
+      ) AS recipient
+      FROM recent r
+      JOIN banking.bank_account ba ON ba.accountid = r.destinationaccountid
+      JOIN LATERAL (
+        SELECT c.fullname FROM banking.account_holder ah
+        JOIN banking.customer c USING (customerid)
+        WHERE ah.accountid = ba.accountid AND ah.status = 'Active'
+          AND ah.holdertype = 'PRIMARY_OWNER' AND ah.startdate <= CURRENT_DATE
+          AND (ah.enddate IS NULL OR ah.enddate >= CURRENT_DATE)
+        ORDER BY ah.accountholderid LIMIT 1
+      ) owner ON true
+      WHERE ba.status = 'Active' AND ba.currency = 'VND' AND ba.accountcategory = 'CUSTOMER'
+      ORDER BY r.transactiondate DESC, r.transactionid DESC, ba.accountid
+    `, [customerId]);
+    return result.rows.map(row => row.recipient);
+  }
+
   async adminOverview<T = Record<string, unknown>>(branchId?: number): Promise<T> {
     const result = await this.pool.query<{ result: T }>(`
       WITH bounds AS (

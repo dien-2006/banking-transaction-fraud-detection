@@ -1,4 +1,5 @@
 "use client";
+import { ManagementBanner } from "@/components/management-banner";
 import { useQuery } from "@tanstack/react-query";
 import {
   Building2,
@@ -112,15 +113,7 @@ export function BranchesPageFixed() {
     );
   return (
     <div className="staff-data-page branches-page-content flex flex-col gap-2.5 text-navy">
-      <section className="relative h-60 overflow-hidden rounded-xl border border-red-100">
-        <Image
-          src="/branches-hero.png"
-          alt="Danh sách chi nhánh"
-          fill
-          priority
-          className="object-contain"
-        />
-      </section>
+      <ManagementBanner src="/branches-hero.png" title="Danh sách chi nhánh" description="Tra cứu thông tin và hoạt động các chi nhánh." />
       <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         {cards.map(([I, l, v]) => (
           <article className="card flex items-center gap-3 p-3" key={l}>

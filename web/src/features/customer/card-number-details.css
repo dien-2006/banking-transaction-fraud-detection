@@ -1,0 +1,15 @@
+.d4-modal.card-details-dialog {max-width:760px;display:flex;flex-direction:column;overflow:hidden;}
+.card-details-dialog > div:first-child {flex-shrink:0;}
+.card-number-details {min-height:0;overflow-y:auto;padding-right:4px;overscroll-behavior:contain;}
+.card-number-control {padding:18px 0;border-bottom:1px solid #e5ebf5;}
+.card-number-value {display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;font-size:14px;}
+.card-number-value>span {color:#61769c;}
+.card-number-value>strong {overflow-wrap:anywhere;text-align:right;}
+.card-number-control form label {display:flex;flex-direction:column;gap:8px;margin-top:14px;font-size:14px;font-weight:600;}
+.card-number-control form input {border:1px solid #dce4f2;border-radius:10px;min-height:44px;width:100%;padding:10px;font-weight:400;}
+.card-number-control p,.card-number-control small {display:block;font-size:13px;color:#61769c;line-height:1.6;margin-top:10px;}
+.card-number-control .card-number-error {color:#c5163c;}
+.card-number-control footer {display:flex;justify-content:flex-end;gap:10px;margin-top:12px;flex-wrap:wrap;}
+.card-number-details .cards-face {max-width:440px;margin-inline:auto;}
+.card-number-details .cards-face-number {white-space:normal;overflow-wrap:anywhere;font-size:clamp(14px,4.1vw,22px);line-height:1.25;}
+@media(max-width:639px){.card-number-control footer>button{flex:1;}.card-number-value{flex-wrap:wrap;}}

@@ -24,6 +24,63 @@ const input = {
   description: "audit transfer",
 };
 const config = { getOrThrow: () => "test-only-secret" };
+function requestHarness() {
+  let now = 0;
+  const entries = new Map();
+  const client = {
+    async set(key, value, options) {
+      const existing = entries.get(key);
+      if (options.NX && existing && existing.expires > now) return null;
+      entries.set(key, { value, expires: now + options.EX });
+      return 'OK';
+    },
+    async ttl(key) { return Math.max(-2, (entries.get(key)?.expires ?? now - 2) - now); },
+    async del(keys) { for (const key of Array.isArray(keys) ? keys : [keys]) entries.delete(key); },
+  };
+  const db = { function: async () => ({ email: 'otp@example.invalid', fullname: 'Test' }) };
+  const otp = new OtpService({ assertReady() {}, client }, db, {
+    ...config, get: key => ({ BREVO_API_KEY: 'test-key', OTP_SENDER_EMAIL: 'sender@example.invalid' })[key],
+  });
+  return { otp, db, entries, advance: seconds => { now += seconds; } };
+}
+test('OTP can be resent after 60 seconds while the original code has a 300-second lifetime', async () => {
+  const previous = global.fetch, harness = requestHarness();
+  let sent = 0;
+  global.fetch = async () => { sent++; return new Response(JSON.stringify({ messageId: 'test-message' }), { status: 201 }); };
+  try {
+    const first = await harness.otp.request(user, input);
+    assert.equal(first.resendAfter, 60);
+    assert.equal(first.expiresIn, 300);
+    assert.equal(first.deliveryStatus, 'ACCEPTED');
+    harness.advance(45);
+    await assert.rejects(() => harness.otp.request(user, input), error => error.getStatus() === 429 && error.getResponse().retryAfter === 15);
+    assert.equal(sent, 1);
+    harness.advance(16);
+    const second = await harness.otp.request(user, input);
+    assert.notEqual(first.challengeId, second.challengeId);
+    assert.equal(sent, 2);
+    const challenge = JSON.parse(harness.entries.get(`otp:challenge:${second.challengeId}`).value);
+    assert.equal(challenge.codeHash.length, 64);
+    assert.equal(challenge.context, harness.otp.context(101, input));
+    assert.ok(!('code' in challenge));
+  } finally { global.fetch = previous; }
+});
+test('email/provider/profile failures release the resend lock and do not leave a usable new challenge', async () => {
+  const previous = global.fetch;
+  try {
+    for (const failure of ['network', 'provider', 'profile', 'missing-email']) {
+      const harness = requestHarness();
+      if (failure === 'profile') harness.db.function = async () => { throw new Error('DB unavailable'); };
+      if (failure === 'missing-email') harness.db.function = async () => ({ email: null });
+      global.fetch = async () => {
+        if (failure === 'network') throw new Error('connection failed');
+        return new Response(JSON.stringify({ code: 'permission_denied' }), { status: 403 });
+      };
+      await assert.rejects(() => harness.otp.request(user, input));
+      assert.equal(harness.entries.size, 0, failure);
+    }
+  } finally { global.fetch = previous; }
+});
 test("OTP context binds sender, accounts, amount, request code, channel and description", () => {
   const otp = new OtpService({}, {}, config),
     base = otp.context(101, input);

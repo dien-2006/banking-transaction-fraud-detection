@@ -1,4 +1,5 @@
 "use client";
+import { ManagementBanner } from "@/components/management-banner";
 import {
   CheckCircle2,
   Filter,
@@ -7,7 +8,6 @@ import {
   UserRoundCheck,
   UsersRound,
 } from "lucide-react";
-import Image from "next/image";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
@@ -75,7 +75,7 @@ export function EmployeesPage() {
       ),
     [employeeRows, q, status, branch],
   );
-  const pagination = useListPagination(data, { fitViewportOnly: true });
+  const pagination = useListPagination(data, { fitViewportOnly: true, pageSize: 8 });
   const branches = Array.from(
     new Map(employeeRows.map((row) => [row.branchId, row.branch])).entries(),
   );
@@ -103,15 +103,7 @@ export function EmployeesPage() {
   ] as const;
   return (
     <div className="staff-data-page employees-page-content flex flex-col gap-2.5 text-navy">
-      <section className="relative h-60 overflow-hidden rounded-xl border border-red-100">
-        <Image
-          src="/employees-hero.png"
-          alt="Danh sách nhân viên"
-          fill
-          priority
-          className="object-contain"
-        />
-      </section>
+      <ManagementBanner src="/employees-hero.png" title="Danh sách nhân viên" description="Quản lý hồ sơ và tài khoản nhân viên." />
       <section className="grid grid-cols-4 gap-3">
         {cards.map(([I, l, v]) => (
           <article className="card flex items-center gap-3 p-3" key={l}>
@@ -208,6 +200,7 @@ export function EmployeesPage() {
         <section className="grid min-h-0 flex-1 grid-cols-[1.9fr_.7fr] gap-3">
           <article
             ref={pagination.panelRef}
+            data-fixed-page-size={8}
             className="card flex min-h-0 flex-col p-3"
           >
             <div className="grid grid-cols-[1.5fr_.7fr_.7fr_.35fr] gap-2">

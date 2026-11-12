@@ -33,11 +33,12 @@
 }
 .dashboard-shell main .fraud-page-content .fraud-filters {
   display: grid;
-  grid-template-columns: minmax(180px, 1.4fr) minmax(140px, .9fr) minmax(130px, .9fr) minmax(160px, 1fr) 60px;
+  grid-template-columns: minmax(180px, 1.5fr) repeat(3, minmax(0, 1fr));
   align-items: center;
   flex: none;
   gap: 8px;
 }
+.dashboard-shell main .fraud-page-content .fraud-filters > label { grid-column: auto; }
 .dashboard-shell main .fraud-page-content .fraud-filters > * {
   width: 100%;
   min-width: 0;
@@ -48,36 +49,47 @@
   min-height: 36px;
   font-size: 11px;
 }
-.dashboard-shell main .fraud-page-content .fraud-filters > button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  white-space: nowrap;
-  border-radius: 8px;
-}
-.fraud-sidebar { grid-template-rows: minmax(130px, .9fr) minmax(100px, .7fr) minmax(170px, 1.1fr); }
-.fraud-sidebar > article { padding: 12px; overflow-wrap: anywhere; }
+.fraud-sidebar { grid-template-rows: minmax(220px, 1.25fr) minmax(100px, .7fr) minmax(170px, 1fr); overflow-y: auto; }
+.fraud-sidebar > article { padding: 12px; overflow-wrap: anywhere; overflow: auto; }
+.dashboard-shell main .fraud-page-content .fraud-review-table { min-width: 760px !important; }
+.fraud-page-content .d4-page-toolbar button:disabled { opacity: .45; cursor: not-allowed; }
 .fraud-sidebar h2 { min-width: 0; font-size: 13px; line-height: 1.4; }
 .fraud-sidebar > article:last-child > div:first-child { gap: 8px; align-items: center; }
 .fraud-sidebar > article:last-child > div:first-child > button { flex-shrink: 0; white-space: nowrap; }
-.dashboard-shell main .fraud-page-content .fraud-time-cell time { display: flex; flex-direction: column; font-size: 10px; line-height: 12px; }
+.dashboard-shell main .fraud-page-content .fraud-time-cell time { display: flex; flex-direction: column; gap: 2px; white-space: normal; font-size: 10px; line-height: 12px; }
 .dashboard-shell main .fraud-page-content .fraud-time-cell time > span { line-height: 12px; }
 /* Keep the action, status and risk columns readable despite the generic table weighting. */
-.dashboard-shell main .fraud-page-content .fraud-review-table th:nth-child(1) { width: 9% !important; }
+.dashboard-shell main .fraud-page-content .fraud-review-table th:nth-child(1) { width: 8% !important; }
 .dashboard-shell main .fraud-page-content .fraud-review-table th:nth-child(2) { width: 12% !important; }
-.dashboard-shell main .fraud-page-content .fraud-review-table th:nth-child(3) { width: 10% !important; }
-.dashboard-shell main .fraud-page-content .fraud-review-table th:nth-child(4) { width: 13% !important; }
-.dashboard-shell main .fraud-page-content .fraud-review-table th:nth-child(5) { width: 16% !important; }
-.dashboard-shell main .fraud-page-content .fraud-review-table th:nth-child(6) { width: 10% !important; }
-.dashboard-shell main .fraud-page-content .fraud-review-table th:nth-child(7) { width: 12% !important; }
-.dashboard-shell main .fraud-page-content .fraud-review-table th:nth-child(8) { width: 10% !important; }
-.dashboard-shell main .fraud-page-content .fraud-review-table th:nth-child(9) { width: 8% !important; }
+.dashboard-shell main .fraud-page-content .fraud-review-table th:nth-child(3) { width: 11% !important; }
+.dashboard-shell main .fraud-page-content .fraud-review-table th:nth-child(4) { width: 25% !important; }
+.dashboard-shell main .fraud-page-content .fraud-review-table th:nth-child(5) { width: 8% !important; }
+.dashboard-shell main .fraud-page-content .fraud-review-table th:nth-child(6) { width: 13% !important; }
+.dashboard-shell main .fraud-page-content .fraud-review-table th:nth-child(7) { width: 15% !important; }
+.dashboard-shell main .fraud-page-content .fraud-review-table th:nth-child(8) { width: 8% !important; }
+.dashboard-shell main .fraud-page-content .fraud-review-table th { white-space: normal !important; line-height: 13px; }
+.dashboard-shell main .fraud-page-content .fraud-review-table tbody td { padding-top: 2px !important; padding-bottom: 2px !important; }
+.fraud-transaction-code, .fraud-transaction-type { display: block; }
+.fraud-transaction-code { line-height: 14px; }
+.fraud-transaction-type { color: #64748b; font-size: 9px; line-height: 12px; }
+.fraud-list-heading { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 12px; }
+.fraud-list-title, .fraud-list-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; min-width: 0; }
+.fraud-list-title h2 { margin: 0; font-size: 13px; font-weight: 700; }
+.fraud-filter-summary { color: #64748b; font-size: 11px; font-weight: 400; white-space: nowrap; }
+.fraud-clear-filters { color: #e81846; font-weight: 600; font-size: 11px; padding: 3px 6px; border-radius: 5px; }
+.fraud-clear-filters:hover { background: #fff0f3; }
+.dashboard-shell main .fraud-page-content .fraud-table-container { position: relative; scrollbar-width: thin; scrollbar-color: #bac7df #f1f5f9; }
+.dashboard-shell main .fraud-page-content .fraud-list-panel > .fraud-table-container { flex: 1 1 auto !important; min-height: 0; overflow: auto; }
+.dashboard-shell main .fraud-page-content .fraud-review-table :is(th, td):last-child { position: sticky; right: 0; z-index: 1; background: white; box-shadow: -3px 0 6px #0f172a09; }
+.dashboard-shell main .fraud-page-content .fraud-review-table th:last-child { background: #f8fafc; z-index: 2; }
+.dashboard-shell main .fraud-page-content .fraud-review-table td:last-child { line-height: 0 !important; }
+.dashboard-shell main .fraud-page-content .fraud-account-table th:nth-child(n) { width: 25% !important; }
+.dashboard-shell main .fraud-account-table .d4-view-button { width: auto; min-width: 84px; }
 
 @media (min-width: 1280px) and (min-height: 700px) {
   .dashboard-shell main .fraud-page-content[data-role="employee"] {
     display: grid;
-    height: calc(100dvh - 64px);
+    height: 100%;
     min-height: 0;
     grid-template-rows: 88px 56px 48px minmax(0, 1fr);
   }
@@ -94,10 +106,10 @@
 }
 @media (max-width: 1279px) {
   .dashboard-shell main .fraud-page-content > .fraud-workspace { grid-template-columns: minmax(0, 1fr); }
-  .dashboard-shell main .fraud-page-content .fraud-filters { grid-template-columns: repeat(3, minmax(0, 1fr)) 60px; }
+  .dashboard-shell main .fraud-page-content .fraud-filters { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .dashboard-shell main .fraud-page-content .fraud-filters > label { grid-column: 1 / -1; }
   .dashboard-shell main .fraud-page-content .fraud-table-container { overflow-x: auto; }
-  .dashboard-shell main .fraud-page-content .fraud-review-table { min-width: 880px !important; }
+  .dashboard-shell main .fraud-page-content .fraud-review-table { min-width: 760px !important; }
   .fraud-sidebar { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: auto; }
 }
 @media (max-width: 767px) {

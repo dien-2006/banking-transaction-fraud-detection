@@ -47,7 +47,6 @@ export const navigation: Record<Role, NavItem[]> = {
     ["Thẻ", "/employee/cards", CreditCard],
     ["Fraud & Review", "/employee/fraud", ShieldAlert],
     ["Thông báo", "/employee/notifications", Bell],
-    ["Báo cáo chi nhánh", "/employee/reports", Sparkles],
     ["Hồ sơ cá nhân", "/employee/profile", CircleUserRound],
   ].map(([label, href, icon]) => ({ label, href, icon })) as NavItem[],
   customer: [

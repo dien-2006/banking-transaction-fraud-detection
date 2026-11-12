@@ -89,9 +89,20 @@ CREATE OR REPLACE FUNCTION banking_api.create_customer (p_code varchar(20), p_na
     AS $$
 DECLARE
     v customer%ROWTYPE;
+    v_id bigint;
+    v_code text;
 BEGIN
-    INSERT INTO customer (customercode, fullname, gender, dateofbirth, nationalid, phone, email, address, occupation, customertype, customersegment)
-        VALUES (p_code, p_name, p_gender, p_birth, p_national_id, p_phone, p_email, p_address, p_occupation, p_type, p_segment)
+    -- Reuse the existing identity sequence; never allocate with MAX(id) + 1.
+    -- Legacy scripts may still supply a code; the web leaves it empty.
+    LOOP
+        v_id := nextval(pg_get_serial_sequence('banking.customer', 'customerid'));
+        v_code := COALESCE(NULLIF(btrim(p_code), ''),
+            'C' || lpad(v_id::text, GREATEST(7, length(v_id::text)), '0'));
+        EXIT WHEN NULLIF(btrim(p_code), '') IS NOT NULL
+            OR NOT EXISTS (SELECT 1 FROM customer WHERE customercode = v_code);
+    END LOOP;
+    INSERT INTO customer (customerid, customercode, fullname, gender, dateofbirth, nationalid, phone, email, address, occupation, customertype, customersegment)
+        VALUES (v_id, v_code, p_name, p_gender, p_birth, p_national_id, p_phone, p_email, p_address, p_occupation, p_type, p_segment)
     RETURNING
         *
     INTO
@@ -424,9 +435,28 @@ CREATE OR REPLACE FUNCTION banking_api.open_account (p_number varchar(30), p_bra
     AS $$
 DECLARE
     v bank_account%ROWTYPE;
+    v_id bigint;
+    v_number text;
 BEGIN
-    INSERT INTO bank_account (accountnumber, branchid, accounttypeid, opendate, balance, currency, status, accountcategory)
-        VALUES (p_number, p_branch, p_type, CURRENT_DATE, 0, 'VND', 'Active', p_category)
+    PERFORM 1 FROM branch WHERE branchid=p_branch AND status='Active' FOR SHARE;
+    IF NOT FOUND THEN PERFORM banking_api.raise_error('VALIDATION','Chi nhánh không tồn tại hoặc đã ngừng hoạt động.'); END IF;
+    PERFORM 1 FROM account_type WHERE accounttypeid=p_type AND status='Active' FOR SHARE;
+    IF NOT FOUND THEN PERFORM banking_api.raise_error('VALIDATION','Loại tài khoản không tồn tại hoặc đã ngừng hoạt động.'); END IF;
+    IF p_category='CUSTOMER' THEN
+        PERFORM 1 FROM customer WHERE customerid=p_customer AND status='Active' FOR SHARE;
+        IF NOT FOUND THEN PERFORM banking_api.raise_error('VALIDATION','Khách hàng không tồn tại hoặc đã ngừng hoạt động.'); END IF;
+    END IF;
+    -- Reserve from the existing identity sequence, never MAX(accountid) + 1.
+    -- Explicit numbers remain supported for existing operational scripts.
+    LOOP
+        v_id := nextval(pg_get_serial_sequence('banking.bank_account', 'accountid'));
+        v_number := COALESCE(NULLIF(btrim(p_number), ''),
+            '1' || lpad(v_id::text, GREATEST(15, length(v_id::text)), '0'));
+        EXIT WHEN NULLIF(btrim(p_number), '') IS NOT NULL
+            OR NOT EXISTS (SELECT 1 FROM bank_account WHERE accountnumber = v_number);
+    END LOOP;
+    INSERT INTO bank_account (accountid, accountnumber, branchid, accounttypeid, opendate, balance, currency, status, accountcategory)
+        VALUES (v_id, v_number, p_branch, p_type, CURRENT_DATE, 0, 'VND', 'Active', p_category)
     RETURNING
         *
     INTO
@@ -478,26 +508,56 @@ CREATE OR REPLACE FUNCTION banking_api.issue_card (p_number varchar(30), p_accou
     AS $$
 DECLARE
     v card%ROWTYPE;
+    v_id bigint;
+    v_number text;
+    v_body text;
+    v_sum integer;
+    v_digit integer;
+    v_issue date := COALESCE(p_issue, CURRENT_DATE);
 BEGIN
-    IF NOT EXISTS (
-        SELECT
-            1
-        FROM
-            account_holder
-        WHERE
-            accountid = p_account
-            AND customerid = p_customer
-            AND status = 'Active') THEN
-    PERFORM
-        banking_api.raise_error ('FORBIDDEN', 'customer is not an active account holder');
-END IF;
-INSERT INTO card (cardnumber, accountid, issuedate, expirydate, cardtype, pinhash, status, dailylimit, customerid)
-        VALUES (p_number, p_account, p_issue, p_expiry, p_type, public.crypt(p_pin, public.gen_salt('bf', 12)), 'Active', p_limit, p_customer)
+    IF p_pin IS NULL OR p_pin !~ '^[0-9]{4,6}$' THEN
+        PERFORM banking_api.raise_error('VALIDATION', 'PIN phải gồm 4 đến 6 chữ số.');
+    END IF;
+    IF p_expiry IS NULL OR p_expiry <= v_issue THEN
+        PERFORM banking_api.raise_error('VALIDATION', 'Ngày hết hạn phải sau ngày phát hành.');
+    END IF;
+    IF p_limit IS NULL OR p_limit <= 0 OR p_limit >= 100000000000000000 OR p_limit <> round(p_limit, 2) THEN
+        PERFORM banking_api.raise_error('VALIDATION', 'Hạn mức phải lớn hơn 0 và có tối đa 2 chữ số thập phân.');
+    END IF;
+    IF NULLIF(btrim(p_type), '') IS NULL THEN
+        PERFORM banking_api.raise_error('VALIDATION', 'Vui lòng chọn hoặc nhập loại thẻ.');
+    END IF;
+    PERFORM 1 FROM bank_account a JOIN account_holder h USING(accountid)
+        JOIN customer c USING(customerid)
+        WHERE a.accountid=p_account AND c.customerid=p_customer
+          AND a.status='Active' AND a.accountcategory='CUSTOMER' AND c.status='Active'
+          AND h.status='Active' AND h.startdate<=CURRENT_DATE
+          AND (h.enddate IS NULL OR h.enddate>=CURRENT_DATE)
+        FOR SHARE OF a,h,c;
+    IF NOT FOUND THEN
+        PERFORM banking_api.raise_error('FORBIDDEN', 'Khách hàng không sở hữu tài khoản hợp lệ hoặc tài khoản đã ngừng hoạt động.');
+    END IF;
+    LOOP
+        v_id := nextval(pg_get_serial_sequence('banking.card', 'cardid'));
+        -- Private simulation numbering with a Luhn check digit; not a network-issued PAN.
+        v_body := '9' || lpad(v_id::text, GREATEST(14,length(v_id::text)), '0');
+        v_sum := 0;
+        FOR i IN 1..length(v_body) LOOP
+            v_digit := substr(v_body,length(v_body)-i+1,1)::integer;
+            IF i % 2 = 1 THEN v_digit := v_digit * 2; END IF;
+            v_sum := v_sum + CASE WHEN v_digit>9 THEN v_digit-9 ELSE v_digit END;
+        END LOOP;
+        v_number := COALESCE(NULLIF(btrim(p_number),''),v_body||((10-v_sum%10)%10)::text);
+        EXIT WHEN NULLIF(btrim(p_number),'') IS NOT NULL
+            OR NOT EXISTS(SELECT 1 FROM card WHERE cardnumber=v_number);
+    END LOOP;
+INSERT INTO card (cardid, cardnumber, accountid, issuedate, expirydate, cardtype, pinhash, status, dailylimit, customerid)
+        VALUES (v_id, v_number, p_account, v_issue, p_expiry, btrim(p_type), public.crypt(p_pin, public.gen_salt('bf', 12)), 'Active', p_limit, p_customer)
 RETURNING
     *
 INTO
     v;
-    RETURN to_jsonb (v) - 'cardnumber' - 'pinhash';
+    RETURN (to_jsonb (v) - 'cardnumber' - 'pinhash') || jsonb_build_object('maskedcardnumber',repeat('*',GREATEST(length(v.cardnumber)-4,0))||right(v.cardnumber,4));
 END;
 $$;
 
@@ -605,7 +665,17 @@ CREATE OR REPLACE FUNCTION banking_api.create_loan (p_code varchar(30), p_custom
 DECLARE
     v loan%ROWTYPE;
     v_type loan_type%ROWTYPE;
+    v_id bigint;
+    v_code text;
 BEGIN
+    IF p_principal IS NULL OR p_principal<=0 OR p_principal>=100000000000000000 OR p_principal<>round(p_principal,2) THEN
+        PERFORM banking_api.raise_error('VALIDATION','Số tiền vay phải lớn hơn 0 và có tối đa 2 chữ số thập phân.');
+    END IF;
+    IF p_rate IS NULL OR p_rate<0 OR p_rate>=10000 OR p_rate<>round(p_rate,4) OR p_months IS NULL OR p_months<=0 OR p_start IS NULL THEN
+        PERFORM banking_api.raise_error('VALIDATION','Lãi suất, kỳ hạn hoặc ngày bắt đầu không hợp lệ.');
+    END IF;
+    PERFORM 1 FROM customer WHERE customerid=p_customer AND status='Active' FOR SHARE;
+    IF NOT FOUND THEN PERFORM banking_api.raise_error('VALIDATION','Khách hàng không tồn tại hoặc đã ngừng hoạt động.'); END IF;
     SELECT
         *
     INTO
@@ -614,17 +684,22 @@ BEGIN
         loan_type
     WHERE
         loantypeid = p_type
-        AND status = 'Active';
+        AND status = 'Active' FOR SHARE;
     IF NOT FOUND THEN
         PERFORM
-            banking_api.raise_error ('NOT_FOUND', 'active loan type not found');
+            banking_api.raise_error ('NOT_FOUND', 'Sản phẩm vay không tồn tại hoặc đã ngừng hoạt động.');
     END IF;
     IF p_principal > v_type.maxamount OR p_months > v_type.maxtermmonths THEN
         PERFORM
-            banking_api.raise_error ('VALIDATION', 'loan exceeds product limits');
+            banking_api.raise_error ('VALIDATION', 'Số tiền hoặc kỳ hạn vượt giới hạn của sản phẩm vay.');
     END IF;
-    INSERT INTO loan (loancode, customerid, branchid, employeeid, loantypeid, principalamount, interestrate, termmonths, startdate, enddate, status)
-        VALUES (p_code, p_customer, p_branch, p_employee, p_type, p_principal, p_rate, p_months, p_start, (p_start + (p_months || ' months')::interval)::date, 'Pending')
+    LOOP
+        v_id := nextval(pg_get_serial_sequence('banking.loan','loanid'));
+        v_code := COALESCE(NULLIF(btrim(p_code),''),'LN'||lpad(v_id::text,GREATEST(8,length(v_id::text)),'0'));
+        EXIT WHEN NULLIF(btrim(p_code),'') IS NOT NULL OR NOT EXISTS(SELECT 1 FROM loan WHERE loancode=v_code);
+    END LOOP;
+    INSERT INTO loan (loanid, loancode, customerid, branchid, employeeid, loantypeid, principalamount, interestrate, termmonths, startdate, enddate, status)
+        VALUES (v_id, v_code, p_customer, p_branch, p_employee, p_type, p_principal, p_rate, p_months, p_start, (p_start + (p_months || ' months')::interval)::date, 'Pending')
     RETURNING
         *
     INTO

@@ -96,24 +96,25 @@ export function DistributionChart({
           <p className="d4-distribution-message">{emptyText}</p>
         ) : (
           <ul className="d4-distribution-legend">
-            {values.map((item, index) => (
-              <li key={item.label}>
-                <i
-                  aria-hidden="true"
-                  style={{
-                    background:
-                      item.color ??
-                      distributionColors[index % distributionColors.length],
-                  }}
-                />
-                <span>{item.label}</span>
-                <strong>
-                  {hidden
-                    ? "••••••"
-                    : `${Math.round((item.value / total) * 100)}% · ${formatValue(item.value)}`}
-                </strong>
-              </li>
-            ))}
+            {values.map((item, index) => {
+              const statistic = hidden
+                ? "••••••"
+                : `${Math.round((item.value / total) * 100)}% · ${formatValue(item.value)}`;
+              return (
+                <li key={item.label} title={`${item.label}: ${statistic}`}>
+                  <i
+                    aria-hidden="true"
+                    style={{
+                      background:
+                        item.color ??
+                        distributionColors[index % distributionColors.length],
+                    }}
+                  />
+                  <span title={item.label}>{item.label}</span>
+                  <strong title={statistic}>{statistic}</strong>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>

@@ -3,8 +3,10 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Modal } from "@/components/ui";
 import { TransactionRecordResult } from "@/components/transaction-result";
+import { RecordStatus } from "@/components/record-status";
 import { bankService } from "@/services/bank.service";
 import type { presentFraudReview } from "@/lib/fraud-data";
+import "./review-dialog.css";
 
 export function ReviewDialog({
   review,
@@ -25,14 +27,14 @@ export function ReviewDialog({
     onSuccess: () => {
       void client.invalidateQueries({
         predicate: (q) =>
-          /transactions|accounts|overview|customer|branch-reports/.test(
+          /transactions|accounts|overview|customer/.test(
             String(q.queryKey[0]),
           ),
       });
     },
   });
   const submit = (action: "APPROVE" | "REJECT") => {
-    if (mutation.isPending || mutation.isSuccess || !confirmed) return;
+    if (mutation.isPending || mutation.isSuccess || !confirmed || !review.canResolve) return;
     const input = attempt ?? { action, reason: reason.trim() || undefined };
     setAttempt(input);
     mutation.mutate(input);
@@ -42,6 +44,10 @@ export function ReviewDialog({
       <button
         className="d4-view-button"
         onClick={() => {
+          mutation.reset();
+          setAttempt(null);
+          setReason("");
+          setConfirmed(false);
           setOpen(true);
           void client.invalidateQueries({ queryKey: ["fraud-reviews-old-ui"] });
         }}
@@ -60,56 +66,90 @@ export function ReviewDialog({
           }
         }}
         title={`Chi tiết cảnh báo ${review.id}`}
+        className={`fraud-review-dialog${mutation.isSuccess ? " fraud-review-result-dialog" : ""}`}
       >
         {mutation.isSuccess ? (
-          <TransactionRecordResult
-            transaction={mutation.data}
-            account={review.account}
-          />
+          <div className="review-dialog-scroll">
+            <TransactionRecordResult
+              transaction={mutation.data}
+              account={review.account}
+              staffDetails={attempt ? [[
+                attempt.action === "REJECT" ? "Lý do từ chối" : "Lý do phê duyệt",
+                attempt.reason || "Không ghi nhận lý do xử lý.",
+              ]] : []}
+            />
+          </div>
         ) : (
           <>
-            <dl className="divide-y rounded-xl bg-slate-50 px-4">
+            <div className="review-dialog-scroll review-dialog-grid">
+            <section className="review-detail-section">
+            <h3>Thông tin giao dịch</h3>
+            <dl className="review-info-grid">
               {[
                 ["Mã giao dịch", review.transaction],
                 ["Khách hàng", review.customer],
-                ["Chi tiết", review.detail],
-                ["Mức độ rủi ro", review.risk],
-                ["RuleScore", review.ruleScore],
-                ["Xác suất ML", review.mlProbability],
-                ["Quyết định", review.decision],
+                ["Tài khoản", review.account],
+                ["Thời gian", review.time],
                 ["Trạng thái review", review.status],
                 ["Người xử lý", review.assignee],
               ].map(([label, value]) => (
                 <div
-                  className="flex justify-between gap-4 py-3 text-sm"
+                  className="review-info-item"
                   key={label}
                 >
-                  <dt className="shrink-0 text-slate-500">{label}</dt>
-                  <dd className="break-words text-right font-semibold">
+                  <dt>{label}</dt>
+                  <dd>
                     {value}
                   </dd>
                 </div>
               ))}
             </dl>
-            {review.pending && (
-              <div className="mt-4 space-y-4">
-                <p className="text-sm text-slate-600">
+            <div className="review-transaction-status">
+              <span>Trạng thái giao dịch</span>
+              <RecordStatus status={review.transactionStatus} />
+            </div>
+            <div className="review-description"><h4>Nội dung giao dịch</h4><p>{review.detail}</p></div>
+            </section>
+            <section className="review-detail-section review-risk-section">
+              <div className="review-risk-heading"><h3>Đánh giá rủi ro</h3><span>{review.risk}</span></div>
+              <dl className="review-risk-metrics">
+                {[["RuleScore", review.ruleScore], ["Xác suất ML", review.mlProbability], ["Quyết định", review.decision]].map(([label, value]) => (
+                  <div key={label}><dt>{label}</dt><dd>{value}</dd></div>
+                ))}
+              </dl>
+            {(!review.pending || review.reviewReason) && (
+              <section className="review-resolution-summary" aria-label="Thông tin xử lý hồ sơ">
+                <h4>{review.reviewStatus === "REJECTED" ? "Lý do từ chối" : review.reviewStatus === "APPROVED" ? "Lý do phê duyệt" : "Ghi chú xử lý"}</h4>
+                <p>{review.reviewReason || "Không ghi nhận lý do xử lý."}</p>
+                <small>Thời gian xử lý: {review.reviewedAt}</small>
+              </section>
+            )}
+            {review.canResolve && (
+              <div className="review-resolution">
+                <p className="review-processing-note">
                   Duyệt hồ sơ sẽ kiểm tra lại số dư và điều kiện tài khoản trước
                   khi hạch toán. Giao dịch vẫn có thể thất bại nếu không đủ điều
                   kiện.
                 </p>
-                <label className="block text-sm font-semibold">
+                <label className="review-reason-label">
                   Lý do xử lý
                   <textarea
                     aria-label="Lý do xử lý"
                     maxLength={255}
+                    rows={3}
                     value={reason}
                     disabled={!!attempt || mutation.isPending}
                     onChange={(e) => setReason(e.target.value)}
-                    className="mt-2 w-full rounded-xl border p-3 font-normal"
+                    className="review-reason-input"
                   />
                 </label>
-                <label className="flex items-start gap-2 text-sm">
+              </div>
+            )}
+            </section>
+            </div>
+            {review.canResolve && (
+              <footer className="review-dialog-footer">
+                <label className="review-confirmation">
                   <input
                     type="checkbox"
                     checked={confirmed}
@@ -120,13 +160,13 @@ export function ReviewDialog({
                   này.
                 </label>
                 {mutation.isError && (
-                  <p role="alert" className="text-sm text-red-600">
+                  <p role="alert" className="review-action-error">
                     {mutation.error.message} Thông tin và quyết định đã gửi được
                     giữ nguyên khi thử lại. Đóng và mở lại hồ sơ để kiểm tra
                     trạng thái mới nhất.
                   </p>
                 )}
-                <div className="flex flex-wrap justify-end gap-3">
+                <div className="review-action-buttons">
                   {(!attempt || attempt.action === "REJECT") && (
                     <button
                       className="btn-secondary"
@@ -154,7 +194,7 @@ export function ReviewDialog({
                     </button>
                   )}
                 </div>
-              </div>
+              </footer>
             )}
           </>
         )}

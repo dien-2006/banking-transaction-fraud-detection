@@ -13,7 +13,6 @@ import { CardsPage } from "@/features/cards/cards-page";
 import { FraudPage } from "@/features/fraud/fraud-page";
 import { InsightsPage } from "@/features/insights/insights-page";
 import { AuditLogsPage } from "@/features/audit-logs/audit-logs-page";
-import { BranchReports } from "@/features/employee/branch-reports";
 import { EmployeeWorkspace } from "@/features/employee/employee-workspace";
 import { AdminOverview } from "@/features/dashboard/admin-overview";
 import { TransferFlow } from "@/features/transfer/transfer-flow";
@@ -187,12 +186,6 @@ export default async function RolePage({
     return (
       <DashboardShell role={rawRole}>
         <FraudPage role="employee" />
-      </DashboardShell>
-    );
-  if (rawRole === "employee" && page === "reports")
-    return (
-      <DashboardShell role={rawRole}>
-        <BranchReports />
       </DashboardShell>
     );
   if (rawRole !== "customer" && page === "notifications")

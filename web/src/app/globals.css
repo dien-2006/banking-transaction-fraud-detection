@@ -109,6 +109,13 @@
   height: 40px;
   min-height: 40px;
 }
+@media (min-width: 1100px) and (min-height: 640px) {
+  .dashboard-shell main .d4-list-panel[data-fixed-page-size] > .staff-table-scroll {
+    flex: 1 1 auto !important;
+    min-height: 0;
+    overflow: auto;
+  }
+}
 @media (max-width: 1099px), (max-height: 639px) {
   .dashboard-shell main .d4-list-panel > div:has(> table) {
     overflow-x: auto;
@@ -2153,7 +2160,7 @@ main table tbody td :is(.size-10, .size-9, .size-8) {
   }
 }
 
-/* Shared charts keep complete legends inside their allocated panel. */
+/* Compact single-line legends stay inside their allocated panel. */
 .dashboard-shell main article.card:has(> .d4-distribution) {
   min-width: 0;
   min-height: 0;
@@ -2161,9 +2168,9 @@ main table tbody td :is(.size-10, .size-9, .size-8) {
   scrollbar-width: thin;
 }
 .dashboard-shell main .d4-distribution-legend :is(span, strong) {
-  white-space: normal;
-  overflow: visible;
-  text-overflow: clip;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .dashboard-shell main .employee-summary-panels .d4-distribution-legend {
   gap: 6px;

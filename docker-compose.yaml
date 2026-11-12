@@ -1,5 +1,35 @@
 name: bank-fraud-detection
 
+x-etl-environment: &etl-environment
+  TZ: ${TZ:-Asia/Ho_Chi_Minh}
+  SOURCE_TIMEZONE: ${SOURCE_TIMEZONE:-Asia/Ho_Chi_Minh}
+  POSTGRES_HOST: postgres-bank
+  POSTGRES_INTERNAL_PORT: 5432
+  POSTGRES_DB: ${POSTGRES_DB}
+  POSTGRES_SCHEMA: banking
+  POSTGRES_USER: ${ETL_DB_USER:-d4_etl}
+  POSTGRES_PASSWORD: ${ETL_DB_PASSWORD}
+  MINIO_ENDPOINT: http://minio:9000
+  MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-${MINIO_ROOT_USER}}
+  MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-${MINIO_ROOT_PASSWORD}}
+  MINIO_BUCKET_BRONZE: ${MINIO_BUCKET_BRONZE:-bronze}
+  MINIO_BUCKET_SILVER: ${MINIO_BUCKET_SILVER:-silver}
+  MINIO_BUCKET_GOLD: ${MINIO_BUCKET_GOLD:-gold}
+  MINIO_BUCKET_QUARANTINE: ${MINIO_BUCKET_QUARANTINE:-quarantine}
+  MINIO_BUCKET_CONTROL: ${MINIO_BUCKET_CONTROL:-pipeline-control}
+  MINIO_BUCKET_ML: ${MINIO_BUCKET_ML:-ml-models}
+  KAFKA_BOOTSTRAP_SERVERS: kafka1:29092,kafka2:29092,kafka3:29092
+  KAFKA_TRANSACTION_TOPIC: ${KAFKA_TRANSACTION_TOPIC:-banking.transaction-events.v1}
+  KAFKA_CONSUMER_GROUP: ${KAFKA_CONSUMER_GROUP:-bronze-transaction-writer-v1}
+  SPARK_MASTER_URL: ${SPARK_MASTER_URL:-spark://spark-master:7077}
+  SPARK_MASTER_PORT: ${SPARK_MASTER_PORT:-7077}
+  SPARK_WORKER_CORES: ${SPARK_WORKER_CORES:-2}
+  SPARK_WORKER_MEMORY: ${SPARK_WORKER_MEMORY:-2g}
+  ENABLE_REALTIME_SILVER_MERGE: ${ENABLE_REALTIME_SILVER_MERGE:-true}
+  MODEL_DB_NAME: ${MODEL_DB_NAME:-fraud_detection_v1}
+  MODEL_DB_MAPPING: ${MODEL_DB_MAPPING:-{}}
+  MODEL_OBJECT_NAME: ${MODEL_OBJECT_NAME:-fraud_detection/v1/model.json}
+
 x-workspace-mounts: &workspace-mounts
   - ./data_engineering:/workspace/data_engineering:ro
   - ./streaming:/workspace/streaming:ro
@@ -13,15 +43,13 @@ x-airflow-common: &airflow-common
   build: {context: ., dockerfile: docker/Dockerfile.airflow}
   image: bank-fraud-airflow:2.10.5-spark3.5.5
   restart: unless-stopped
-  env_file: ["${ETL_ENV_FILE:-.env}"]
   environment: &pipeline-environment
+    <<: *etl-environment
     TZ: ${TZ:-Asia/Ho_Chi_Minh}
     POSTGRES_HOST: postgres-bank
     POSTGRES_INTERNAL_PORT: 5432
     POSTGRES_SCHEMA: banking
     MINIO_ENDPOINT: http://minio:9000
-    MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
-    MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
     MINIO_BUCKET_ML: ${MINIO_BUCKET_ML:-ml-models}
     KAFKA_BOOTSTRAP_SERVERS: kafka1:29092,kafka2:29092,kafka3:29092
     SPARK_MASTER_URL: ${SPARK_MASTER_URL:-spark://spark-master:7077}
@@ -58,7 +86,6 @@ services:
     image: postgres:${POSTGRES_VERSION:-17}
     container_name: bank-postgres
     restart: unless-stopped
-    env_file: [.env]
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -189,8 +216,8 @@ services:
     networks: [bank-network]
 
   spark-master:
-    env_file: ["${ETL_ENV_FILE:-.env}"]
     environment:
+      <<: *etl-environment
       MINIO_ENDPOINT: http://minio:9000
       POSTGRES_HOST: postgres-bank
       POSTGRES_INTERNAL_PORT: 5432
@@ -210,8 +237,8 @@ services:
     networks: [bank-network]
 
   spark-worker:
-    env_file: ["${ETL_ENV_FILE:-.env}"]
     environment:
+      <<: *etl-environment
       MINIO_ENDPOINT: http://minio:9000
       POSTGRES_HOST: postgres-bank
       POSTGRES_INTERNAL_PORT: 5432
@@ -304,8 +331,12 @@ services:
     image: bank-fraud-backend:node22
     container_name: bank-banking-api
     restart: unless-stopped
-    env_file: ["${BANKING_ENV_FILE:-.env}"]
     environment:
+      TZ: ${TZ:-Asia/Ho_Chi_Minh}
+      SOURCE_TIMEZONE: ${SOURCE_TIMEZONE:-Asia/Ho_Chi_Minh}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${BANKING_DB_USER:-d4_banking}
+      POSTGRES_PASSWORD: ${BANKING_DB_PASSWORD}
       POSTGRES_HOST: postgres-bank
       POSTGRES_INTERNAL_PORT: 5432
       PORT: 8000
@@ -315,12 +346,16 @@ services:
       TRINO_USER: ${TRINO_USER:-d4-bank-api}
       REDIS_URL: redis://redis:6379
       OTP_HASH_SECRET: ${OTP_HASH_SECRET}
+      CUSTOMER_CARD_DAILY_LIMIT: ${CUSTOMER_CARD_DAILY_LIMIT:-50000000}
       BREVO_API_KEY: ${BREVO_API_KEY}
       OTP_SENDER_EMAIL: ${OTP_SENDER_EMAIL}
       OTP_SENDER_NAME: ${OTP_SENDER_NAME:-D4 Bank}
       JOBLIB_MODEL_PATH: /app/models/fraud_detection_model.joblib
       JOBLIB_METADATA_PATH: /app/models/model_metadata.json
       PYTHON_EXECUTABLE: /opt/inference/bin/python
+      LOAN_SETTLEMENT_ACCOUNT_ID: ${LOAN_SETTLEMENT_ACCOUNT_ID:-}
+      MODEL_DB_NAME: ${MODEL_DB_NAME:-fraud_detection_v1}
+      POSTGRES_POOL_MAX: ${POSTGRES_POOL_MAX:-20}
     ports: ["${BANKING_API_PORT:-8000}:8000"]
     healthcheck:
       test: [CMD-SHELL, "wget -qO- http://127.0.0.1:8000/api/v1/health >/dev/null"]
@@ -350,8 +385,10 @@ services:
     build: {context: ., dockerfile: docker/Dockerfile.banking}
     image: bank-fraud-banking:3.11
     restart: "no"
-    env_file: [.env]
     environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_HOST: postgres-bank
       POSTGRES_INTERNAL_PORT: 5432
       POSTGRES_SCHEMA: banking
@@ -366,8 +403,13 @@ services:
     image: bank-fraud-backend:node22
     container_name: bank-outbox-publisher
     restart: unless-stopped
-    env_file: ["${OUTBOX_ENV_FILE:-.env}"]
     environment:
+      TZ: ${TZ:-Asia/Ho_Chi_Minh}
+      SOURCE_TIMEZONE: ${SOURCE_TIMEZONE:-Asia/Ho_Chi_Minh}
+      POSTGRES_USER: ${OUTBOX_DB_USER:-d4_outbox}
+      POSTGRES_PASSWORD: ${OUTBOX_DB_PASSWORD}
+      OUTBOX_BATCH_SIZE: ${OUTBOX_BATCH_SIZE:-100}
+      OUTBOX_POLL_INTERVAL_MS: ${OUTBOX_POLL_INTERVAL_MS:-1000}
       POSTGRES_HOST: postgres-bank
       POSTGRES_INTERNAL_PORT: 5432
       POSTGRES_DB: ${POSTGRES_DB}
@@ -385,8 +427,13 @@ services:
     image: bank-fraud-backend:node22
     container_name: bank-notification-sender
     restart: unless-stopped
-    env_file: ["${NOTIFICATION_ENV_FILE:-.env}"]
     environment:
+      TZ: ${TZ:-Asia/Ho_Chi_Minh}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${NOTIFICATION_DB_USER:-d4_notification}
+      POSTGRES_PASSWORD: ${NOTIFICATION_DB_PASSWORD}
+      NOTIFICATION_BATCH_SIZE: ${NOTIFICATION_BATCH_SIZE:-20}
+      NOTIFICATION_POLL_INTERVAL_MS: ${NOTIFICATION_POLL_INTERVAL_MS:-3000}
       POSTGRES_HOST: postgres-bank
       POSTGRES_INTERNAL_PORT: 5432
       BREVO_API_KEY: ${BREVO_API_KEY}
@@ -403,7 +450,6 @@ services:
     container_name: bank-bronze-consumer
     restart: unless-stopped
     profiles: [realtime]
-    env_file: ["${ETL_ENV_FILE:-.env}"]
     environment: {<<: *pipeline-environment}
     command: [python, -m, streaming.consumer.service]
     volumes: *workspace-mounts
@@ -422,7 +468,6 @@ services:
     image: bank-fraud-streaming:3.11
     container_name: bank-model-sync
     restart: unless-stopped
-    env_file: ["${ETL_ENV_FILE:-.env}"]
     profiles: [ml]
     environment:
       <<: *pipeline-environment

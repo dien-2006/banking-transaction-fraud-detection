@@ -1,4 +1,8 @@
 import { CounterTransferController, CounterTransferService } from './http/counter-transfer';
+import { CustomerProductsController, LoanDecisionController } from './http/customer-products.controller';
+import { CustomerProductsService } from './http/customer-products.service';
+import { LoanPaymentOptionsController, LoanPaymentOptionsService } from './http/loan-payment-options';
+import { CardNumberRevealController, CardNumberRevealService } from './http/card-number-reveal';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
@@ -30,9 +34,12 @@ import { SecurityThrottle } from './security/throttle.service';
     }),
     DatabaseModule, AnalyticsModule,
   ],
-  controllers: [AuthController, CustomerController, TransactionController, AdminController, ManagementController, HealthController, OtpController, CounterTransferController],
+  controllers: [AuthController, CustomerController, CustomerProductsController, LoanDecisionController, LoanPaymentOptionsController, CardNumberRevealController, TransactionController, AdminController, ManagementController, HealthController, OtpController, CounterTransferController],
   providers: [
     CounterTransferService,
+    CustomerProductsService,
+    LoanPaymentOptionsService,
+    CardNumberRevealService,
     RedisService,
     SecurityThrottle,
     OtpService,

@@ -21,6 +21,9 @@ export class CustomerController {
   @Get('accounts') accounts(@CurrentUser() user: AuthUser) {
     return this.db.function('banking_api.get_customer_accounts', [this.id(user)]);
   }
+  @Get('recipients') recipients(@CurrentUser() user: AuthUser) {
+    return this.db.recentTransferRecipients(this.id(user));
+  }
   @Get('cards') cards(@CurrentUser() user: AuthUser) {
     return this.db.function('banking_api.get_customer_cards', [this.id(user)]);
   }
@@ -43,7 +46,7 @@ export class CustomerController {
   }
   @Get('transactions/:id') transaction(@CurrentUser() user: AuthUser,
     @Param('id', ParseIntPipe) id: number) {
-    return this.db.function('banking_api.get_transaction', [id, this.id(user)]);
+    return this.db.customerTransactionDetail(id, this.id(user));
   }
   @Post('password') changePassword(@CurrentUser() user: AuthUser,@Body() dto:PasswordChangeDto) {
     return this.db.function('banking_api.change_customer_password',[this.id(user),dto.oldPassword,dto.newPassword]);

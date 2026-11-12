@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { moduleUrl } from "./module-loader.mjs";
-const { transactionOutcome, isFinancialTransactionResult } = await import(
+const { transactionOutcome, transactionPresentation, isFinancialTransactionResult } = await import(
   await moduleUrl("transaction-outcome")
 );
 test("only final bank Success produces a successful transaction screen", () => {
@@ -23,6 +23,20 @@ test("only final bank Success produces a successful transaction screen", () => {
   assert.equal(transactionOutcome("Thất bại"), "failed");
   assert.equal(transactionOutcome("Cancelled"), "cancelled");
   assert.equal(transactionOutcome("Đã hủy"), "cancelled");
+});
+
+test("review notification is shown only for a pending transaction with an explicit REVIEW decision", () => {
+  for (const status of ["Pending", "Đang xử lý"]) {
+    const view = transactionPresentation(status, "REVIEW");
+    assert.equal(view.outcome, "pending");
+    assert.equal(view.label, "Chờ phê duyệt");
+    assert.match(view.title, /nhân viên phê duyệt/);
+    assert.match(view.message, /Tiền chưa được hạch toán/);
+  }
+  assert.equal(transactionPresentation("Pending").label, "Đang xử lý");
+  assert.equal(transactionPresentation("Success", "REVIEW").outcome, "success");
+  assert.equal(transactionPresentation("Failed", "REVIEW").outcome, "failed");
+  assert.equal(transactionPresentation(undefined, "REVIEW", 503).outcome, "unknown");
 });
 test("network/server errors cannot claim that money transfer failed or succeeded", () => {
   for (const status of [undefined, 0, 500, 502, 503, 504])

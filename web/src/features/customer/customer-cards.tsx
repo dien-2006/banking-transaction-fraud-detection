@@ -1,4 +1,6 @@
 "use client";
+import { CardNumberDetails } from "./card-number-details";
+import { ProductApplicationDialog } from "./product-application-dialog";
 import { TransactionRecordResult } from "@/components/transaction-result";
 import {
   ArrowRight,
@@ -48,7 +50,6 @@ import {
   CustomerStatus,
 } from "./customer-ui";
 import {
-  CustomerCardFace,
   CustomerCardTile,
   CustomerCardTransactions,
   useCardGallery,
@@ -59,7 +60,7 @@ import "./customer-cards.css";
 const services = {
   open: {
     title: "Mở thẻ mới",
-    text: "Liên hệ chi nhánh quản lý tài khoản để được tư vấn loại thẻ, điều kiện phát hành và hồ sơ đăng ký. Web hiện chưa hỗ trợ gửi yêu cầu mở thẻ trực tiếp.",
+    text: "Đăng ký thẻ ghi nợ mô phỏng trên tài khoản VND đang hoạt động mà bạn đứng tên chính. Số thẻ được hệ thống cấp tự động.",
   },
   lock: {
     title: "Khóa / Mở thẻ",
@@ -91,7 +92,7 @@ export function CustomerCards() {
     queryFn: bankService.customerCards,
   });
   const accounts = useCustomerAccounts();
-  const cards = query.data ?? [];
+  const cards = [...(query.data ?? [])].sort((a,b)=>b.cardid-a.cardid);
   const transactions = useQuery({
     queryKey: ["customer", user.id, "transactions"],
     queryFn: () => loadCustomerTransactions(bankService.listTransactions),
@@ -471,14 +472,13 @@ export function CustomerCards() {
         open={!!selected}
         onOpenChange={(open) => !open && setSelected(null)}
         title="Thông tin thẻ"
-        description="Số thẻ được che để bảo vệ thông tin của bạn."
+        description="Số thẻ được che mặc định. Xác thực bằng mật khẩu đăng nhập để xem đầy đủ."
+        className="card-details-dialog"
       >
         {selected && (
-          <>
-            <CustomerCardFace card={selected} holder={user.name} />
+          <CardNumberDetails key={selected.cardid} card={selected} holder={user.name}>
             <dl className="customer-record cards-detail-record">
               {[
-                ["Số thẻ", customerCardMask(selected)],
                 ["Loại thẻ", customerCardType(selected)],
                 ["Tài khoản liên kết", accountNumber(selected.accountid)],
                 ["Ngày phát hành", customerDate(selected.issuedate)],
@@ -516,7 +516,7 @@ export function CustomerCards() {
                 Đổi PIN thẻ này
               </button>
             )}
-          </>
+          </CardNumberDetails>
         )}
       </Modal>
       <Modal
@@ -586,7 +586,7 @@ export function CustomerCards() {
         </form>
       </Modal>
       <Modal
-        open={!!service}
+        open={!!service && service !== "open"}
         onOpenChange={(open) => !open && setService(null)}
         title={service ? services[service].title : "Dịch vụ thẻ"}
         description="Hỗ trợ sử dụng thẻ D4 Bank."
@@ -625,6 +625,7 @@ export function CustomerCards() {
           />
         )}
       </Modal>
+      <ProductApplicationDialog kind="cards" open={service === "open"} onOpenChange={open => !open && setService(null)} onCreated={()=>{setKind("all");setStatus("");setSearch("");gallery.setPage(1);}} />
     </div>
   );
 }

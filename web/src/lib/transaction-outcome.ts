@@ -55,6 +55,20 @@ export const outcomePresentation = {
   { label: string; title: string; message: string }
 >;
 
+/** Risk explains a pending result, but never overrides the bank's final status. */
+export function transactionPresentation(status?: string, decision?: string, errorStatus?: number) {
+  const outcome = transactionOutcome(status, errorStatus);
+  if (outcome === "pending" && decision === "REVIEW") {
+    return {
+      outcome,
+      label: "Chờ phê duyệt",
+      title: "Giao dịch đang chờ nhân viên phê duyệt",
+      message: "Yêu cầu đã được tiếp nhận và đang chờ nhân viên kiểm tra, phê duyệt. Tiền chưa được hạch toán. Bạn có thể theo dõi kết quả trong lịch sử giao dịch; vui lòng không gửi lại lệnh này.",
+    };
+  }
+  return { outcome, ...outcomePresentation[outcome] };
+}
+
 /** A 200 response alone is not proof that a financial transaction completed. */
 export function isFinancialTransactionResult(value: unknown): boolean {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
