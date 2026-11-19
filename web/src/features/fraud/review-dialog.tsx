@@ -10,10 +10,12 @@ import "./review-dialog.css";
 
 export function ReviewDialog({
   review,
+  autoOpen = false,
 }: {
   review: ReturnType<typeof presentFraudReview>;
+  autoOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(false),
+  const [open, setOpen] = useState(autoOpen),
     [reason, setReason] = useState(""),
     [confirmed, setConfirmed] = useState(false);
   const [attempt, setAttempt] = useState<{
@@ -73,10 +75,10 @@ export function ReviewDialog({
             <TransactionRecordResult
               transaction={mutation.data}
               account={review.account}
-              staffDetails={attempt ? [[
+              staffDetails={[["Khách hàng", review.customer], ["Mã khách hàng", review.customerCode], ...(attempt ? [[
                 attempt.action === "REJECT" ? "Lý do từ chối" : "Lý do phê duyệt",
                 attempt.reason || "Không ghi nhận lý do xử lý.",
-              ]] : []}
+              ] as const] : [])]}
             />
           </div>
         ) : (
@@ -88,6 +90,7 @@ export function ReviewDialog({
               {[
                 ["Mã giao dịch", review.transaction],
                 ["Khách hàng", review.customer],
+                ["Mã khách hàng", review.customerCode],
                 ["Tài khoản", review.account],
                 ["Thời gian", review.time],
                 ["Trạng thái review", review.status],

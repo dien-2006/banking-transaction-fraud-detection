@@ -56,6 +56,35 @@ export const sessionStore = {
 
 export async function apiRequest<T>(
   path: string,
+  init: RequestInit & { timeoutMs?: number } = {},
+): Promise<T> {
+  const { timeoutMs, ...request } = init;
+  if (timeoutMs === undefined) return performApiRequest<T>(path, request);
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0)
+    throw new Error("Request timeout must be positive.");
+  const controller = new AbortController();
+  const cancel = () => controller.abort(request.signal?.reason);
+  if (request.signal?.aborted) cancel();
+  else request.signal?.addEventListener("abort", cancel, { once: true });
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  try {
+    return await performApiRequest<T>(path, { ...request, signal: controller.signal });
+  } catch (error) {
+    if (timedOut)
+      throw new ApiError("Kết nối phản hồi quá lâu. Vui lòng thử lại.", 504, "REQUEST_TIMEOUT");
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    request.signal?.removeEventListener("abort", cancel);
+  }
+}
+
+async function performApiRequest<T>(
+  path: string,
   init: RequestInit = {},
 ): Promise<T> {
   const headers = new Headers(init.headers);

@@ -1,6 +1,6 @@
 "use client";
 
-import { notificationText } from "@/lib/notification-data";
+import { notificationText, staffNotificationHref } from "@/lib/notification-data";
 import { formatDateTime } from "@/lib/presentation";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
@@ -68,7 +68,7 @@ function NotificationMenu({
           title: item.title,
           detail: item.detail,
           time: formatDateTime(item.createdat),
-          href: `/${role}/notifications`,
+          href: staffNotificationHref(item, role) ?? `/${role}/notifications`,
           unread: item.unread,
         }));
   const unreadCount = items.filter(

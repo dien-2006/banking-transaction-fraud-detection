@@ -24,14 +24,16 @@ import { useSessionUser } from "@/components/session-context";
 import { money } from "@/lib/utils";
 import { bankService, type AdminOverviewData } from "@/services/bank.service";
 import type { RiskDecision } from "@/types";
+import { auditActions, auditEntities } from "@/lib/audit-data";
 
 type RiskRow = {
   transactionId: string;
   reviewId?: string;
+  customerCode?: string | null;
   customer: string;
   amount: number;
-  ruleScore: number;
-  modelProbability: number;
+  ruleScore: number | null;
+  modelProbability: number | null;
   time: string;
   decision: RiskDecision;
 };
@@ -102,10 +104,11 @@ function KpiChange({ item }: { item: AdminOverviewData["kpis"][number] }) {
       : `${percent > 0 ? "+" : ""}${number.format(Math.round(percent * 10) / 10)}% so tháng trước`;
   return (
     <p
-      className="mt-0.5 truncate text-[9px] leading-tight text-[#17418d]"
+      className="mt-0.5 text-[9px] leading-tight text-[#17418d]"
       title={`Số phát sinh tháng này: ${number.format(item.currentPeriod)}; tháng trước: ${number.format(item.previousPeriod)}. ${trend}. Không phải mức thay đổi của tổng lũy kế.`}
     >
-      Phát sinh tháng: <b>{number.format(item.currentPeriod)}</b> · {trend}
+      <span className="block">Tháng này: <b>{number.format(item.currentPeriod)}</b></span>
+      <span className="block">{trend}</span>
     </p>
   );
 }
@@ -290,8 +293,8 @@ function RiskTable({
         "Thao tác",
       ];
   return (
-    <div className="overflow-hidden">
-      <table className="w-full table-fixed text-left text-[10px]">
+    <div className="overflow-auto" role="region" aria-label={review ? "Bảng review đang chờ" : "Bảng giao dịch rủi ro"} tabIndex={0}>
+      <table className="overview-risk-table w-full table-fixed text-left text-[10px]" style={{ minWidth: review ? 1080 : 920 }}>
         <thead className="bg-[#f4f6fa] text-[#17418d]">
           <tr>
             {headers.map((x) => (
@@ -309,25 +312,26 @@ function RiskTable({
           {rows.map((row) => (
             <tr key={row.reviewId ?? row.transactionId}>
               {review && (
-                <td className="truncate px-1.5 py-0.5">{row.reviewId}</td>
+                <td className="px-1.5 py-0.5" title={row.reviewId}>{row.reviewId}</td>
               )}
-              <td className="truncate px-1.5 py-0.5">{row.transactionId}</td>
+              <td className="px-1.5 py-0.5" title={row.transactionId}>{row.transactionId}</td>
               <td className="truncate px-1.5 py-0.5" title={row.customer}>
                 {row.customer}
+                {row.customerCode && <small className="block text-slate-500">{row.customerCode}</small>}
               </td>
               <td className="truncate px-1.5 py-0.5">
                 {money.format(row.amount)}
               </td>
               <td className="px-1.5 py-0.5">
                 <b className="rounded-md bg-[#ffe5e8] px-1.5 text-[#f80820]">
-                  {row.ruleScore}
+                  {row.ruleScore ?? "Chưa đánh giá"}
                 </b>
               </td>
               <td className="px-1.5 py-0.5">
-                {Math.round(row.modelProbability * 100)}%
+                {row.modelProbability == null ? "Chưa đánh giá" : `${Math.round(row.modelProbability * 100)}%`}
               </td>
               {review ? (
-                <td className="px-1.5 py-0.5">{row.time}</td>
+                <td className="px-1.5 py-0.5" title={row.time}>{row.time}</td>
               ) : (
                 <td className="px-1.5 py-0.5">
                   <span
@@ -370,9 +374,10 @@ function toRiskRows(
     transactionId: row.transactionCode,
     reviewId: "reviewId" in row ? `RVW${row.reviewId}` : undefined,
     customer: row.customer,
+    customerCode: row.customerCode,
     amount: Number(row.amount),
-    ruleScore: Number(row.ruleScore),
-    modelProbability: Number(row.modelProbability),
+    ruleScore: row.ruleScore == null ? null : Number(row.ruleScore),
+    modelProbability: row.modelProbability == null ? null : Number(row.modelProbability),
     time: formatDateTime(
       "assessed_at" in row ? row.assessed_at : row.created_at,
     ),
@@ -465,7 +470,7 @@ export function AdminOverview({
           const Icon = icons[item.key];
           return (
             <article
-              className="card flex h-14 min-w-0 items-center gap-2 px-2.5 py-1"
+              className="card flex min-h-20 min-w-0 items-center gap-2 px-2.5 py-2"
               key={item.key}
             >
               <span
@@ -587,7 +592,7 @@ export function AdminOverview({
                     {item.actor}
                   </b>
                   <span className="truncate" title={item.description}>
-                    {item.description}
+                    {item.action && item.entitytype ? `${auditActions[item.action] ?? item.action} · ${auditEntities[item.entitytype] ?? item.entitytype}${item.entityid ? ` · ID ${item.entityid}` : ""}` : item.description}
                   </span>
                   <time className="whitespace-nowrap text-right">
                     {formatDateTime(item.created_at)}
@@ -614,10 +619,11 @@ export function AdminOverview({
               ["Mã giao dịch", selected.transactionId],
               ["Khách hàng", selected.customer],
               ["Số tiền", money.format(selected.amount)],
-              ["RuleScore", `${selected.ruleScore}/100`],
+              ["Mã khách hàng", selected.customerCode ?? "Chưa cập nhật"],
+              ["RuleScore", selected.ruleScore == null ? "Chưa đánh giá" : `${selected.ruleScore}/100`],
               [
                 "ModelProbability",
-                `${Math.round(selected.modelProbability * 100)}%`,
+                selected.modelProbability == null ? "Chưa đánh giá" : `${Math.round(selected.modelProbability * 100)}%`,
               ],
               ["Decision", selected.decision],
               ["Thời gian", selected.time],

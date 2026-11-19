@@ -197,7 +197,9 @@ export function ResourceCreateDialog({
         return;
       }
       setErrorField(caught instanceof ApiError ? caught.field ?? null : null);
-      if (!(caught instanceof ApiError) || caught.status >= 500 || caught.status < 400) {
+      if (caught instanceof ApiError && caught.code === "CONFIGURATION") {
+        setError(caught.message);
+      } else if (!(caught instanceof ApiError) || caught.status >= 500 || caught.status < 400) {
         setError("Chưa xác định được kết quả lưu do lỗi kết nối hoặc dịch vụ. Vui lòng kiểm tra danh sách trước khi thử lại để tránh tạo trùng.");
       } else if (caught.status === 401) {
         setError("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");

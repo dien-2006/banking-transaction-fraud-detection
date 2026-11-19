@@ -13,7 +13,7 @@ export class AdminController {
   }
   @Get('dashboard') dashboard(@CurrentUser() user: AuthUser, @Query() q: Record<string, string> = {}) {
     this.employee(user);
-    return this.db.adminOverview(staffReadBranch(user, q.branchId) ?? undefined);
+    return this.db.adminOverview(staffReadBranch(user, q.branchId) ?? undefined, user.userId);
   }
   @Get('profile') profile(@CurrentUser() user: AuthUser) {
     this.employee(user);

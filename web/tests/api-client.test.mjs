@@ -39,6 +39,39 @@ globalThis.localStorage = storage();
 globalThis.sessionStorage = storage();
 const events = [];
 globalThis.window = { dispatchEvent: (event) => events.push(event.type) };
+test("optional request deadline cancels stalled headers and response bodies without clearing login", async () => {
+  const original = globalThis.fetch;
+  api.sessionStore.save("timeout-test", "{}", true);
+  try {
+    for (const stalledBody of [false, true]) {
+      globalThis.fetch = (_, init) => {
+        assert.equal("timeoutMs" in init, false);
+        const stalled = () => new Promise((_, reject) => {
+          init.signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+        });
+        return stalledBody ? Promise.resolve({ status: 200, ok: true, text: stalled }) : stalled();
+      };
+      await assert.rejects(api.apiRequest("/admin/branches", { timeoutMs: 10 }),
+        error => error instanceof api.ApiError && error.status === 504 && error.code === "REQUEST_TIMEOUT");
+      assert.equal(api.sessionStore.token(), "timeout-test");
+    }
+  } finally {
+    globalThis.fetch = original;
+    api.sessionStore.clear();
+  }
+});
+test("caller cancellation stays distinct from a request timeout", async () => {
+  const original = globalThis.fetch;
+  try {
+    globalThis.fetch = (_, init) => new Promise((_, reject) => {
+      init.signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+    });
+    const controller = new AbortController();
+    const request = api.apiRequest("/admin/branches", { signal: controller.signal, timeoutMs: 1000 });
+    controller.abort();
+    await assert.rejects(request, error => error.name === "AbortError" && !(error instanceof api.ApiError));
+  } finally { globalThis.fetch = original; }
+});
 test("API client preserves JSON null, handles malformed responses and does not log out on wrong current credentials", async () => {
   const original = globalThis.fetch;
   try {

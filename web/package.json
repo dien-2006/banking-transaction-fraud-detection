@@ -13,6 +13,7 @@
     "test:qr": "node tests/browser/account-qr.mjs",
     "test:responsive": "node tests/browser/responsive.mjs",
     "test:lists": "node tests/browser/list-layout.mjs",
+    "test:branches": "node tests/browser/branches-loading.mjs",
     "test:otp": "node tests/browser/otp-resend.mjs",
     "test:recipients": "node tests/browser/recent-recipients.mjs",
     "test:products": "node tests/browser/customer-products.mjs",

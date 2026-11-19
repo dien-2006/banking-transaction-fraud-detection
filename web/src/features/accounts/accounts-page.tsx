@@ -21,6 +21,7 @@ import { RecordStatus } from "@/components/record-status";
 import { bankService } from "@/services/bank.service";
 import { useSessionUser } from "@/components/session-context";
 import { loadAllPages } from "@/lib/paged-data";
+import { recordText } from "@/lib/record-value";
 import {
   customerStatuses,
   accountKind,
@@ -41,17 +42,27 @@ export function AccountsPage() {
     queryKey: ["staff-accounts", user.role, user.id, user.branchId],
     queryFn: () => loadAllPages(bankService.accounts, (row) => row.accountid),
   });
+  const customersQuery = useQuery({
+    queryKey: ["staff-customers", user.role, user.id, user.branchId],
+    queryFn: () => loadAllPages(bankService.customers, (row) => recordText(row, ["customerid", "customercode"])),
+  });
+  const ownerNames = useMemo(() => new Map(
+    (customersQuery.data ?? []).map((row) => [String(row.customerid), recordText(row, ["fullname"], "")]),
+  ), [customersQuery.data]);
+  const ownerName = (account: (typeof accounts)[number]) => account.accountcategory === "INTERNAL"
+    ? "Nội bộ ngân hàng"
+    : ownerNames.get(String(account.customerid)) || `Khách hàng #${account.customerid ?? "—"}`;
   const accounts = accountsQuery.data ?? [];
   const filtered = useMemo(
     () =>
       accounts.filter(
         (row) =>
           (!status || row.status === status) &&
-          `${row.accountnumber} ${row.customerid ?? ""} ${row.accounttypename} ${row.branchname}`
+          `${row.accountnumber} ${row.customerid ?? ""} ${ownerNames.get(String(row.customerid)) ?? ""} ${row.accounttypename} ${row.branchname}`
             .toLocaleLowerCase("vi")
             .includes(q.trim().toLocaleLowerCase("vi")),
       ),
-    [accounts, q, status],
+    [accounts, q, status, ownerNames],
   );
   const pagination = useListPagination(filtered, {
     fitViewportOnly: true,
@@ -68,27 +79,23 @@ export function AccountsPage() {
     () =>
       pagination.visibleItems.map((x) => [
         x.accountnumber,
-        x.accountcategory === "INTERNAL"
-          ? "Nội bộ ngân hàng"
-          : `Khách hàng #${x.customerid ?? "—"}`,
+        ownerName(x),
         x.accounttypename || accountKind(x),
         formatCurrency(x.balance, x.currency),
         customerStatuses[x.status] ?? x.status,
       ]),
-    [pagination.visibleItems],
+    [pagination.visibleItems, ownerNames],
   );
   const data = rows;
   const activeCount = accounts.filter((row) => row.status === "Active").length;
   const totalBalance = accounts
-    .filter((row) => row.currency === "VND")
+    .filter((row) => row.currency === "VND" && row.accountcategory === "CUSTOMER")
     .reduce((sum, x) => sum + Number(x.balance || 0), 0);
   const recentRows = accounts
     .slice(0, 3)
     .map((x) => [
       x.accountnumber,
-      x.accountcategory === "INTERNAL"
-        ? "Nội bộ ngân hàng"
-        : `Khách hàng #${x.customerid ?? "—"}`,
+      ownerName(x),
     ]);
   const counts = new Map<string, number>();
   accounts.forEach((row) => {
@@ -113,7 +120,7 @@ export function AccountsPage() {
     [Landmark, "Đang hoạt động", display(activeCount)],
     [
       CircleDollarSign,
-      "Tổng số dư VND",
+      "Tổng số dư khách hàng (VND)",
       accountsQuery.isSuccess ? money.format(totalBalance) : "—",
     ],
     [
@@ -135,7 +142,7 @@ export function AccountsPage() {
               <p className="text-xs">{l}</p>
               <b className="text-2xl">{v}</b>
               <small className="block text-[9px] text-emerald-500">
-                Toàn bộ phạm vi được cấp quyền
+                {I === CircleDollarSign ? "Không gồm tài khoản nội bộ" : "Toàn bộ phạm vi được cấp quyền"}
               </small>
             </div>
           </article>
@@ -174,7 +181,7 @@ export function AccountsPage() {
                   setQ(e.target.value);
                   pagination.setPage(1);
                 }}
-                placeholder="Tìm số tài khoản, mã khách hàng, chi nhánh..."
+                placeholder="Tìm số tài khoản, tên, ID khách hàng, chi nhánh..."
               />
             </label>
             <select
@@ -264,6 +271,7 @@ export function AccountsPage() {
                       <td className="p-1">
                         <AccountDetailsButton
                           account={pagination.visibleItems[index]}
+                          ownerName={x[1]}
                         />
                       </td>
                     </tr>
@@ -302,6 +310,7 @@ export function AccountsPage() {
                     <span className="text-slate-500">{x[0]}</span>
                   </p>
                   <AccountDetailsButton
+                    ownerName={x[1]}
                     account={accounts.find(
                       (account) => account.accountnumber === x[0],
                     )!}

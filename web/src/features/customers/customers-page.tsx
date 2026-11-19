@@ -10,7 +10,7 @@ import {
   ShieldCheck,
   UsersRound,
 } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import {
   ListPagination,
@@ -21,17 +21,18 @@ import { activeStatus, recordText } from "@/lib/record-value";
 import { bankService } from "@/services/bank.service";
 import { useSessionUser } from "@/components/session-context";
 import { loadAllPages } from "@/lib/paged-data";
-import { isVerified } from "@/lib/staff-data";
 import { ResourceCreateDialog } from "@/features/live/resource-create-dialog";
 
 export function CustomersPage() {
   const user = useSessionUser();
+  const queryClient = useQueryClient();
+  const customersKey = ["staff-customers", user.role, user.id, user.branchId];
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("");
   const customersQuery = useQuery({
-    queryKey: ["staff-customers", user.role, user.id, user.branchId],
-    queryFn: () =>
-      loadAllPages(bankService.customers, (row) =>
+    queryKey: customersKey,
+    queryFn: ({ signal }) =>
+      loadAllPages((params) => bankService.customers(params, signal), (row) =>
         recordText(row, ["customerid", "customercode"]),
       ),
   });
@@ -39,21 +40,12 @@ export function CustomersPage() {
     () =>
       (customersQuery.data ?? []).map((row) => {
         const rawStatus = recordText(row, ["status"], "Chưa cập nhật");
-        const verified = recordText(
-          row,
-          ["kycstatus", "verificationstatus", "isverified"],
-          "Chưa cập nhật",
-        );
         return [
           recordText(row, ["customercode", "code", "customerid"]),
           recordText(row, ["fullname", "name"]),
           recordText(row, ["phone", "phonenumber"]),
-          recordText(row, ["city", "address", "customersegment"]),
-          isVerified(verified)
-            ? "Đã xác minh"
-            : verified === "false"
-              ? "Chưa xác minh"
-              : verified,
+          recordText(row, ["address"]),
+          recordText(row, ["customersegment"], "Chưa phân loại"),
           activeStatus(rawStatus) ? "Đang hoạt động" : rawStatus,
         ];
       }),
@@ -82,7 +74,8 @@ export function CustomersPage() {
     setStatus("");
     pagination.setPage(1);
   };
-  const verifiedCount = customers.filter((x) => x[4] === "Đã xác minh").length;
+  const activeCount = customers.filter((x) => x[5] === "Đang hoạt động").length;
+  const blockedCount = (customersQuery.data ?? []).filter((row) => row.status === "Blocked").length;
   const priorityCount = (customersQuery.data ?? []).filter((row) =>
     ["VIP", "PRIORITY", "ƯU TIÊN"].includes(
       recordText(row, ["customersegment", "segment"], "").toLocaleUpperCase(
@@ -119,12 +112,12 @@ export function CustomersPage() {
       : sortedGroups;
   const cards = [
     [UsersRound, "Tổng khách hàng", value(customers.length)],
-    [BadgeCheck, "Đã xác minh KYC", value(verifiedCount)],
+    [BadgeCheck, "Khách hàng đang hoạt động", value(activeCount)],
     [CircleDollarSign, "Khách hàng ưu tiên", value(priorityCount)],
     [
       ShieldCheck,
-      "Chưa có xác minh KYC",
-      value(customers.length - verifiedCount),
+      "Khách hàng bị khóa",
+      value(blockedCount),
     ],
   ] as const;
   return (
@@ -156,7 +149,10 @@ export function CustomersPage() {
             setQ("");
             setStatus("");
             pagination.setPage(1);
-            void customersQuery.refetch();
+            // A request started before creation must not replace the new list.
+            void queryClient.cancelQueries({ queryKey: customersKey, exact: true })
+              .then(() => queryClient.invalidateQueries({ queryKey: customersKey, exact: true }));
+            void queryClient.invalidateQueries({ queryKey: ["account-owner-options", user.role, user.id, user.branchId] });
           }}
         />
       </section>
@@ -210,8 +206,8 @@ export function CustomersPage() {
                     "Mã KH",
                     "Họ và tên",
                     "Điện thoại",
-                    "Khu vực",
-                    "Xác minh",
+                    "Địa chỉ",
+                    "Phân khúc",
                     "Trạng thái",
                     "Thao tác",
                   ].map((x) => (
@@ -265,7 +261,7 @@ export function CustomersPage() {
                         </div>
                       </td>
                       <td className="p-1">{x[2]}</td>
-                      <td className="p-1">{x[3]}</td>
+                      <td className="p-1"><span className="block truncate" title={x[3]}>{x[3]}</span></td>
                       <td className="p-1">
                         <span className="rounded bg-blue-50 px-1 text-blue-600">
                           {x[4]}
@@ -290,8 +286,8 @@ export function CustomersPage() {
                             "Mã khách hàng",
                             "Họ và tên",
                             "Điện thoại",
-                            "Khu vực",
-                            "Xác minh",
+                            "Địa chỉ",
+                            "Phân khúc",
                             "Trạng thái",
                           ]}
                         />
@@ -348,8 +344,8 @@ export function CustomersPage() {
                       "Mã khách hàng",
                       "Họ và tên",
                       "Điện thoại",
-                      "Khu vực",
-                      "Xác minh",
+                      "Địa chỉ",
+                      "Phân khúc",
                       "Trạng thái",
                     ]}
                   />

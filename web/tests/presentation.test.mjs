@@ -7,6 +7,20 @@ const { loadCards } = await import(await moduleUrl("card-data"));
 const { loadFraudReviews, presentFraudReview } = await import(await moduleUrl("fraud-data"));
 const { loadAuditLogs } = await import(await moduleUrl("audit-data"));
 const { loadAllPages } = await import(await moduleUrl("paged-data"));
+const { staffNotificationHref } = await import(await moduleUrl("notification-data"));
+test("staff notifications link to exact authorized resource IDs, never human-readable descriptions", () => {
+  for (const role of ["employee", "admin"]) {
+    assert.equal(staffNotificationHref({ id: "review-144", type: "fraud" }, role), `/${role}/fraud?reviewId=144`);
+    assert.equal(staffNotificationHref({ id: "loan-13", type: "loan" }, role), `/${role}/loans?loanId=13`);
+    for (const item of [
+      { id: "review-144", type: "loan" },
+      { id: "loan-13", type: "system" },
+      { id: "review-0", type: "fraud" },
+      { id: "review-144&reviewId=1", type: "fraud" },
+      { id: "https://example.test", type: "work" },
+    ]) assert.equal(staffNotificationHref(item, role), null);
+  }
+});
 test("all roles use Vietnam dates, preserve foreign money and reject nonfinite display values", () => {
   assert.equal(dateKey("2026-10-31T17:00:00Z"), "2026-11-01");
   assert.equal(dateKey("2026-11-01T00:30:00"), "2026-11-01");

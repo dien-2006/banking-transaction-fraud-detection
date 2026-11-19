@@ -1,30 +1,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { mkdtempSync, writeFileSync, rmSync } = require('node:fs');
-const { tmpdir } = require('node:os');
-const { join } = require('node:path');
-const { validateArtifact, CachedFraudModel, FEATURES } = require('../dist/database/fraud-model');
 const { AuthGuard } = require('../dist/security/auth.guard');
 const { DeliveryRetry } = require('../dist/delivery-retry');
 const { publishBatch } = require('../dist/producer');
 const { SecurityThrottle } = require('../dist/security/throttle.service');
-
-test('model reload retains the last valid cache and requires an explicit candidate mapping', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'd4-model-')), path = join(dir, 'model.json');
-  const model = { version: 'v1', intercept: -3.5, weights: Object.fromEntries(FEATURES.map(k => [k, 0.1])) };
-  try {
-    writeFileSync(path, JSON.stringify(model));
-    const cache = new CachedFraudModel({get: (key, fallback) => key === 'MODEL_CACHE_PATH' ? path : fallback});
-    assert.equal(cache.snapshot().artifact.version, 'v1');
-    writeFileSync(path, '{broken');
-    assert.equal(cache.snapshot().artifact.version, 'v1');
-    assert.throws(() => validateArtifact({...model, weights: {}}));
-    writeFileSync(path, JSON.stringify({...model, version: 'candidate-2'}));
-    assert.equal(cache.snapshot().artifact.version, 'v1');
-    const cold = new CachedFraudModel({get: (key, fallback) => key === 'MODEL_CACHE_PATH' ? path : fallback});
-    assert.throws(() => cold.snapshot(), /validated fraud model/);
-  } finally { rmSync(dir, { recursive: true }); }
-});
 
 test('a signed JWT cannot retain access after actor permissions are revoked', async () => {
   const user = {role:'customer', actorType:'customer', customerId:1};

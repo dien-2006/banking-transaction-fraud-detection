@@ -21,7 +21,7 @@ def services():
         env[f"{scope}_DB_PASSWORD"] = f"test_only_{scope.lower()}"
     env.update(POSTGRES_PASSWORD="test_only_admin", JWT_SECRET="test_only_jwt", OTP_HASH_SECRET="test_only_otp",
                MINIO_ROOT_PASSWORD="test_only_storage", BREVO_API_KEY="test_only_email")
-    result = subprocess.run(["docker", "compose", "--env-file", ".env.example", "--profile", "realtime", "--profile", "ml",
+    result = subprocess.run(["docker", "compose", "--env-file", ".env.example", "--profile", "realtime", "--profile", "ml", "--profile", "demo",
                              "config", "--format", "json"], cwd=ROOT, env=env, capture_output=True, text=True, check=True)
     return json.loads(result.stdout)["services"]
 
@@ -59,3 +59,13 @@ def test_pipeline_storage_and_bootstrap_credentials_are_preserved(services):
     assert services["postgres-bank"]["environment"]["POSTGRES_PASSWORD"] == "test_only_admin"
     assert "JWT_SECRET" not in services["postgres-bank"]["environment"]
     assert services["notification-sender"]["environment"]["NOTIFICATION_BATCH_SIZE"] == "20"
+
+
+def test_banking_schema_and_demo_data_require_manual_setup(services):
+    postgres = services["postgres-bank"]
+    assert not any(
+        volume["target"].startswith("/docker-entrypoint-initdb.d")
+        for volume in postgres.get("volumes", [])
+    )
+    assert "demo" in services["demo-bootstrap"]["profiles"]
+    assert "demo-bootstrap" not in services["banking-api"].get("depends_on", {})

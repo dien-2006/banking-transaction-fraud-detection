@@ -11,15 +11,6 @@ const artwork = {
     sourceWidth: 1536,
     sourceHeight: 1024,
   },
-  insights: {
-    src: "/insights-admin-reference.png",
-    x: 1150,
-    y: 75,
-    width: 367,
-    height: 177,
-    sourceWidth: 1536,
-    sourceHeight: 1024,
-  },
   audit: {
     src: "/audit-hero-v2.png",
     x: 1500,

@@ -47,6 +47,7 @@ export function BranchSidebar({
         <h2 className="text-base font-black">
           Chi nhánh có nhiều khách hàng nhất
         </h2>
+        {(!ready || error || !best.length) && <p className="mt-3 text-xs text-slate-500">{error ? "Chưa tải được dữ liệu xếp hạng." : !ready ? "Đang tải dữ liệu…" : "Chưa có chi nhánh để xếp hạng."}</p>}
         {best.map((item, index) => (
           <div className="mt-2 flex items-center gap-2" key={item.code}>
             <b className="grid size-5 place-items-center rounded-full bg-coral text-[9px] text-white">

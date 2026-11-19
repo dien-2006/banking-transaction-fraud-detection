@@ -12,6 +12,7 @@ import {
   PiggyBank,
 } from "lucide-react";
 import Link from "next/link";
+import Image from "next/image";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useSessionUser } from "@/components/session-context";
@@ -67,7 +68,14 @@ export function CustomerHome() {
   return (
     <div className="customer-screen customer-overview">
       <section className="customer-welcome" aria-labelledby="customer-greeting">
-        <ReferenceArtwork region="hero" className="customer-welcome-art" />
+        <Image
+          src="/customer-welcome-banner.png"
+          alt=""
+          fill
+          priority
+          sizes="(min-width: 1100px) calc(100vw - 240px), 100vw"
+          className="customer-welcome-background"
+        />
         <div className="customer-welcome-copy">
           <p>Xin chào,</p>
           <h1 id="customer-greeting">{user.name}!</h1>

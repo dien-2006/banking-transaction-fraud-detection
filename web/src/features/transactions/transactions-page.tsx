@@ -18,13 +18,14 @@ import {
 } from "lucide-react";
 import Image from "next/image";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   ListPagination,
   useListPagination,
 } from "@/components/list-pagination";
 import { TransactionRecordButton } from "@/components/transaction-result";
-import { bankService } from "@/services/bank.service";
+import { bankService, type ApiTransaction } from "@/services/bank.service";
+import { recordText } from "@/lib/record-value";
 import { useSessionUser } from "@/components/session-context";
 import { loadAllPages } from "@/lib/paged-data";
 import {
@@ -51,6 +52,22 @@ export function TransactionsPage() {
     queryKey: ["staff-accounts", user.role, user.id, user.branchId],
     queryFn: () => loadAllPages(bankService.accounts, (row) => row.accountid),
   });
+  const customersQuery = useQuery({
+    queryKey: ["staff-customers", user.role, user.id, user.branchId],
+    queryFn: () => loadAllPages(bankService.customers, (row) =>
+      recordText(row, ["customerid", "customercode"])),
+  });
+  const customersById = useMemo(() => new Map(
+    (customersQuery.data ?? []).map((row) => [String(row.customerid), row]),
+  ), [customersQuery.data]);
+  const present = useCallback((row: ApiTransaction) => {
+    const customer = customersById.get(String(row.initiatedbycustomerid));
+    return {
+      ...presentTransaction(row),
+      customer: row.initiatedbycustomerid == null ? "—" : recordText(customer ?? {}, ["fullname"], "Chưa tra được tên"),
+      customerCode: recordText(customer ?? {}, ["customercode"]),
+    };
+  }, [customersById]);
   const dateError = !!(filters.from && filters.to && filters.from > filters.to);
   const transactionsQuery = useQuery({
     refetchInterval: 15_000,
@@ -75,13 +92,13 @@ export function TransactionsPage() {
     () =>
       filterCustomerHistory(transactions, { ...filters, search: "" })
         .filter((row) => {
-          const view = presentTransaction(row);
-          return `${view.id} ${view.customer} ${view.description} ${view.type}`
+          const view = present(row);
+          return `${view.id} ${view.customer} ${view.customerCode} ${row.initiatedbycustomerid ?? ""} ${view.description} ${view.type}`
             .toLocaleLowerCase("vi")
             .includes(q.trim().toLocaleLowerCase("vi"));
         })
-        .map((row) => ({ ...presentTransaction(row), raw: row })),
-    [filters, q, transactions],
+        .map((row) => ({ ...present(row), raw: row })),
+    [filters, q, transactions, present],
   );
   const pagination = useListPagination(data, {
     fitViewportOnly: true,
@@ -312,7 +329,12 @@ export function TransactionsPage() {
                       <td className="p-2 font-semibold" title={x.id}>
                         {x.id}
                       </td>
-                      <td className="p-2">{x.customer}</td>
+                      <td className="p-2">
+                        <span className="block truncate" title={x.customer}>{x.customer}</span>
+                        {x.raw.initiatedbycustomerid != null && <small className="block truncate text-slate-500" title={x.customerCode}>
+                          {x.customerCode === "—" ? `ID: ${x.raw.initiatedbycustomerid}` : x.customerCode}
+                        </small>}
+                      </td>
                       <td className="p-2">{x.type}</td>
                       <td className="p-2 font-semibold">{x.amountText}</td>
                       <td className="p-2">{x.time}</td>
@@ -333,12 +355,13 @@ export function TransactionsPage() {
                                   accountsQuery.data?.find(
                                     (account) =>
                                       Number(account.accountid) === Number(id),
-                                  )?.accountnumber ?? `TK #${id}`,
+                                  )?.accountnumber ?? `ID tài khoản: ${id}`,
                               )
                               .join(" → ") || "Chưa cập nhật"
                           }
                           staffDetails={[
                             ["Khách hàng", x.customer],
+                            ["Mã khách hàng", x.customerCode],
                             ["Đánh giá rủi ro", x.risk],
                           ]}
                         />
@@ -368,7 +391,7 @@ export function TransactionsPage() {
             <div className="mt-2 space-y-2">
               {transactions
                 .slice(0, 3)
-                .map((row) => ({ ...presentTransaction(row), raw: row }))
+                .map((row) => ({ ...present(row), raw: row }))
                 .map((x, i) => (
                   <div className="flex items-center gap-2" key={x.id}>
                     <span className="grid size-5 place-items-center rounded-full bg-coral text-[10px] font-bold text-white">
@@ -377,8 +400,8 @@ export function TransactionsPage() {
                     <span className="grid size-8 place-items-center rounded bg-[#fff0f0] text-coral">
                       <ArrowLeftRight size={15} />
                     </span>
-                    <p className="text-[10px]">
-                      <b className="block">{x.customer}</b>
+                    <p className="min-w-0 flex-1 text-[10px]">
+                      <b className="block truncate" title={x.customer}>{x.customer}</b>
                       <span className="text-slate-500">{x.amountText}</span>
                     </p>
                     <TransactionRecordButton
@@ -391,12 +414,13 @@ export function TransactionsPage() {
                               accountsQuery.data?.find(
                                 (account) =>
                                   Number(account.accountid) === Number(id),
-                              )?.accountnumber ?? `TK #${id}`,
+                                  )?.accountnumber ?? `ID tài khoản: ${id}`,
                           )
                           .join(" → ") || "Chưa cập nhật"
                       }
                       staffDetails={[
                         ["Khách hàng", x.customer],
+                        ["Mã khách hàng", x.customerCode],
                         ["Đánh giá rủi ro", x.risk],
                       ]}
                     />

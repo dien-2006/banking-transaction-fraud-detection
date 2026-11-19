@@ -5,9 +5,9 @@ import { Modal } from "@/components/ui";
 import { bankService } from "@/services/bank.service";
 import "../customer/product-application-dialog.css";
 
-export function LoanDecisionButtons({id,code,customer,amount}:{id:number;code:string;customer:string;amount:string}) {
+export function LoanDecisionButtons({id,code,customer,amount,autoOpen=false}:{id:number;code:string;customer:string;amount:string;autoOpen?:boolean}) {
   const client=useQueryClient();
-  const [decision,setDecision]=useState<"APPROVE"|"REJECT"|null>(null),[reason,setReason]=useState("");
+  const [decision,setDecision]=useState<"APPROVE"|"REJECT"|null>(autoOpen ? "APPROVE" : null),[reason,setReason]=useState("");
   const [busy,setBusy]=useState(false),[error,setError]=useState("");
   const open=(value:typeof decision)=>{setDecision(value);setError("");setReason("");};
   return <>

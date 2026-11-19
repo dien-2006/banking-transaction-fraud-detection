@@ -60,6 +60,10 @@ try {
         assert.equal(route.request().method(), "GET", "Tab navigation must not write data");
         const url = new URL(route.request().url());
         const data = fixtureResponse(url, role);
+        if (url.pathname.endsWith("/admin/accounts")) {
+          data.items = [101, 102, 1010].map((id) => ({ ...data.items[0], accountid: id, accountnumber: `100000000000${String(id).padStart(4, "0")}` }));
+          data.total = 3;
+        }
         if (url.pathname.endsWith("/admin/fraud-reviews")) {
           data.items = data.items.slice(0, 5).map((row, index) => ({
             ...row,
@@ -85,7 +89,7 @@ try {
       const accounts = page.getByRole("button", { name: "Tài khoản cần review", exact: true });
       await accounts.click();
       assert.equal(await rows.count(), 2);
-      const account = rows.filter({ has: page.getByRole("cell", { name: "TK #101", exact: true }) });
+      const account = rows.filter({ has: page.getByRole("cell", { name: "1000000000000101", exact: true }) });
       assert.equal(await account.getByRole("cell", { name: "2", exact: true }).count(), 1);
       await account.getByRole("button", { name: "Xem hồ sơ", exact: true }).click();
       assert.equal(await rows.count(), 2);

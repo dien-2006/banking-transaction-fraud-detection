@@ -14,6 +14,40 @@ test('customer listing forwards the authenticated staff identity to its DB trans
   assert.deepEqual(context, { userId: 48 });
 });
 
+test('customer creation commits only with creator audit; missing audit rolls back the profile', async () => {
+  for (const audited of [true, false]) {
+    const calls = [];
+    const record = { customerid: '95', customercode: 'C0000095', fullname: 'Test customer' };
+    const client = {
+      query: async (sql, args) => {
+        calls.push([sql, args]);
+        if (sql.startsWith('SELECT banking_api.create_customer')) return { rows: [{ result: record }] };
+        if (sql.includes('FROM banking.audit_log')) {
+          assert.deepEqual(args, ['95', 48]);
+          assert.match(sql, /userid=\$2/);
+          return { rows: audited ? [{ '?column?': 1 }] : [] };
+        }
+        return { rows: [] };
+      },
+      release: () => calls.push(['RELEASE']),
+    };
+    const db = {
+      pool: { connect: async () => client },
+      ensureCryptoCompatibility: async () => {},
+      setContext: async () => {},
+      transaction: DatabaseService.prototype.transaction,
+    };
+    const create = DatabaseService.prototype.function.call(db, 'banking_api.create_customer', [null, record.fullname], { userId: 48 });
+    if (audited) assert.deepEqual(await create, record);
+    else await assert.rejects(create, /CONFIGURATION:.*nhật ký người tạo/);
+    assert.equal(calls.some(([sql]) => sql === 'COMMIT'), audited);
+    assert.equal(calls.some(([sql]) => sql === 'ROLLBACK'), !audited);
+    assert.equal(calls.at(-1)[0], 'RELEASE');
+    assert.equal(calls.some(([sql]) => /INSERT INTO banking.audit_log/.test(sql)), false,
+      'The backend must not duplicate the audit trigger or invent creator history');
+  }
+});
+
 test('creator sees an unassigned customer, other staff cannot, and branch assignment takes precedence', {
   skip: !process.env.CUSTOMER_CODE_TEST_URL,
 }, async () => {

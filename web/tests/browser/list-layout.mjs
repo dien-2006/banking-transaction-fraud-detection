@@ -15,10 +15,8 @@ async function settle(page){
  await page.waitForFunction(()=>{
   const panel=[...document.querySelectorAll('.d4-list-panel')].find(node=>node.querySelector('table')),rows=panel?.querySelectorAll('tbody tr:not(:has(td[colspan]))');
   if(!rows?.length)return false;
-  if(['/employee/customers','/employee/accounts'].includes(location.pathname))return rows.length===7;
-  if(location.pathname==='/employee/transactions')return rows.length===6;
-  if(location.pathname==='/employee/cards')return rows.length===11;
-  if(location.pathname==='/employee/fraud')return rows.length===11;
+  const fixed=Number(panel.dataset.fixedPageSize);
+  if(fixed>0)return rows.length===fixed;
   const footer=panel.querySelector('.d4-list-pagination').getBoundingClientRect(),first=rows[0].getBoundingClientRect(),last=rows[rows.length-1].getBoundingClientRect();
   return innerWidth<1100||innerHeight<640||(last.bottom<=footer.top+1&&footer.top-last.bottom<first.height+2);
  });

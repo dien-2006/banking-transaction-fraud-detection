@@ -1243,7 +1243,7 @@ textarea:focus-visible {
     display: grid;
     height: 100%;
     min-height: 0;
-    grid-template-rows: 70px 60px 112px 202px minmax(202px, 1fr);
+    grid-template-rows: 70px 80px 112px 202px minmax(202px, 1fr);
     row-gap: 2px;
   }
   .admin-overview-shell .admin-overview-fit > section {
@@ -1648,7 +1648,7 @@ main table tbody td :is(.size-10, .size-9, .size-8) {
     display: grid;
     height: 100%;
     min-height: 0;
-    grid-template-rows: 70px 56px 112px minmax(236px, 1fr) minmax(236px, 1fr);
+    grid-template-rows: 70px 80px 112px minmax(236px, 1fr) minmax(236px, 1fr);
     gap: 8px;
     overflow: hidden;
   }
@@ -1683,7 +1683,7 @@ main table tbody td :is(.size-10, .size-9, .size-8) {
     display: grid;
     height: 100%;
     min-height: 0;
-    grid-template-rows: 64px 52px 100px minmax(196px, 1fr) minmax(196px, 1fr);
+    grid-template-rows: 64px 80px 100px minmax(196px, 1fr) minmax(196px, 1fr);
     gap: 6px;
     overflow: hidden;
   }
@@ -1749,7 +1749,7 @@ main table tbody td :is(.size-10, .size-9, .size-8) {
     display: grid;
     height: 100%;
     min-height: 0;
-    grid-template-rows: 56px 48px 100px minmax(177px, 1fr) minmax(177px, 1fr);
+    grid-template-rows: 56px 80px 100px minmax(177px, 1fr) minmax(177px, 1fr);
     gap: 6px;
     overflow: hidden;
   }
@@ -2241,6 +2241,13 @@ main table tbody td :is(.size-10, .size-9, .size-8) {
 .dashboard-shell main .d4-list-panel .d4-transaction-filters input[type="text"],
 .dashboard-shell main .d4-list-panel .d4-transaction-filters input:not([type]) {
   padding-left: 30px;
+}
+/* Keep masked card numbers, linked accounts and status labels readable. */
+.dashboard-shell main .d4-list-panel table.staff-cards-table {
+  min-width: 1440px !important;
+}
+.admin-overview-fit table.overview-risk-table th:nth-child(n) {
+  width: auto !important;
 }
 @media (max-width: 639px) {
   .dashboard-shell main .d4-list-panel > .d4-transaction-filters {

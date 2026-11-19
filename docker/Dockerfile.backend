@@ -16,7 +16,6 @@ RUN python3 -m venv /opt/inference && /opt/inference/bin/pip install --no-cache-
 COPY --from=dependencies /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY backend/package.json ./package.json
-COPY ml/artifacts/fraud_detection/v1/ /app/ml-artifacts/
 COPY ml/ /app/ml/
 COPY models/fraud_detection_model.joblib models/model_metadata.json /app/models/
 ENV PYTHON_EXECUTABLE=/opt/inference/bin/python JOBLIB_MODEL_PATH=/app/models/fraud_detection_model.joblib JOBLIB_METADATA_PATH=/app/models/model_metadata.json ML_WORKSPACE_ROOT=/app

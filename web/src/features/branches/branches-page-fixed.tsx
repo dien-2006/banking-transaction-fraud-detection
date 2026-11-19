@@ -6,7 +6,9 @@ import {
   CheckCircle2,
   Filter,
   PauseCircle,
+  RefreshCw,
   Search,
+  ShieldAlert,
   UsersRound,
 } from "lucide-react";
 import Image from "next/image";
@@ -55,8 +57,9 @@ export function BranchesPageFixed() {
     [selected, setSelected] = useState<BranchView | null>(null);
   const query = useQuery({
     queryKey: ["admin-branches-live", user.id],
-    queryFn: () =>
-      loadAllPages(bankService.branches, (row) => String(row.branchid)),
+    queryFn: ({ signal }) =>
+      loadAllPages((params) => bankService.branches(params, signal), (row) => String(row.branchid)),
+    retry: false,
   });
   const rows = useMemo<BranchView[]>(
     () =>
@@ -100,17 +103,6 @@ export function BranchesPageFixed() {
       [PauseCircle, "Chi nhánh tạm ngừng", rows.length - active],
       [UsersRound, "Tổng nhân viên", rows.reduce((n, x) => n + x.staff, 0)],
     ] as const;
-  if (query.isLoading)
-    return <div className="h-80 animate-pulse rounded-xl bg-slate-100" />;
-  if (query.isError)
-    return (
-      <div className="card p-6 text-sm text-red-600">
-        Không thể tải dữ liệu chi nhánh từ PostgreSQL.{" "}
-        <button className="underline" onClick={() => void query.refetch()}>
-          Thử lại
-        </button>
-      </div>
-    );
   return (
     <div className="staff-data-page branches-page-content flex flex-col gap-2.5 text-navy">
       <ManagementBanner src="/branches-hero.png" title="Danh sách chi nhánh" description="Tra cứu thông tin và hoạt động các chi nhánh." />
@@ -122,9 +114,9 @@ export function BranchesPageFixed() {
             </span>
             <div>
               <p className="text-xs">{l}</p>
-              <b className="text-2xl">{v.toLocaleString("vi-VN")}</b>
-              <small className="block text-[9px] text-emerald-500">
-                Dữ liệu PostgreSQL
+              <b className="text-2xl">{query.data ? v.toLocaleString("vi-VN") : "—"}</b>
+              <small className="block text-[9px] text-slate-500">
+                {query.isPending ? "Đang tải dữ liệu" : query.isError ? "Chưa cập nhật được" : "Dữ liệu mới nhất"}
               </small>
             </div>
           </article>
@@ -145,6 +137,7 @@ export function BranchesPageFixed() {
                   : "px-2 text-xs"
               }
               onClick={() => setTab(x)}
+              disabled={query.isPending}
               key={x}
             >
               {x}
@@ -252,7 +245,17 @@ export function BranchesPageFixed() {
                 <Filter className="inline" size={13} /> Đặt lại
               </button>
             </div>
-            <div className="min-h-0 flex-1 overflow-hidden">
+            {query.isError && (
+              <div className="my-2 flex shrink-0 flex-wrap items-center gap-2 rounded-lg bg-rose-50 p-3 text-xs text-rose-700" role="alert">
+                <ShieldAlert size={18} className="shrink-0" />
+                <span className="min-w-0 flex-1">Không thể tải danh sách chi nhánh. Vui lòng kiểm tra kết nối và thử lại.</span>
+                <button type="button" className="btn-secondary min-h-9 disabled:opacity-50" disabled={query.isFetching} onClick={() => void query.refetch()}>
+                  <RefreshCw size={14} className={query.isFetching ? "animate-spin" : ""} />
+                  {query.isFetching ? "Đang tải lại…" : "Thử lại"}
+                </button>
+              </div>
+            )}
+            <div className="staff-table-scroll min-h-0 flex-1 overflow-auto" aria-busy={query.isFetching}>
               <table className="mt-3 w-full min-w-[760px] table-fixed text-left text-[10px]">
                 <thead className="bg-slate-50">
                   <tr>
@@ -273,6 +276,9 @@ export function BranchesPageFixed() {
                   </tr>
                 </thead>
                 <tbody>
+                  {query.isPending && <tr><td colSpan={8} className="p-3 text-center text-slate-500"><span className="inline-flex items-center gap-2" role="status"><RefreshCw size={15} className="animate-spin" />Đang tải danh sách chi nhánh…</span></td></tr>}
+                  {query.isError && !query.data && <tr><td colSpan={8} className="p-3 text-center text-slate-500">Dữ liệu chi nhánh chưa sẵn sàng.</td></tr>}
+                  {query.isSuccess && !data.length && <tr><td colSpan={8} className="p-3 text-center text-slate-500">{rows.length ? "Không có chi nhánh phù hợp với bộ lọc." : "Chưa có chi nhánh."}</td></tr>}
                   {visibleRows.map((x) => (
                     <tr className="border-t" key={x.id}>
                       <td className="p-1">

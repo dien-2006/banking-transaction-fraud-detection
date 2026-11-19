@@ -38,8 +38,11 @@ export function presentFraudReview(row: ApiFraudReview) {
     customer:
       row.initiatedbycustomerid == null
         ? "—"
-        : `KH #${row.initiatedbycustomerid}`,
-    account: row.sourceaccountid == null ? "—" : `TK #${row.sourceaccountid}`,
+        : "Chưa tra được tên",
+    customerId: row.initiatedbycustomerid == null ? null : String(row.initiatedbycustomerid),
+    customerCode: "—",
+    accountId: row.sourceaccountid == null ? null : String(row.sourceaccountid),
+    account: row.sourceaccountid == null ? "—" : `ID tài khoản: ${row.sourceaccountid}`,
     type: transactionTypes[row.typecode] || row.typename || row.typecode || "—",
     detail: `${row.transactioncode} · ${amount}${row.description ? ` · ${row.description}` : ""}`,
     risk: riskLabels[row.risklevel ?? ""] ?? "Chưa đánh giá",
@@ -50,7 +53,7 @@ export function presentFraudReview(row: ApiFraudReview) {
     assignee:
       row.revieweruserid == null
         ? "Chưa phân công"
-        : `User #${row.revieweruserid}`,
+        : `ID người xử lý: ${row.revieweruserid}`,
     ruleScore: row.rulescore == null ? "Chưa đánh giá" : String(row.rulescore),
     mlProbability: probability,
     decision: row.decision ?? "Chưa đánh giá",

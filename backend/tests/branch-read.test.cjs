@@ -3,6 +3,27 @@ const assert = require('node:assert/strict');
 const { staffReadBranch } = require('../dist/security/branch-access');
 const { AdminController } = require('../dist/http/admin.controller');
 const { TransactionController } = require('../dist/http/transaction.controller');
+const { DatabaseService } = require('../dist/database/database.service');
+
+test('overview binds scope, creator identity and business timezone without interpolating them', async () => {
+  for (const branchId of [undefined, 3]) {
+    let call;
+    const expected = { kpis: [], recentRisks: [], pendingReviews: [] };
+    const db = { sourceTimezone: 'Asia/Ho_Chi_Minh', pool: { query: async (sql, args) => {
+      call = { sql, args }; return { rows: [{ result: expected }] };
+    } } };
+    assert.equal(await DatabaseService.prototype.adminOverview.call(db, branchId, 48), expected);
+    assert.deepEqual(call.args, [branchId ?? null, 48, 'Asia/Ho_Chi_Minh']);
+    assert.match(call.sql, /al\.userid=\$2/);
+    assert.match(call.sql, /l\.customerid=c\.customerid AND l\.branchid=\$1/);
+    assert.match(call.sql, /DISTINCT ON \(r\.transactionid\)/);
+    assert.match(call.sql, /r\.assessedat DESC, r\.riskassessmentid DESC/);
+    assert.doesNotMatch(call.sql, /'Khách hàng #'|COALESCE\(c\.fullname,v\.description/);
+    const types = call.sql.split("'transactionTypes'")[1].split("'recentRisks'")[0];
+    assert.match(types, /bt\.transactiondate <= b\.as_of/);
+    assert.doesNotMatch(types, /\bt\.transactiondate/);
+  }
+});
 
 const admin = { role: 'admin', userId: 1, employeeId: 2, branchId: 3 };
 const employee = { ...admin, role: 'employee' };

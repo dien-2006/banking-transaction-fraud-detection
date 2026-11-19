@@ -22,10 +22,10 @@ INSERT INTO banking.employee (employeeid, employeecode, branchid, roleid, fullna
 (4, 'EMP0004', 7, 2, 'Nguyễn Hải Yến', '2006-08-16', '0866955029', 'yennh.b24kd106@stu.ptit.edu.vn', '2026-01-01', 13000000);
 
 INSERT INTO banking."system_user" (userid, employeeid, username, passwordhash, createdat) VALUES
-(1, 1, 'B24DCKD016', '$2y$10$KB3SSpwhjIJIWogIBjNa.uFTYpLqFl74tAws1wWdXiJL1rj4Voyoe', '2026-01-01 12:00:00'),
-(2, 2, 'B24DCKD028', '$2y$10$qFdLgWtxIjbxQJr4z0JYaupSmvonzMVOndwJDAqMg8r3TZkmQbCuG', '2026-01-01 12:00:00'),
-(3, 3, 'B24DCKD076', '$2y$10$F3lNu1YIi8LYmvKh0ZO.y.QSGq0pIlTJk19moXGxyE4.RMAsdVvme', '2026-01-01 12:00:00'),
-(4, 4, 'B24DCKD106', '$2y$10$P7DTo9ngY3J8BS2edTKjieRrCWVGJGxIwLzin2k0AB0K5hOct16ai', '2026-01-01 12:00:00');
+(1, 1, 'B24DCKD016', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(2, 2, 'B24DCKD028', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(3, 3, 'B24DCKD076', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(4, 4, 'B24DCKD106', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00');
 
 INSERT INTO banking.customer (customerid, customercode, fullname, dateofbirth, phone, email, customertype, createddate, status, customersegment) VALUES
 (1, 'C0000001', 'Đặng Thế Anh', '2006-05-26', '0834133553', 'anhdt.b24kd001@stu.ptit.edu.vn', 'Individual', '2026-01-01 12:00:00', 'Active', 'Standard'),
@@ -124,100 +124,100 @@ INSERT INTO banking.customer (customerid, customercode, fullname, dateofbirth, p
 (94, 'C0000094', 'Phương Bảo Vỹ', '2006-07-13', '0396282536', 'vypb.b24kd105@stu.ptit.edu.vn', 'Individual', '2026-01-01 12:00:00', 'Active', 'Standard');
 
 INSERT INTO banking.customer_online_account (onlineaccountid, customerid, username, passwordhash, registereddate) VALUES
-(1, 1, 'B24DCKD001', '$2y$10$1fg/gAQ1QDxXTEZg.CFLkuqklNbBVcQN4a7JehM/.ZdKHuicAaZs6', '2026-01-01 12:00:00'),
-(2, 2, 'B24DCKD002', '$2y$10$uxCBconb/FlULueOXx6ERuOQbjnPcUWpsGBOgHO83IGgjbUz8nnjC', '2026-01-01 12:00:00'),
-(3, 3, 'B24DCKD003', '$2y$10$3L3AYBsPP/XYUXWucJ706.4b6dU1OGzTUWc1IzpKvONdhE6vhsjMa', '2026-01-01 12:00:00'),
-(4, 4, 'B24DCKD004', '$2y$10$RHyw7qz3n7el.yOgmeNUxuzuWGSiOHcf2GgFQU8oQt0rZpjEs6eqC', '2026-01-01 12:00:00'),
-(5, 5, 'B24DCKD005', '$2y$10$HvgZA0F21VhlFtJcmt2D2uORCglhBoRWAtpzKk8O96dJWPaV0RLAW', '2026-01-01 12:00:00'),
-(6, 6, 'B24DCKD006', '$2y$10$aJjLtQzA1YkNFcBORrsppOjoaND2OZ31H8ztq/CSetJMEhPtX9MRC', '2026-01-01 12:00:00'),
-(7, 7, 'B24DCKD007', '$2y$10$z7REHTyd6DhlMC/wlgr1aOyCurYnEh3Y1aBE5rE15OryuwVoawEB6', '2026-01-01 12:00:00'),
-(8, 8, 'B24DCKD008', '$2y$10$Fm5L8ClLqOuioFWX1d55D.n7k6WdVi9h4F2OQp6occsplIZTX9U1a', '2026-01-01 12:00:00'),
-(9, 9, 'B24DCKD009', '$2y$10$be1MH7Zwac.u0RgiDfHt5uEY9rKtjkEvnMowooTdhG1nhc10EPirO', '2026-01-01 12:00:00'),
-(10, 10, 'B24DCKD010', '$2y$10$tli1WhAmMC5ewTpAAPl4b.xiiVvppwyBXWQz/PxFvJsvjkeM3c22e', '2026-01-01 12:00:00'),
-(11, 11, 'B24DCKD011', '$2y$10$JWbZ2jcyrKWhIBi3lTTPSekaCwdm1M0y0g.ChRjaLZ5ru5ZKWNaRK', '2026-01-01 12:00:00'),
-(12, 12, 'B24DCKD012', '$2y$10$CCzMCNMtTQNeNcguDWGFWOhDpO6MWLWaWOdVixk8Ol9BOFlspVB.G', '2026-01-01 12:00:00'),
-(13, 13, 'B24DCKD013', '$2y$10$1/Du5aS/ZCs8yV9o9E9YNO6rAdMaf9o9GrHFdyrWi0qwLDpxXIJ0S', '2026-01-01 12:00:00'),
-(14, 14, 'B24DCKD014', '$2y$10$lqBZBuSrKZSKApVRbAHBd.Cexws24y2ScCqWH522RvpLeuwBuKAZ6', '2026-01-01 12:00:00'),
-(15, 15, 'B24DCKD017', '$2y$10$Iw2kmzCsl9XMPxLyvTKswul9I9t.buA65I/TMoe5Z0HbW3x4RePnK', '2026-01-01 12:00:00'),
-(16, 16, 'B24DCKD018', '$2y$10$HQfVXFZMZqa.79oNv3V23uuOrxKcc2Adn2PirON.KtxBlkRnTxPmW', '2026-01-01 12:00:00'),
-(17, 17, 'B24DCKD019', '$2y$10$m0zFpWqx8Hfo9Fmj6lm8iu7DySeteuPIZjM57RVKuBVPtQJzxPvm2', '2026-01-01 12:00:00'),
-(18, 18, 'B24DCKD021', '$2y$10$HXvIpzTc9XfXBPVW3FhHz.LPZgiXpLREdrxfhQA8BpAQDDtV6c9d2', '2026-01-01 12:00:00'),
-(19, 19, 'B24DCKD022', '$2y$10$MpOEuyKu14eU992ltEIxvOq/djz23cL09llqq9vkli2t16WKwZdUC', '2026-01-01 12:00:00'),
-(20, 20, 'B24DCKD023', '$2y$10$a.mol2Cw34Dr24vsLF0ktOHu7OK5HFsAmKFI32ZJ.1opfC6VNlk.6', '2026-01-01 12:00:00'),
-(21, 21, 'B24DCKD024', '$2y$10$0nuXpgkGKQgGcGTr8ZSVAO5zKNbwa2Py4OZviKAj18BplUhTSqpQm', '2026-01-01 12:00:00'),
-(22, 22, 'B24DCKD025', '$2y$10$o.jSOsFHFcuiHFL71tEgku/PPSE14isw6pb/.z2IQzl5.ZS0VF3Te', '2026-01-01 12:00:00'),
-(23, 23, 'B24DCKD026', '$2y$10$IEIbdcVdnK3SqfmUTctxZuA9Bktx6YhkfMSWPD1HkEFgnzgjZRFBq', '2026-01-01 12:00:00'),
-(24, 24, 'B24DCKD027', '$2y$10$xIno4yg5vvRBrf3cWivD/ucYJqOgkfVMJW3eCXwNNUDRPgwSu/bh2', '2026-01-01 12:00:00'),
-(25, 25, 'B24DCKD029', '$2y$10$UhodV6zv4YWMJKC/Q2TpT.n1FdirTjOunWJccNvoCZOdp3UkXIQim', '2026-01-01 12:00:00'),
-(26, 26, 'B24DCKD030', '$2y$10$t2nXqpJkUaWozrOtY4I33OtjEbfjJmu1TLToK1L9/xoEp1/guZ8UC', '2026-01-01 12:00:00'),
-(27, 27, 'B24DCKD031', '$2y$10$Mq8ak6DMRDMotbuQsKaezOe3fsKgTMQkZdLpLDAQAu1J4pqghNs4i', '2026-01-01 12:00:00'),
-(28, 28, 'B24DCKD032', '$2y$10$Ej.fTcRqEJzZIoAtbx6MVe0FpIrcg6x9zmagF8Sf.moFFcGQ5W2na', '2026-01-01 12:00:00'),
-(29, 29, 'B24DCKD033', '$2y$10$L/4yG1E7rAxmGXuoIltfF.CIaezHsxRGXsgIXRM9FC4YHVtb43AqO', '2026-01-01 12:00:00'),
-(30, 30, 'B24DCKD034', '$2y$10$iuSspY010wnbl25zJ68RbuHtDyHZvPzIVXR.VdGCkjtCaFHxnO.qO', '2026-01-01 12:00:00'),
-(31, 31, 'B24DCKD036', '$2y$10$vJ58BV32e.aGSmykxy/MyejAJa1iy01aQvq6ZuhSiq4z7TrcrW6Ay', '2026-01-01 12:00:00'),
-(32, 32, 'B24DCKD037', '$2y$10$ueJzQJmdQXhe2F1rmWGaF.ELm5yRAvZP13LSXEE.n9hZVdtXl5GCG', '2026-01-01 12:00:00'),
-(33, 33, 'B24DCKD038', '$2y$10$epur49ydI3xE/iD8wMo3qu8xrLUl71gvEXYRqblLs7UJnIgFQPlAy', '2026-01-01 12:00:00'),
-(34, 34, 'B24DCKD039', '$2y$10$vpPbHKtdv3kOh5/EQQd.heD.5i6or.kpA6A0vPCsrzBWtvMjZHGIu', '2026-01-01 12:00:00'),
-(35, 35, 'B24DCKD040', '$2y$10$sfvCB.BtsQs6qQzTNLB.VuyNMmHXqWnTD328K42S38R2hp.BrTjWO', '2026-01-01 12:00:00'),
-(36, 36, 'B24DCKD041', '$2y$10$6dy7KuEpY9sooqJ/cjdWZua21.ad1SGb5p/5EF0zyAHEQoGNvbCie', '2026-01-01 12:00:00'),
-(37, 37, 'B24DCKD042', '$2y$10$gtUaS1gU2Q7KH4.SLA7/0e/wz.461amROFKNXyFWr3MLr3u3focvu', '2026-01-01 12:00:00'),
-(38, 38, 'B24DCKD043', '$2y$10$toPAzIDXOZSQfMnRcFe29OEUb/y3VlMo73jsVT/cKIC1bBLmWcqoq', '2026-01-01 12:00:00'),
-(39, 39, 'B24DCKD044', '$2y$10$q.bfpvfAqa0TbFWPBOyZq.eF85GHIgPXWffWImxF04Xb71dzD3Cx2', '2026-01-01 12:00:00'),
-(40, 40, 'B24DCKD045', '$2y$10$oM0HY43L2u7ebO.cSA1E..vgJfq5UMDTxhD72z8MCdlMvLVBk642W', '2026-01-01 12:00:00'),
-(41, 41, 'B24DCKD046', '$2y$10$DaGsdeyV4SK0NYw9alPJNumwsTobDSowkIY/Z8zu1OVilm1DNTuoq', '2026-01-01 12:00:00'),
-(42, 42, 'B24DCKD047', '$2y$10$f7gAiG2q1QYPH60qzxkiweAjXT1d5kGnB1BDb/Stcm/qKS2khiL1.', '2026-01-01 12:00:00'),
-(43, 43, 'B24DCKD048', '$2y$10$WkPrXH.MSeD7NvHF9oI1G.mV2FWaUlgWfhUh/nBji9Svjf0u/p1kW', '2026-01-01 12:00:00'),
-(44, 44, 'B24DCKD049', '$2y$10$fEQK49eLEMeYHMLYyLByMOR2I1WrRZ86sS3feStYHMxfj8SsBh77W', '2026-01-01 12:00:00'),
-(45, 45, 'B24DCKD050', '$2y$10$8g/e8/Qw6pi4gelzNYwaf.KnvLj0kjDtSFm9jCdk7WeB2zhGVcjv6', '2026-01-01 12:00:00'),
-(46, 46, 'B24DCKD051', '$2y$10$cAwFhejSu3/T1wCsqwNIeOI.dBWdOjE0t3P7jARnQPly1fL8QItGW', '2026-01-01 12:00:00'),
-(47, 47, 'B24DCKD052', '$2y$10$j.qPbE5xMku641vpyGms/.8YdvF/ZHMfuJ0rzdRLZ.Q2W6XoNZvqy', '2026-01-01 12:00:00'),
-(48, 48, 'B24DCKD053', '$2y$10$B4qjC.29vOYlsyd.PDqC8ehiahFdA5QjZoSLm.KBG0MI6HAxsW6Iy', '2026-01-01 12:00:00'),
-(49, 49, 'B24DCKD054', '$2y$10$hKVew3mh37eWndn91iC7...XKp9unW7nNK2nxcz/EC55D8Bc/baLO', '2026-01-01 12:00:00'),
-(50, 50, 'B24DCKD055', '$2y$10$M4CV8Fl7tEkFJvxPBQblWuNWU.VecTguaPp3BQuWw0ncc3iB6f2uu', '2026-01-01 12:00:00'),
-(51, 51, 'B24DCKD056', '$2y$10$oxhyppD.1pImIPvZ4fSEbuLkgA102XC4k0DGokklfanXTHiXRDOya', '2026-01-01 12:00:00'),
-(52, 52, 'B24DCKD057', '$2y$10$Fb9mC0weFm2YZRwn9Oqj.ONqM/elAdSoXZFxAkNa/j2Be4ClW5YJK', '2026-01-01 12:00:00'),
-(53, 53, 'B24DCKD058', '$2y$10$MchNBnGAsZRUPgUwPvRuG.tsCO4nFWgELkmBih426v3iVMIyltml2', '2026-01-01 12:00:00'),
-(54, 54, 'B24DCKD059', '$2y$10$YwwazYNnBCoTdGx6w5PcC.GPzrRU8/sXgwSQweeRUYgNJWsr7lRSq', '2026-01-01 12:00:00'),
-(55, 55, 'B24DCKD060', '$2y$10$Or99oyPg6roypvMoYL4Xg.0SQF/TCOAgD2z5J7Ad02ph8siuSQsQm', '2026-01-01 12:00:00'),
-(56, 56, 'B24DCKD061', '$2y$10$K0yydZNV1hLftwcfh25UtOhUTnwc3tQt5EF2QMaUptz7AAoG5Kyk6', '2026-01-01 12:00:00'),
-(57, 57, 'B24DCKD062', '$2y$10$v0aghkBObX9U9O8tcEF/WugJZol9TCOzqQuiITvc.G28enefrHswC', '2026-01-01 12:00:00'),
-(58, 58, 'B24DCKD064', '$2y$10$WKG741qyxgocPS71IRpc1OEJKIJxU4YX/88mx9rAiACRG0NilVB4.', '2026-01-01 12:00:00'),
-(59, 59, 'B24DCKD065', '$2y$10$/p56qMK4ZbtkNgVYl3Otu.ZitJTs0c9eYXaD5MbPMkjT8m.wNXpw6', '2026-01-01 12:00:00'),
-(60, 60, 'B24DCKD066', '$2y$10$B0VH2iWZT9/TnXGwvTYU4eBhet9xHKn1e/uMBkt2BZFILBX3jANLO', '2026-01-01 12:00:00'),
-(61, 61, 'B24DCKD067', '$2y$10$0A1TcN6/VBJclImFcjWD7Oq1rYQa/4JY/5/VNtL9Ki.mpUEEklQW2', '2026-01-01 12:00:00'),
-(62, 62, 'B24DCKD068', '$2y$10$RyvOKseUUeHoHZK2XA.ytuqS0vhhrzCBbbvtfWbOPU.7drVeRDctq', '2026-01-01 12:00:00'),
-(63, 63, 'B24DCKD069', '$2y$10$erVIcRtnoCnwp/f/a2aCduF6C0qCZ5Q8aEztra4Zfuc1G1IY3G2O6', '2026-01-01 12:00:00'),
-(64, 64, 'B24DCKD070', '$2y$10$gP6Qxcu2T.T4CsTM5sdRdeYHAxQdhktgVEmd7m53h23OWC6.omzmS', '2026-01-01 12:00:00'),
-(65, 65, 'B24DCKD072', '$2y$10$Vr/pying.1gomINDwQCTCu/u89Ll3YgNy1S7wouXJ4sCgUXXUcaza', '2026-01-01 12:00:00'),
-(66, 66, 'B24DCKD073', '$2y$10$ReA2Zx.j//d.b3ydhGC2q.WW7mld/RTNvF2S6u5o7cH8QbO8Wg/0K', '2026-01-01 12:00:00'),
-(67, 67, 'B24DCKD074', '$2y$10$Fkmp63bQe0RlSi70USy4V.H2F5FB0wVsYv81eo3.J8XKELZGn.fgC', '2026-01-01 12:00:00'),
-(68, 68, 'B24DCKD077', '$2y$10$T20KLQMnIR.mwkz075LwS.dJR3nvp0wDU2SjTiOmOwEMkz8Ta9Z2a', '2026-01-01 12:00:00'),
-(69, 69, 'B24DCKD078', '$2y$10$hae2cy8QPfgYX6mLhPayZ.BYDhBsQwar4/qL6oXyt.Kuw95EFW8Gu', '2026-01-01 12:00:00'),
-(70, 70, 'B24DCKD079', '$2y$10$50rzYHkkcarUOyaoFcCCZO8Bp5jHWIHYGw3OWLemHj1CP13IUa8MW', '2026-01-01 12:00:00'),
-(71, 71, 'B24DCKD080', '$2y$10$IXik4/72H9hjCWG7jVCeru2ljDuu3l2ER9s6guMSh80LmydYlXHFu', '2026-01-01 12:00:00'),
-(72, 72, 'B24DCKD081', '$2y$10$0obHS2PXdodS6lPnAv8MneVGjcXS6GBA67M9fHrMUPlgrZPoxr3Dy', '2026-01-01 12:00:00'),
-(73, 73, 'B24DCKD082', '$2y$10$aaD/iUO720q0h1uE2aC0mOazsnBrlP0MMzRATHj/RsLc9HANLhFlG', '2026-01-01 12:00:00'),
-(74, 74, 'B24DCKD083', '$2y$10$bFum2sRbed/4twFl55g5MO8bl3WlN72NlQgSYB9zfp5PEs/j1gkrK', '2026-01-01 12:00:00'),
-(75, 75, 'B24DCKD084', '$2y$10$09hh3jjmRBsQBoJd8nzNEexLD6hJ9.wrcnk68GdMztyp4Olra4ha.', '2026-01-01 12:00:00'),
-(76, 76, 'B24DCKD085', '$2y$10$M1cIhv3OuIwkJnsCBhBs5eaFZH00JRuRbN6LGxTFkrQVyLxFRFOSq', '2026-01-01 12:00:00'),
-(77, 77, 'B24DCKD086', '$2y$10$SiDaNdZ7MwOKOYkdD6oXG.vMQ.QW16zLNwCbw9B6iQQOR/QhMhH2q', '2026-01-01 12:00:00'),
-(78, 78, 'B24DCKD087', '$2y$10$j4/x8gnOXEn89FVeecVSaOcn/g7adV8uxANZ9ciNojEI.lzOORkUW', '2026-01-01 12:00:00'),
-(79, 79, 'B24DCKD088', '$2y$10$u4p7.TppRlqROR63PhOl0.ZFQt1e4naiV9FPcvetHHVV3wOpO6j5m', '2026-01-01 12:00:00'),
-(80, 80, 'B24DCKD089', '$2y$10$FuJRtfMkvLbMw16it4qlWOudUK6aEBJ/gnX23SYuCbIhpZwqBh6fW', '2026-01-01 12:00:00'),
-(81, 81, 'B24DCKD090', '$2y$10$rxfL0S6lcCEUHP2pMVCWfeNl.WyCS4oCOJLTAxYbR70bLzddGR4xO', '2026-01-01 12:00:00'),
-(82, 82, 'B24DCKD091', '$2y$10$hoxZodLpqnIFKLgOB44WHehIQpT.F52oWxzVV4G1dZd1h6S4dk2RK', '2026-01-01 12:00:00'),
-(83, 83, 'B24DCKD093', '$2y$10$w1Mtw953jA0nI57LUGMbdushjn3C0AZ5vwHWItBBv8oVB.o6KVTUe', '2026-01-01 12:00:00'),
-(84, 84, 'B24DCKD095', '$2y$10$QMUnGnLARajALfLSeqsm4OJcf87hG/Suws8CroOg4hRMO4al5mUxO', '2026-01-01 12:00:00'),
-(85, 85, 'B24DCKD096', '$2y$10$K7q8CHDd5am2fUEW/NWMJOOKswnrTCcCH5fVCUj2Rh9qIIYhKGjoS', '2026-01-01 12:00:00'),
-(86, 86, 'B24DCKD097', '$2y$10$j3lI/fihV/2my9TBbItthOSIOlO99SvQ0U3tdxgKOzV6gCAXQC7jy', '2026-01-01 12:00:00'),
-(87, 87, 'B24DCKD098', '$2y$10$QKLLDLuHyzkHIWnLo9JRPOt5hZlGK8ddNPTtCcI7UDW0fiol.MLwG', '2026-01-01 12:00:00'),
-(88, 88, 'B24DCKD099', '$2y$10$8j/F49UiElwPzCgl7JHTO.XBqxd5XS5b/Jh.xv.a2bEDsiYCkax9W', '2026-01-01 12:00:00'),
-(89, 89, 'B24DCKD100', '$2y$10$V6lDCS.DJ7TDuhpsbIOKmekH3niMXCeIOrtSfwvHLQI4CHeK.cqG6', '2026-01-01 12:00:00'),
-(90, 90, 'B24DCKD101', '$2y$10$aReRVCnGRNsnJ.9yLohNdO8L9L./F4NkyW1K6MQu/IJhSkHnSWFPy', '2026-01-01 12:00:00'),
-(91, 91, 'B24DCKD102', '$2y$10$WQDVDki2tvaWuKTGtON1uua6LhyVGYywAOqDf5Z51sORJRa7Evlue', '2026-01-01 12:00:00'),
-(92, 92, 'B24DCKD103', '$2y$10$m2RRok56XV0pXfRlplVW7.vW7N7Qd4j9U9PhXIpEuABMv.MGQjZlu', '2026-01-01 12:00:00'),
-(93, 93, 'B24DCKD104', '$2y$10$vPZbRTaerprXwqryznlRWu5zwWgV.XefeT8SRSOQGNsgDcrPoaLYG', '2026-01-01 12:00:00'),
-(94, 94, 'B24DCKD105', '$2y$10$UcoVXUSPMidIhdFSESt2Ke2PTko4DH1YFHLtSAJ7I4jKYVuA605zu', '2026-01-01 12:00:00');
+(1, 1, 'B24DCKD001', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(2, 2, 'B24DCKD002', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(3, 3, 'B24DCKD003', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(4, 4, 'B24DCKD004', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(5, 5, 'B24DCKD005', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(6, 6, 'B24DCKD006', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(7, 7, 'B24DCKD007', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(8, 8, 'B24DCKD008', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(9, 9, 'B24DCKD009', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(10, 10, 'B24DCKD010', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(11, 11, 'B24DCKD011', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(12, 12, 'B24DCKD012', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(13, 13, 'B24DCKD013', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(14, 14, 'B24DCKD014', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(15, 15, 'B24DCKD017', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(16, 16, 'B24DCKD018', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(17, 17, 'B24DCKD019', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(18, 18, 'B24DCKD021', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(19, 19, 'B24DCKD022', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(20, 20, 'B24DCKD023', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(21, 21, 'B24DCKD024', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(22, 22, 'B24DCKD025', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(23, 23, 'B24DCKD026', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(24, 24, 'B24DCKD027', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(25, 25, 'B24DCKD029', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(26, 26, 'B24DCKD030', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(27, 27, 'B24DCKD031', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(28, 28, 'B24DCKD032', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(29, 29, 'B24DCKD033', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(30, 30, 'B24DCKD034', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(31, 31, 'B24DCKD036', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(32, 32, 'B24DCKD037', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(33, 33, 'B24DCKD038', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(34, 34, 'B24DCKD039', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(35, 35, 'B24DCKD040', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(36, 36, 'B24DCKD041', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(37, 37, 'B24DCKD042', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(38, 38, 'B24DCKD043', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(39, 39, 'B24DCKD044', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(40, 40, 'B24DCKD045', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(41, 41, 'B24DCKD046', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(42, 42, 'B24DCKD047', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(43, 43, 'B24DCKD048', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(44, 44, 'B24DCKD049', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(45, 45, 'B24DCKD050', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(46, 46, 'B24DCKD051', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(47, 47, 'B24DCKD052', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(48, 48, 'B24DCKD053', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(49, 49, 'B24DCKD054', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(50, 50, 'B24DCKD055', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(51, 51, 'B24DCKD056', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(52, 52, 'B24DCKD057', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(53, 53, 'B24DCKD058', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(54, 54, 'B24DCKD059', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(55, 55, 'B24DCKD060', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(56, 56, 'B24DCKD061', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(57, 57, 'B24DCKD062', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(58, 58, 'B24DCKD064', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(59, 59, 'B24DCKD065', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(60, 60, 'B24DCKD066', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(61, 61, 'B24DCKD067', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(62, 62, 'B24DCKD068', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(63, 63, 'B24DCKD069', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(64, 64, 'B24DCKD070', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(65, 65, 'B24DCKD072', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(66, 66, 'B24DCKD073', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(67, 67, 'B24DCKD074', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(68, 68, 'B24DCKD077', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(69, 69, 'B24DCKD078', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(70, 70, 'B24DCKD079', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(71, 71, 'B24DCKD080', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(72, 72, 'B24DCKD081', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(73, 73, 'B24DCKD082', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(74, 74, 'B24DCKD083', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(75, 75, 'B24DCKD084', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(76, 76, 'B24DCKD085', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(77, 77, 'B24DCKD086', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(78, 78, 'B24DCKD087', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(79, 79, 'B24DCKD088', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(80, 80, 'B24DCKD089', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(81, 81, 'B24DCKD090', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(82, 82, 'B24DCKD091', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(83, 83, 'B24DCKD093', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(84, 84, 'B24DCKD095', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(85, 85, 'B24DCKD096', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(86, 86, 'B24DCKD097', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(87, 87, 'B24DCKD098', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(88, 88, 'B24DCKD099', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(89, 89, 'B24DCKD100', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(90, 90, 'B24DCKD101', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(91, 91, 'B24DCKD102', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(92, 92, 'B24DCKD103', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(93, 93, 'B24DCKD104', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00'),
+(94, 94, 'B24DCKD105', public.crypt('12345678', public.gen_salt('bf', 12)), '2026-01-01 12:00:00');
 
 INSERT INTO banking.customer_device (deviceid, customerid, devicecode, devicetype, devicename, operatingsystem, firstseenat, lastseenat, istrusted, status) VALUES
 (1, 1, 'DEV000001', 'Desktop', 'Thiết bị mô phỏng', 'Windows', '2026-01-01 09:00:00', '2026-10-25 00:00:00', TRUE, 'Active'),
@@ -3852,7 +3852,11 @@ INSERT INTO banking.repayment_schedule (scheduleid, loanid, installmentno, dueda
 (72, 12, 6, '2026-08-01', 3166670, 126666, 0, 'Pending');
 
 INSERT INTO banking.model_version (modelversionid, modelname, modeltype, status, createdat, description) VALUES
-(1, 'SIMULATED_RULE_V1', 'RULE_BASED', 'CANDIDATE', '2026-01-01 12:00:00', 'Điểm mô phỏng; chưa có model đã huấn luyện');
+-- Historical simulated risk assessments keep modelversionid = 1.
+(1, 'SIMULATED_RULE_V1', 'RULE_BASED', 'CANDIDATE', '2026-01-01 12:00:00', 'Điểm mô phỏng lịch sử; không dùng cho inference online'),
+-- Matches models/fraud_detection_model.joblib. When changing the artifact,
+-- register its new identity with scripts.register_joblib_model before deployment.
+(2, 'fraud_detection_xgb_10f6a8af9aaa3c0a', 'XGBOOST', 'ACTIVE', CURRENT_TIMESTAMP, 'sha256=10f6a8af9aaa3c0aa6cda7fc342fcc39e45ca7157524b87d02f34b0a7a9d583f');
 
 INSERT INTO banking.bank_transaction (transactionid, transactioncode, transactiontypeid, employeeid, terminalid, deviceid, channel, amount, fee, currency, transactiondate, ipaddress, latitude, longitude, description, status, initiatedbycustomerid, cardid, originaltransactionid) VALUES
 (1, 'TX202600000001', 5, NULL, NULL, NULL, 'System', 50000000, 0, 'VND', '2026-01-01 01:00:00', NULL, NULL, NULL, 'Dữ liệu mô phỏng OPENING_BALANCE', 'Success', NULL, NULL, NULL),
@@ -22389,120 +22393,47 @@ INSERT INTO banking.audit_log (auditid, userid, entitytype, entityid, action, ol
 (2999, NULL, 'TRANSACTION_POSTING', '999', 'INSERT', NULL, '{"transaction_id":584,"posting_type":"DEBIT","amount":561000}'::jsonb, '2026-03-23 12:36:13', NULL),
 (3000, NULL, 'TRANSACTION_POSTING', '1000', 'INSERT', NULL, '{"transaction_id":584,"posting_type":"CREDIT","amount":561000}'::jsonb, '2026-03-23 12:36:13', NULL);
 
--- Đồng bộ identity với ID đã INSERT để web tạo mới không trùng khóa chính.
--- Không giảm giá trị sequence đã cấp; không sửa dữ liệu hoặc cấu trúc bảng.
-SELECT setval(pg_get_serial_sequence('banking.branch', 'branchid')::regclass,
-    GREATEST(MAX(branchid), COALESCE(pg_sequence_last_value(pg_get_serial_sequence('banking.branch', 'branchid')::regclass), 1)), true)
-FROM banking.branch HAVING COUNT(*) > 0;
 
-SELECT setval(pg_get_serial_sequence('banking.role', 'roleid')::regclass,
-    GREATEST(MAX(roleid), COALESCE(pg_sequence_last_value(pg_get_serial_sequence('banking.role', 'roleid')::regclass), 1)), true)
-FROM banking.role HAVING COUNT(*) > 0;
-
-SELECT setval(pg_get_serial_sequence('banking.employee', 'employeeid')::regclass,
-    GREATEST(MAX(employeeid), COALESCE(pg_sequence_last_value(pg_get_serial_sequence('banking.employee', 'employeeid')::regclass), 1)), true)
-FROM banking.employee HAVING COUNT(*) > 0;
-
-SELECT setval(pg_get_serial_sequence('banking.system_user', 'userid')::regclass,
-    GREATEST(MAX(userid), COALESCE(pg_sequence_last_value(pg_get_serial_sequence('banking.system_user', 'userid')::regclass), 1)), true)
-FROM banking."system_user" HAVING COUNT(*) > 0;
-
-SELECT setval(pg_get_serial_sequence('banking.customer', 'customerid')::regclass,
-    GREATEST(MAX(customerid), COALESCE(pg_sequence_last_value(pg_get_serial_sequence('banking.customer', 'customerid')::regclass), 1)), true)
-FROM banking.customer HAVING COUNT(*) > 0;
-
-SELECT setval(pg_get_serial_sequence('banking.customer_online_account', 'onlineaccountid')::regclass,
-    GREATEST(MAX(onlineaccountid), COALESCE(pg_sequence_last_value(pg_get_serial_sequence('banking.customer_online_account', 'onlineaccountid')::regclass), 1)), true)
-FROM banking.customer_online_account HAVING COUNT(*) > 0;
-
-SELECT setval(pg_get_serial_sequence('banking.customer_device', 'deviceid')::regclass,
-    GREATEST(MAX(deviceid), COALESCE(pg_sequence_last_value(pg_get_serial_sequence('banking.customer_device', 'deviceid')::regclass), 1)), true)
-FROM banking.customer_device HAVING COUNT(*) > 0;
-
-SELECT setval(pg_get_serial_sequence('banking.login_event', 'logineventid')::regclass,
-    GREATEST(MAX(logineventid), COALESCE(pg_sequence_last_value(pg_get_serial_sequence('banking.login_event', 'logineventid')::regclass), 1)), true)
-FROM banking.login_event HAVING COUNT(*) > 0;
-
-SELECT setval(pg_get_serial_sequence('banking.account_type', 'accounttypeid')::regclass,
-    GREATEST(MAX(accounttypeid), COALESCE(pg_sequence_last_value(pg_get_serial_sequence('banking.account_type', 'accounttypeid')::regclass), 1)), true)
-FROM banking.account_type HAVING COUNT(*) > 0;
-
-SELECT setval(pg_get_serial_sequence('banking.bank_account', 'accountid')::regclass,
-    GREATEST(MAX(accountid), COALESCE(pg_sequence_last_value(pg_get_serial_sequence('banking.bank_account', 'accountid')::regclass), 1)), true)
-FROM banking.bank_account HAVING COUNT(*) > 0;
-
-SELECT setval(pg_get_serial_sequence('banking.account_holder', 'accountholderid')::regclass,
-    GREATEST(MAX(accountholderid), COALESCE(pg_sequence_last_value(pg_get_serial_sequence('banking.account_holder', 'accountholderid')::regclass), 1)), true)
-FROM banking.account_holder HAVING COUNT(*) > 0;
-
-SELECT setval(pg_get_serial_sequence('banking.account_status_history', 'historyid')::regclass,
-    GREATEST(MAX(historyid), COALESCE(pg_sequence_last_value(pg_get_serial_sequence('banking.account_status_history', 'historyid')::regclass), 1)), true)
-FROM banking.account_status_history HAVING COUNT(*) > 0;
-
-SELECT setval(pg_get_serial_sequence('banking.card', 'cardid')::regclass,
-    GREATEST(MAX(cardid), COALESCE(pg_sequence_last_value(pg_get_serial_sequence('banking.card', 'cardid')::regclass), 1)), true)
-FROM banking.card HAVING COUNT(*) > 0;
-
-SELECT setval(pg_get_serial_sequence('banking.transaction_type', 'transactiontypeid')::regclass,
-    GREATEST(MAX(transactiontypeid), COALESCE(pg_sequence_last_value(pg_get_serial_sequence('banking.transaction_type', 'transactiontypeid')::regclass), 1)), true)
-FROM banking.transaction_type HAVING COUNT(*) > 0;
-
-SELECT setval(pg_get_serial_sequence('banking.terminal', 'terminalid')::regclass,
-    GREATEST(MAX(terminalid), COALESCE(pg_sequence_last_value(pg_get_serial_sequence('banking.terminal', 'terminalid')::regclass), 1)), true)
-FROM banking.terminal HAVING COUNT(*) > 0;
-
-SELECT setval(pg_get_serial_sequence('banking.bank_transaction', 'transactionid')::regclass,
-    GREATEST(MAX(transactionid), COALESCE(pg_sequence_last_value(pg_get_serial_sequence('banking.bank_transaction', 'transactionid')::regclass), 1)), true)
-FROM banking.bank_transaction HAVING COUNT(*) > 0;
-
-SELECT setval(pg_get_serial_sequence('banking.transfer_request', 'transferrequestid')::regclass,
-    GREATEST(MAX(transferrequestid), COALESCE(pg_sequence_last_value(pg_get_serial_sequence('banking.transfer_request', 'transferrequestid')::regclass), 1)), true)
-FROM banking.transfer_request HAVING COUNT(*) > 0;
-
-SELECT setval(pg_get_serial_sequence('banking.transaction_posting', 'postingid')::regclass,
-    GREATEST(MAX(postingid), COALESCE(pg_sequence_last_value(pg_get_serial_sequence('banking.transaction_posting', 'postingid')::regclass), 1)), true)
-FROM banking.transaction_posting HAVING COUNT(*) > 0;
-
-SELECT setval(pg_get_serial_sequence('banking.loan_type', 'loantypeid')::regclass,
-    GREATEST(MAX(loantypeid), COALESCE(pg_sequence_last_value(pg_get_serial_sequence('banking.loan_type', 'loantypeid')::regclass), 1)), true)
-FROM banking.loan_type HAVING COUNT(*) > 0;
-
-SELECT setval(pg_get_serial_sequence('banking.loan', 'loanid')::regclass,
-    GREATEST(MAX(loanid), COALESCE(pg_sequence_last_value(pg_get_serial_sequence('banking.loan', 'loanid')::regclass), 1)), true)
-FROM banking.loan HAVING COUNT(*) > 0;
-
-SELECT setval(pg_get_serial_sequence('banking.repayment_schedule', 'scheduleid')::regclass,
-    GREATEST(MAX(scheduleid), COALESCE(pg_sequence_last_value(pg_get_serial_sequence('banking.repayment_schedule', 'scheduleid')::regclass), 1)), true)
-FROM banking.repayment_schedule HAVING COUNT(*) > 0;
-
-SELECT setval(pg_get_serial_sequence('banking.loan_payment', 'loanpaymentid')::regclass,
-    GREATEST(MAX(loanpaymentid), COALESCE(pg_sequence_last_value(pg_get_serial_sequence('banking.loan_payment', 'loanpaymentid')::regclass), 1)), true)
-FROM banking.loan_payment HAVING COUNT(*) > 0;
-
-SELECT setval(pg_get_serial_sequence('banking.model_version', 'modelversionid')::regclass,
-    GREATEST(MAX(modelversionid), COALESCE(pg_sequence_last_value(pg_get_serial_sequence('banking.model_version', 'modelversionid')::regclass), 1)), true)
-FROM banking.model_version HAVING COUNT(*) > 0;
-
-SELECT setval(pg_get_serial_sequence('banking.risk_assessment', 'riskassessmentid')::regclass,
-    GREATEST(MAX(riskassessmentid), COALESCE(pg_sequence_last_value(pg_get_serial_sequence('banking.risk_assessment', 'riskassessmentid')::regclass), 1)), true)
-FROM banking.risk_assessment HAVING COUNT(*) > 0;
-
-SELECT setval(pg_get_serial_sequence('banking.review_case', 'reviewcaseid')::regclass,
-    GREATEST(MAX(reviewcaseid), COALESCE(pg_sequence_last_value(pg_get_serial_sequence('banking.review_case', 'reviewcaseid')::regclass), 1)), true)
-FROM banking.review_case HAVING COUNT(*) > 0;
-
-SELECT setval(pg_get_serial_sequence('banking.fraud_label_event', 'fraudlabeleventid')::regclass,
-    GREATEST(MAX(fraudlabeleventid), COALESCE(pg_sequence_last_value(pg_get_serial_sequence('banking.fraud_label_event', 'fraudlabeleventid')::regclass), 1)), true)
-FROM banking.fraud_label_event HAVING COUNT(*) > 0;
-
-SELECT setval(pg_get_serial_sequence('banking.event_outbox', 'eventoutboxid')::regclass,
-    GREATEST(MAX(eventoutboxid), COALESCE(pg_sequence_last_value(pg_get_serial_sequence('banking.event_outbox', 'eventoutboxid')::regclass), 1)), true)
-FROM banking.event_outbox HAVING COUNT(*) > 0;
-
-SELECT setval(pg_get_serial_sequence('banking.notification_outbox', 'notificationoutboxid')::regclass,
-    GREATEST(MAX(notificationoutboxid), COALESCE(pg_sequence_last_value(pg_get_serial_sequence('banking.notification_outbox', 'notificationoutboxid')::regclass), 1)), true)
-FROM banking.notification_outbox HAVING COUNT(*) > 0;
-
-SELECT setval(pg_get_serial_sequence('banking.audit_log', 'auditid')::regclass,
-    GREATEST(MAX(auditid), COALESCE(pg_sequence_last_value(pg_get_serial_sequence('banking.audit_log', 'auditid')::regclass), 1)), true)
-FROM banking.audit_log HAVING COUNT(*) > 0;
+-- Explicit seed IDs do not advance GENERATED BY DEFAULT identity sequences.
+-- Run after importing data, before accepting writes from API/workers.
+-- Advance existing counters only; never rewind them or change table/schema definitions.
+DO $sync_seed_identities$
+DECLARE
+    identity_column record;
+    identity_sequence regclass;
+    highest_id bigint;
+    sequence_last bigint;
+    sequence_called boolean;
+BEGIN
+    PERFORM set_config('lock_timeout', '5s', true);
+    FOR identity_column IN
+        SELECT c.relname AS table_name, a.attname AS column_name
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        JOIN pg_attribute a ON a.attrelid = c.oid
+        WHERE n.nspname = 'banking'
+          AND c.relkind = 'r'
+          AND a.attidentity <> ''
+          AND NOT a.attisdropped
+        ORDER BY c.relname, a.attnum
+    LOOP
+        EXECUTE format('LOCK TABLE %I.%I IN SHARE ROW EXCLUSIVE MODE',
+            'banking', identity_column.table_name);
+        identity_sequence := pg_get_serial_sequence(
+            format('%I.%I', 'banking', identity_column.table_name),
+            identity_column.column_name
+        )::regclass;
+        EXECUTE format('SELECT max(%I) FROM %I.%I',
+            identity_column.column_name, 'banking', identity_column.table_name)
+            INTO highest_id;
+        EXECUTE format('SELECT last_value, is_called FROM %s', identity_sequence)
+            INTO sequence_last, sequence_called;
+        IF highest_id IS NOT NULL AND (
+            sequence_last < highest_id
+            OR (sequence_last = highest_id AND NOT sequence_called)
+        ) THEN
+            PERFORM pg_catalog.setval(identity_sequence, highest_id, true);
+        END IF;
+    END LOOP;
+END
+$sync_seed_identities$;

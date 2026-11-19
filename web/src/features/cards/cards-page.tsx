@@ -23,6 +23,8 @@ import { useSessionUser } from "@/components/session-context";
 import { bankService } from "@/services/bank.service";
 import { loadCards, type BankCard, type CardStatus } from "@/lib/card-data";
 import { ResourceCreateDialog } from "@/features/live/resource-create-dialog";
+import { loadAllPages } from "@/lib/paged-data";
+import { recordText } from "@/lib/record-value";
 
 const typeTone: Record<BankCard["type"], string> = {
   "Thẻ ghi nợ": "bg-rose-50 text-red-500",
@@ -58,7 +60,24 @@ export function CardsPage() {
     queryFn: () => loadCards(bankService.cards),
     staleTime: 60_000,
   });
-  const bankCards = useMemo(() => cardsQuery.data ?? [], [cardsQuery.data]);
+  const customersQuery = useQuery({
+    queryKey: ["staff-customers", role, user.id, user.branchId],
+    queryFn: () => loadAllPages(bankService.customers, (row) => recordText(row, ["customerid", "customercode"])),
+  });
+  const accountsQuery = useQuery({
+    queryKey: ["staff-accounts", role, user.id, user.branchId],
+    queryFn: () => loadAllPages(bankService.accounts, (row) => row.accountid),
+  });
+  const bankCards = useMemo(() => {
+    const customers = new Map((customersQuery.data ?? []).map((row) => [String(row.customerid), row]));
+    const accounts = new Map((accountsQuery.data ?? []).map((row) => [String(row.accountid), row.accountnumber]));
+    return (cardsQuery.data ?? []).map((card) => ({
+      ...card,
+      holder: recordText(customers.get(card.customerId ?? "") ?? {}, ["fullname"], card.holder),
+      customerCode: recordText(customers.get(card.customerId ?? "") ?? {}, ["customercode"], card.customerCode),
+      account: accounts.get(card.accountId ?? "") || card.account,
+    }));
+  }, [cardsQuery.data, customersQuery.data, accountsQuery.data]);
   const [query, setQuery] = useState("");
   const [type, setType] = useState("");
   const [status, setStatus] = useState("");
@@ -100,7 +119,7 @@ export function CardsPage() {
     ],
     [BadgePlus, "Phát hành tháng này", String(newCards)],
     [ShieldCheck, "Thẻ đang hoạt động", String(countStatus("Đang hoạt động"))],
-    [Ban, "Thẻ bị khóa", String(countStatus("Tạm khóa"))],
+    [Ban, "Thẻ bị khóa", String(countStatus("Đã khóa"))],
   ];
   const types = Array.from(new Set(bankCards.map((card) => card.type))).sort();
   const typeCounts = types.map((label) => ({
@@ -250,21 +269,21 @@ export function CardsPage() {
               </button>
             </div>
             <div className="staff-table-scroll mt-2 min-h-0 overflow-auto">
-              <table className="w-full table-fixed text-left text-[10px]">
+              <table className="staff-cards-table w-full table-fixed text-left text-[10px]">
                 <thead className="bg-slate-50">
                   <tr>
                     {[
                       "Số thẻ",
                       "Khách hàng",
-                      "ID tài khoản",
+                      "Số tài khoản",
                       "Loại thẻ",
                       "Hạn thẻ",
-                      "Hạn mức/ngày (VNĐ)",
+                      "Hạn mức/ngày (VND)",
                       "Trạng thái",
                       "Ngày phát hành",
                       "Thao tác",
                     ].map((item) => (
-                      <th className="p-2 font-medium" key={item}>
+                      <th className="p-2 font-medium" key={item} title={item}>
                         {item}
                       </th>
                     ))}
@@ -305,16 +324,16 @@ export function CardsPage() {
                       </td>
                     </tr>
                   )}
-                  {pagination.visibleItems.map((card, index) => (
+                  {pagination.visibleItems.map((card) => (
                     <tr className="border-t" key={card.id}>
-                      <td className="p-1.5 font-semibold">
-                        <span className="mr-1 inline-grid size-7 place-items-center rounded-full bg-[#fff0f0] text-coral">
-                          <UserRound size={14} />
-                        </span>
+                      <td className="p-1.5 font-semibold" title={card.number}>
                         {card.number}
                       </td>
-                      <td className="p-1.5">{card.holder}</td>
-                      <td className="p-1.5">{card.account}</td>
+                      <td className="p-1.5" title={card.holder}>
+                        <span className="block truncate">{card.holder}</span>
+                        <small className="block truncate text-slate-500">{card.customerCode === "—" ? `ID: ${card.customerId ?? "—"}` : card.customerCode}</small>
+                      </td>
+                      <td className="p-1.5" title={card.account}>{card.account}</td>
                       <td className="p-1.5">
                         <span
                           className={`inline-block rounded px-1 text-center ${typeTone[card.type] ?? "bg-slate-100 text-slate-600"}`}
@@ -333,6 +352,7 @@ export function CardsPage() {
                           record={{
                             number: card.number,
                             holder: card.holder,
+                            "Mã khách hàng": card.customerCode,
                             account: card.account,
                             type: card.type,
                             expiry: card.expiry,
@@ -340,7 +360,7 @@ export function CardsPage() {
                             status: card.status,
                             issuedAt: card.issuedAt,
                           }}
-                          title={`Chi tiết thẻ ${index + 1}`}
+                          title={`Chi tiết thẻ ${card.number}`}
                         />
                       </td>
                     </tr>

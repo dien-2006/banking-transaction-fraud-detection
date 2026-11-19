@@ -6,6 +6,91 @@ Máy local khoảng 6 GB RAM nên kiểm tra batch và cụm Kafka 3 broker theo
 
 ## Web và cơ sở dữ liệu
 
+Sau khi cập nhật code Tổng quan (API và web), build lại API bằng
+`docker compose up -d --no-deps --build banking-api`; frontend chạy development
+sẽ nhận code mới, frontend production cần build lại. Bản sửa Tổng quan chỉ
+thay truy vấn đọc và giao diện, không có SQL đổi schema hay nạp lại dữ liệu.
+
+### EC2: các trang không tải được sau khi tạo lại schema
+
+`create_table.sql` và `examble_data.sql` không tạo các view đọc dữ liệu của web.
+Các trang khách hàng, tài khoản, giao dịch, khoản vay, thẻ, thông báo và tổng
+quan dùng các view trong `z_02_views.sql`. Sau khi tạo lại view, phải cấp lại
+quyền trên các đối tượng mới cho tài khoản DB của API.
+
+Đưa các file SQL mới nhất (gồm `sql/quyen.sql`) lên EC2, SSH vào thư mục dự án,
+rồi chạy thủ công bằng tài khoản quản trị đã cấu hình cho `postgres-bank`:
+
+```bash
+docker compose exec -T postgres-bank sh -c \
+  'psql -X -v ON_ERROR_STOP=1 --single-transaction -U "$POSTGRES_USER" -d "$POSTGRES_DB" -f /banking-sql/z_02_views.sql -f /banking-sql/quyen.sql'
+```
+
+Lệnh khôi phục view rồi cấp quyền, không nạp lại dữ liệu mẫu hoặc tạo lại bảng.
+Chỉ dùng khi bảng và schema API/function đã được nạp đầy đủ. Nếu API báo
+`function ... does not exist`, cần kiểm tra các file `z_01` đến `z_07` đã được
+nạp theo thứ tự; không chạy lại `create_table.sql` trên database đã có bảng.
+Các bước này vẫn do người quản trị chạy, không tự thực hiện lúc bật Docker.
+
+### Tạo khách hàng thành công nhưng nhân viên không thấy hồ sơ
+
+Hồ sơ chưa có tài khoản/khoản vay được cấp quyền cho người tạo qua audit log.
+Phải có hàm `banking.fn_audit_change()` và trigger `trg_audit_customer` từ
+`sql/z_03_integrity.sql`. Chỉ nạp bảng và dữ liệu mẫu sẽ thiếu chúng.
+Trong DBeaver, chọn đúng database và chạy toàn bộ `sql/z_03_integrity.sql`
+sau khi đã nạp `z_01` và `z_02`; không chạy lại `create_table.sql` hoặc các INSERT.
+Kiểm tra cấu hình bằng truy vấn chỉ đọc:
+
+```sql
+SELECT tgname, tgenabled
+FROM pg_trigger
+WHERE tgrelid = 'banking.customer'::regclass
+  AND NOT tgisinternal;
+```
+
+`trg_audit_customer` phải hoạt động (`O` hoặc `A`). API kiểm tra audit của
+người tạo trước commit; thiếu audit thì rollback hồ sơ và báo lỗi cấu hình,
+không trả thành công. Không tạo audit thay thế trong backend.
+Khôi phục trigger chỉ áp dụng cho lần ghi sau, không tự sửa người tạo của hồ sơ
+cũ thiếu audit. Cần quản trị viên xác minh mã khách hàng và người tạo thật trước
+khi sửa quyền; không gán hồ sơ cho người đang đăng nhập chỉ để nó xuất hiện.
+Sau khi tạo, web xóa bộ lọc, về trang 1, hủy lượt đọc cũ và tải lại danh sách
+từ API; danh sách chọn khách hàng mở tài khoản cũng được làm mới.
+
+Để chủ động đặt cùng một mật khẩu mới cho tất cả tài khoản đăng nhập
+admin/nhân viên và khách hàng, chạy trong terminal ở thư mục gốc:
+
+```bash
+conda run --no-capture-output -n bank-fraud python -m scripts.reset_login_passwords --apply
+```
+
+Nhập mật khẩu mới hai lần (không hiện khi gõ). Mỗi tài khoản được tạo salt
+bcrypt riêng; cả hai bảng đăng nhập được cập nhật trong cùng transaction.
+Lệnh chỉ sửa `passwordhash`, không đổi trạng thái tài khoản, số dư, PIN hoặc
+credential của PostgreSQL. Không tự chạy khi bật Docker hoặc nạp dữ liệu mẫu.
+
+Với volume PostgreSQL mới, `postgres-bank` chỉ tạo database theo `POSTGRES_DB`,
+không tự tạo schema/bảng/function và không nạp dữ liệu mẫu. Bật PostgreSQL trước,
+rồi tự tạo các đối tượng nghiệp vụ bằng công cụ SQL trước khi bật các dịch vụ khác:
+
+```bash
+docker compose up -d postgres-bank
+```
+
+Script `docker/postgres-init.sh` chỉ còn dùng khi bạn chủ động chạy thủ công;
+không còn được mount vào thư mục tự khởi tạo của PostgreSQL. `demo-bootstrap`
+chỉ chạy khi được gọi rõ ràng qua profile `demo`, không phải dependency của API.
+Các database/volume đang có giữ nguyên schema và dữ liệu.
+
+Khi nạp `sql/examble_data.sql`, chạy đến hết file: phần cuối đồng bộ các
+identity sequence theo ID đã nhập, chỉ đẩy bộ đếm lên và không đổi schema.
+Nếu chỉ nhập các dòng INSERT mà bỏ phần cuối, giao dịch/posting/risk/outbox
+mới có thể lỗi trùng khóa chính dù dữ liệu mẫu đã hiển thị bình thường.
+Với DB đã nhập trước đó, chỉ chạy khối `DO $sync_seed_identities$` cuối file
+trong lúc không có thao tác ghi; không chạy lại toàn bộ INSERT vào DB đang có dữ liệu.
+File mẫu đăng ký model XGBoost hiện có bằng hash ở trạng thái ACTIVE;
+khi thay file model phải đăng ký identity mới bằng script đăng ký model.
+
 ```bash
 docker compose up -d postgres-bank redis
 docker compose up -d --no-deps banking-api notification-sender
@@ -117,4 +202,4 @@ Worker retry với backoff, tối đa 8 lần trong mỗi vòng đời process. 
 Để chủ động đổi bốn secret local (PostgreSQL admin, MinIO root, JWT và OTP hash), dùng `conda run -n bank-fraud python -m scripts.rotate_local_secrets --apply`, chạy lại `provision_runtime_roles --apply`, rồi recreate các service liên quan để nạp env mới. Web cần đăng nhập lại. Brevo API key phải đổi ở tài khoản Brevo; script không thay key bên ngoài.
 
 
-docker compose up -d postgres-bank redis demo-bootstrap banking-api
+docker compose up -d postgres-bank redis banking-api

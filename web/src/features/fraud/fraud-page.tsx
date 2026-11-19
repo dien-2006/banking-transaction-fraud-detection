@@ -22,6 +22,8 @@ import { ReviewDialog } from "./review-dialog";
 import { ManualReviewDialog } from "./manual-review-dialog";
 import { bankService } from "@/services/bank.service";
 import { loadFraudReviews, reviewLabels } from "@/lib/fraud-data";
+import { loadAllPages } from "@/lib/paged-data";
+import { recordText } from "@/lib/record-value";
 import "./fraud-page.css";
 
 const riskTone: Record<string, string> = {
@@ -65,6 +67,8 @@ function FraudHero() {
 export function FraudPage({ role = "admin" }: { role?: "admin" | "employee" }) {
   const user = useSessionUser();
   const searchParams = useSearchParams();
+  const targetReview = searchParams.get("reviewId");
+  const targetReviewId = targetReview && /^[1-9]\d*$/.test(targetReview) ? targetReview : null;
   const requestedStatus =
     searchParams.get("status") === "review" ? "__pending" : "";
   const reviewsQuery = useQuery({
@@ -73,13 +77,37 @@ export function FraudPage({ role = "admin" }: { role?: "admin" | "employee" }) {
     staleTime: 15_000,
     refetchInterval: 15_000,
   });
-  const alerts = useMemo(() => reviewsQuery.data ?? [], [reviewsQuery.data]);
+  const customersQuery = useQuery({
+    queryKey: ["staff-customers", user.role, user.id, user.branchId],
+    queryFn: () => loadAllPages(bankService.customers, (row) => recordText(row, ["customerid", "customercode"])),
+  });
+  const accountsQuery = useQuery({
+    queryKey: ["staff-accounts", user.role, user.id, user.branchId],
+    queryFn: () => loadAllPages(bankService.accounts, (row) => row.accountid),
+  });
+  const alerts = useMemo(() => {
+    const customers = new Map((customersQuery.data ?? []).map((row) => [String(row.customerid), row]));
+    const accounts = new Map((accountsQuery.data ?? []).map((row) => [String(row.accountid), row.accountnumber]));
+    return (reviewsQuery.data ?? []).map((review) => ({
+      ...review,
+      customer: recordText(customers.get(review.customerId ?? "") ?? {}, ["fullname"], review.customer),
+      customerCode: recordText(customers.get(review.customerId ?? "") ?? {}, ["customercode"], review.customerCode),
+      account: accounts.get(review.accountId ?? "") || review.account,
+    }));
+  }, [reviewsQuery.data, customersQuery.data, accountsQuery.data]);
   const [type, setType] = useState("");
   const [q, setQ] = useState(""),
     [risk, setRisk] = useState(""),
     [status, setStatus] = useState(requestedStatus),
     [tab, setTab] = useState("Danh sách cảnh báo");
   const [accountFilter, setAccountFilter] = useState<string | null>(null);
+  const [linkedReview, setLinkedReview] = useState(targetReviewId);
+  useEffect(() => {
+    setLinkedReview(targetReviewId);
+    if (targetReviewId) {
+      setTab("Danh sách cảnh báo"); setQ(""); setRisk(""); setStatus(""); setType(""); setAccountFilter(null);
+    }
+  }, [targetReviewId]);
   useEffect(() => {
     setStatus(requestedStatus);
   }, [requestedStatus]);
@@ -87,9 +115,10 @@ export function FraudPage({ role = "admin" }: { role?: "admin" | "employee" }) {
     () =>
       alerts.filter(
         (x) =>
-          (accountFilter === null || x.account === accountFilter) &&
+          (!linkedReview || String(x.reviewId) === linkedReview) &&
+          (accountFilter === null || x.accountId === accountFilter) &&
           (tab !== "Giao dịch nghi ngờ" || x.decision === "REVIEW" || x.decision === "BLOCK") &&
-          (tab !== "Tài khoản cần review" || (x.pending && x.account !== "—")) &&
+          (tab !== "Tài khoản cần review" || (x.pending && x.accountId !== null)) &&
           (!q ||
             (/^RVW\d+$/i.test(q.trim()) ? x.id.toLowerCase() === q.trim().toLowerCase() : Object.values(x)
               .join(" ")
@@ -100,14 +129,15 @@ export function FraudPage({ role = "admin" }: { role?: "admin" | "employee" }) {
             (status === "__pending" ? x.pending : x.reviewStatus === status)) &&
           (!type || x.type === type),
       ),
-    [q, risk, status, type, alerts, tab, accountFilter],
+    [q, risk, status, type, alerts, tab, accountFilter, linkedReview],
   );
   const accountGroups = useMemo(() => {
     const groups = new Map<string, typeof data>();
     for (const review of data) {
-      const group = groups.get(review.account) ?? [];
+      if (review.accountId === null) continue;
+      const group = groups.get(review.accountId) ?? [];
       group.push(review);
-      groups.set(review.account, group);
+      groups.set(review.accountId, group);
     }
     return groups;
   }, [data]);
@@ -117,7 +147,7 @@ export function FraudPage({ role = "admin" }: { role?: "admin" | "employee" }) {
     fitViewportOnly: true,
     pageSize: 11,
   });
-  const hasFilters = Boolean(q || risk || status || type || accountFilter);
+  const hasFilters = Boolean(q || risk || status || type || accountFilter || linkedReview);
   useEffect(() => pagination.setPage(1), [q, risk, status, type, tab, accountFilter]);
   const pendingCount = alerts.filter((x) => x.pending).length;
   const kpis: Array<[typeof AlertTriangle, string, string]> = [
@@ -215,6 +245,7 @@ export function FraudPage({ role = "admin" }: { role?: "admin" | "employee" }) {
               key={x}
               onClick={() => {
                 setTab(x);
+                setLinkedReview(null);
                 setQ(""); setRisk(""); setType(""); setStatus("");
                 setAccountFilter(null);
                 pagination.setPage(1);
@@ -249,11 +280,11 @@ export function FraudPage({ role = "admin" }: { role?: "admin" | "employee" }) {
               <div className="fraud-list-title"><h2>{accountView ? "Tài khoản cần review" : tab === "Giao dịch nghi ngờ" ? "Giao dịch nghi ngờ" : "Hồ sơ cảnh báo"}</h2><span className="fraud-filter-summary">{accountView ? `${listItems.length} tài khoản · ${data.length} hồ sơ` : `${data.length} / ${alerts.length} hồ sơ`}</span></div>
               <div className="fraud-list-tools">
                 {hasFilters && <button className="fraud-clear-filters" onClick={() => {
-                  setQ(""); setRisk(""); setType(""); setStatus(""); setAccountFilter(null); pagination.setPage(1);
+                  setQ(""); setRisk(""); setType(""); setStatus(""); setAccountFilter(null); setLinkedReview(null); pagination.setPage(1);
                 }}>Xóa bộ lọc</button>}
               </div>
             </div>
-            {accountFilter && <p className="mb-2 text-xs text-slate-500">Đang xem hồ sơ chưa hoàn tất của {accountFilter}.</p>}
+            {accountFilter && <p className="mb-2 text-xs text-slate-500">Đang xem hồ sơ chưa hoàn tất của {alerts.find((review) => review.accountId === accountFilter)?.account ?? `ID tài khoản: ${accountFilter}`}.</p>}
             {tab !== "Danh sách cảnh báo" && <p className="mb-2 text-xs text-slate-500">
               {accountView
                 ? "Các tài khoản nguồn có hồ sơ review chưa hoàn tất trong phạm vi được cấp quyền. Trạng thái review không đồng nghĩa tài khoản bị khóa."
@@ -360,19 +391,19 @@ export function FraudPage({ role = "admin" }: { role?: "admin" | "employee" }) {
                         colSpan={accountView ? 4 : 8}
                         className="p-3 text-center text-slate-500"
                       >
-                        Không có hồ sơ phù hợp.
+                        {linkedReview ? "Hồ sơ từ thông báo không còn tồn tại hoặc không thuộc phạm vi được cấp quyền." : "Không có hồ sơ phù hợp."}
                       </td>
                     </tr>
                   )}
                   {accountView ? pagination.visibleItems.map((x) => (
-                    <tr className="border-t" key={x.account}>
-                      <td className="p-2 font-semibold">{x.account}</td>
-                      <td className="p-2">{Array.from(new Set(accountGroups.get(x.account)?.map((review) => review.customer))).join(", ")}</td>
-                      <td className="p-2">{accountGroups.get(x.account)?.length}</td>
+                    <tr className="border-t" key={x.accountId}>
+                      <td className="p-2 font-semibold" title={x.account}>{x.account}</td>
+                      <td className="p-2">{Array.from(new Set(accountGroups.get(x.accountId!)?.map((review) => `${review.customer}${review.customerCode === "—" ? "" : ` · ${review.customerCode}`}`))).join(", ")}</td>
+                      <td className="p-2">{accountGroups.get(x.accountId!)?.length}</td>
                       <td className="p-2 text-center"><button className="d4-view-button" onClick={() => {
                         setTab("Danh sách cảnh báo");
                         setQ(""); setRisk(""); setType(""); setStatus("__pending");
-                        setAccountFilter(x.account);
+                        setAccountFilter(x.accountId);
                         pagination.setPage(1);
                       }}>Xem hồ sơ</button></td>
                     </tr>
@@ -385,7 +416,8 @@ export function FraudPage({ role = "admin" }: { role?: "admin" | "employee" }) {
                         <time dateTime={x.createdAt}><span>{x.date}</span><span>{x.clock}</span></time>
                       </td>
                       <td className="p-1.5">
-                        <b className="block truncate">{x.customer}</b>
+                        <b className="block truncate" title={x.customer}>{x.customer}</b>
+                        {x.customerId != null && <small className="block truncate text-slate-500" title={x.customerCode}>{x.customerCode === "—" ? `ID: ${x.customerId}` : x.customerCode}</small>}
                       </td>
                       <td className="p-1.5">
                         <span className="fraud-transaction-code" title={x.detail}>{x.transaction}</span>
@@ -407,7 +439,7 @@ export function FraudPage({ role = "admin" }: { role?: "admin" | "employee" }) {
                       </td>
                       <td className="p-1.5"><RecordStatus status={x.transactionStatus} /></td>
                       <td className="p-1.5 text-center">
-                        <ReviewDialog review={x} />
+                        <ReviewDialog key={`${x.id}:${linkedReview ?? "list"}`} review={x} autoOpen={String(x.reviewId) === linkedReview} />
                       </td>
                     </tr>
                   ))}

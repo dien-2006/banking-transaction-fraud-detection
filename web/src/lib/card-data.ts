@@ -8,7 +8,10 @@ export type BankCard = {
   id: string;
   number: string;
   holder: string;
+  customerId: string | null;
+  customerCode: string;
   account: string;
+  accountId: string | null;
   type: string;
   expiry: string;
   limit: string;
@@ -31,9 +34,12 @@ export function presentCard(row: Record<string, unknown>): BankCard {
     holder: String(
       row.fullname ??
         row.customername ??
-        `Khách hàng #${row.customerid ?? "—"}`,
+        "Chưa tra được tên",
     ),
-    account: String(row.accountid ?? "—"),
+    customerId: row.customerid == null ? null : String(row.customerid),
+    customerCode: String(row.customercode ?? "—"),
+    account: row.accountnumber == null ? "Chưa tra được số tài khoản" : String(row.accountnumber),
+    accountId: row.accountid == null ? null : String(row.accountid),
     type: customerCardType({ cardtype: String(row.cardtype ?? "—") }),
     expiry: date(row.expirydate, true),
     limit: Number(row.dailylimit ?? 0).toLocaleString("vi-VN"),

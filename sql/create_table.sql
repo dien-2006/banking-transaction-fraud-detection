@@ -889,7 +889,7 @@ CREATE TABLE review_case (
 
     CONSTRAINT fk_review_user
         FOREIGN KEY (revieweruserid)
-        REFERENCES system_user(userid),
+        REFERENCES "system_user"(userid),
 
     CONSTRAINT ck_review_status
         CHECK (status IN (
@@ -999,7 +999,7 @@ CREATE TABLE audit_log (
 
     CONSTRAINT fk_audit_user
         FOREIGN KEY (userid)
-        REFERENCES system_user(userid),
+        REFERENCES "system_user"(userid),
 
     CONSTRAINT ck_audit_action
         CHECK (action IN (

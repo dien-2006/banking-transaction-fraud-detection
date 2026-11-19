@@ -15,7 +15,8 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   ListPagination,
   useListPagination,
@@ -35,6 +36,10 @@ const money = new Intl.NumberFormat("vi-VN", {
 });
 export function LoansPage() {
   const user = useSessionUser();
+  const searchParams = useSearchParams();
+  const targetLoan = searchParams.get("loanId");
+  const targetLoanId = targetLoan && /^[1-9]\d*$/.test(targetLoan) ? targetLoan : null;
+  const [linkedLoan, setLinkedLoan] = useState(targetLoanId);
   const loansQuery = useQuery({
     queryKey: ["staff-loans", user.role, user.id, user.branchId],
     refetchInterval: 15_000,
@@ -45,6 +50,17 @@ export function LoansPage() {
       return { rows, summary: summarizeLoans(rows) };
     },
   });
+  const customersQuery = useQuery({
+    queryKey: ["staff-customers", user.role, user.id, user.branchId],
+    queryFn: () => loadAllPages(bankService.customers, (row) =>
+      recordText(row, ["customerid", "customercode"])),
+  });
+  const customerNames = useMemo(() => new Map(
+    (customersQuery.data ?? []).map((row) => [String(row.customerid), recordText(row, ["fullname"], "")]),
+  ), [customersQuery.data]);
+  const customerName = (row: Record<string, unknown>) =>
+    customerNames.get(String(row.customerid)) || recordText(row, ["customername", "fullname"],
+      row.customerid == null ? "Chưa cập nhật" : `Khách hàng #${row.customerid}`);
   const attentionRows = (loansQuery.data?.rows ?? [])
     .filter((row) => row.status === "Pending" || row.status === "Overdue")
     .sort((a, b) => Number(b.loanid) - Number(a.loanid))
@@ -53,27 +69,29 @@ export function LoansPage() {
     () =>
       (loansQuery.data?.rows ?? []).map((row) => [
         recordText(row, ["loancode", "loanid"]),
-        recordText(row, ["customername", "fullname", "customerid"]),
+        customerName(row),
         recordText(row, ["loantypename", "productname", "loantypeid"]),
-        money.format(
-          Number(
-            recordText(row, ["principalamount", "outstandingamount"], "0"),
-          ),
-        ),
-        `${recordText(row, ["interestrate"], "0")}%`,
+        row.principalamount == null ? "Chưa cập nhật" : money.format(Number(row.principalamount)),
+        row.interestrate == null ? "Chưa cập nhật" : `${row.interestrate}%/năm`,
         recordText(row, ["status"]),
         recordText(row, ["loanid"]),
+        recordText(row, ["customerid"]),
       ]),
-    [loansQuery.data],
+    [loansQuery.data, customerNames],
   );
   const [q, setQ] = useState(""),
     [tab, setTab] = useState("Danh sách khoản vay");
   const [status, setStatus] = useState(""),
     [product, setProduct] = useState("");
+  useEffect(() => {
+    setLinkedLoan(targetLoanId);
+    if (targetLoanId) { setQ(""); setStatus(""); setProduct(""); setTab("Danh sách khoản vay"); }
+  }, [targetLoanId]);
   const filtered = useMemo(
     () =>
       loans.filter(
         (x) =>
+          (!linkedLoan || x[6] === linkedLoan) &&
           (!status || x[5] === status) &&
           (!product || x[2] === product) &&
           x
@@ -81,11 +99,12 @@ export function LoansPage() {
             .toLocaleLowerCase("vi")
             .includes(q.trim().toLocaleLowerCase("vi")),
       ),
-    [q, loans, status, product],
+    [q, loans, status, product, linkedLoan],
   );
   const pagination = useListPagination(filtered, { fitViewportOnly: true, pageSize: user.role === "admin" ? 7 : undefined });
   const data = pagination.visibleItems;
   const reset = () => {
+    setLinkedLoan(null);
     setQ("");
     setStatus("");
     setProduct("");
@@ -112,7 +131,7 @@ export function LoansPage() {
       ? "Đang tải thống kê…"
       : "Toàn bộ khoản vay được cấp quyền";
   const cards = [
-    [BadgeDollarSign, "Tổng dư nợ", summary ? money.format(outstanding) : "—"],
+    [BadgeDollarSign, "Tổng dư nợ theo lịch", summary ? money.format(outstanding) : "—"],
     [
       CheckCircle2,
       "Khoản vay đang hoạt động",
@@ -171,7 +190,7 @@ export function LoansPage() {
             <div className="mt-4 space-y-3 text-sm">
               {products.map((row) => (
                 <p key={row.name}>
-                  {row.name}: <b>{money.format(row.amount)}</b> dư nợ
+                  {row.name}: <b>{money.format(row.amount)}</b> dư nợ theo lịch
                 </p>
               ))}
               {!products.length && (
@@ -267,8 +286,8 @@ export function LoansPage() {
                       "Mã khoản vay",
                       "Khách hàng",
                       "Sản phẩm",
-                      "Số tiền",
-                      "Lãi suất",
+                      "Số tiền vay",
+                      "Lãi suất/năm",
                       "Trạng thái",
                       "Thao tác",
                     ].map((x) => (
@@ -306,7 +325,7 @@ export function LoansPage() {
                   {loansQuery.isSuccess && !filtered.length && (
                     <tr>
                       <td colSpan={7} className="p-3 text-center">
-                        Không có khoản vay phù hợp.
+                      {linkedLoan ? "Khoản vay từ thông báo không còn tồn tại hoặc không thuộc phạm vi được cấp quyền." : "Không có khoản vay phù hợp."}
                       </td>
                     </tr>
                   )}
@@ -314,15 +333,17 @@ export function LoansPage() {
                     data.map((x) => (
                       <tr className="border-t" key={x[0]}>
                         <td className="p-2 font-semibold">{x[0]}</td>
-                        <td className="p-2">{x[1]}</td>
-                        <td className="p-2">{x[2]}</td>
+                        <td className="p-2"><span className="block truncate" title={x[1]}>{x[1]}</span></td>
+                        <td className="p-2"><span className="block truncate" title={x[2]}>{x[2]}</span></td>
                         <td className="p-2 font-semibold">{x[3]}</td>
                         <td className="p-2">{x[4]}</td>
                         <td className="p-2">
                           <RecordStatus status={x[5]} domain="loan" />
                         </td>
                         <td className="p-2">
-                          {x[5] === "Pending" ? <LoanDecisionButtons id={Number(x[6])} code={x[0]} customer={x[1]} amount={x[3]} /> : <RecordViewButton
+                          {x[5] === "Pending" ? <LoanDecisionButtons key={`${x[6]}:${linkedLoan ?? "list"}`} id={Number(x[6])} code={x[0]} customer={x[1]} amount={x[3]} autoOpen={x[6] === linkedLoan} /> : <RecordViewButton
+                            key={`${x[6]}:${linkedLoan ?? "list"}`}
+                            autoOpen={x[6] === linkedLoan}
                             record={[
                               ...x.slice(0, 5),
                               recordStatus(x[5], "loan").label,
@@ -332,8 +353,8 @@ export function LoansPage() {
                               "Mã khoản vay",
                               "Khách hàng",
                               "Sản phẩm",
-                              "Số tiền",
-                              "Lãi suất",
+                              "Số tiền vay",
+                              "Lãi suất/năm",
                               "Trạng thái",
                             ]}
                           />}
@@ -347,7 +368,7 @@ export function LoansPage() {
           </article>
           <aside className="grid min-h-0 grid-rows-2 gap-3">
             <article className="card p-3">
-              <h2 className="text-base font-black">Cơ cấu dư nợ</h2>
+              <h2 className="text-base font-black">Dư nợ theo lịch</h2>
               <DistributionChart
                 items={composition.map((product) => ({
                   label: product.name,
@@ -363,6 +384,7 @@ export function LoansPage() {
                 formatValue={(value) => money.format(value)}
                 emptyText="Chưa có dư nợ."
               />
+              <p className="mt-2 text-[10px] text-slate-500">Gồm gốc, lãi và phí các kỳ chưa tất toán. Kỳ đã trả một phần cần đối soát số tiền còn lại.</p>
             </article>
             <article className="card flex flex-col p-3">
               <h2 className="text-base font-black">Hồ sơ cần xử lý</h2>
@@ -394,17 +416,9 @@ export function LoansPage() {
                     <p className="min-w-0 flex-1 text-[10px]">
                       <b
                         className="block truncate"
-                        title={recordText(x, [
-                          "customername",
-                          "fullname",
-                          "customerid",
-                        ])}
+                        title={customerName(x)}
                       >
-                        {recordText(x, [
-                          "customername",
-                          "fullname",
-                          "customerid",
-                        ])}
+                        {customerName(x)}
                       </b>
                       <span className="block truncate text-slate-500">
                         {recordText(x, ["loancode"])}
@@ -417,8 +431,7 @@ export function LoansPage() {
               <button
                 onClick={() => {
                   setTab("Danh sách khoản vay");
-                  setQ("");
-                  pagination.setPage(1);
+                  reset();
                 }}
                 className="mt-auto h-7 rounded-md border border-coral text-[10px] text-coral"
               >

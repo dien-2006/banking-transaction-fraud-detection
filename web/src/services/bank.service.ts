@@ -164,7 +164,7 @@ export interface AdminOverviewData {
     value: number;
     currentPeriod: number;
     previousPeriod: number;
-    changePercent: number;
+    changePercent: number | null;
   }>;
   dailyTransactions: Array<{ date: string; count: number }>;
   transactionTypes: Array<{ code: string; label: string; count: number }>;
@@ -173,9 +173,10 @@ export interface AdminOverviewData {
     transactionId: number;
     transactionCode: string;
     customer: string;
+    customerCode?: string | null;
     amount: number;
-    ruleScore: number;
-    modelProbability: number;
+    ruleScore: number | null;
+    modelProbability: number | null;
     assessed_at: string;
     decision: "ALLOW" | "REVIEW" | "BLOCK";
   }>;
@@ -184,9 +185,10 @@ export interface AdminOverviewData {
     transactionCode: string;
     reviewId: number;
     customer: string;
+    customerCode?: string | null;
     amount: number;
-    ruleScore: number;
-    modelProbability: number;
+    ruleScore: number | null;
+    modelProbability: number | null;
     created_at: string;
     decision: "ALLOW" | "REVIEW" | "BLOCK";
   }>;
@@ -204,6 +206,9 @@ export interface AdminOverviewData {
     actor: string;
     role?: string;
     description: string;
+    action?: string;
+    entitytype?: string;
+    entityid?: string;
     created_at: string;
   }>;
 }
@@ -314,9 +319,10 @@ export const bankService = {
       body: JSON.stringify({ oldPin, newPin }),
     });
   },
-  customers: (params: Record<string, string | number | undefined> = {}) =>
+  customers: (params: Record<string, string | number | undefined> = {}, signal?: AbortSignal) =>
     apiRequest<PageResult<Record<string, unknown>>>(
       `/admin/customers${toQuery(params)}`,
+      { signal, timeoutMs: 15_000 },
     ),
   employees: (params: Record<string, string | number | undefined> = {}) =>
     apiRequest<PageResult<Record<string, unknown>>>(
@@ -324,9 +330,10 @@ export const bankService = {
     ),
   accounts: (params: Record<string, string | number | undefined> = {}) =>
     apiRequest<PageResult<ApiAccount>>(`/admin/accounts${toQuery(params)}`),
-  branches: (params: Record<string, string | number | undefined> = {}) =>
+  branches: (params: Record<string, string | number | undefined> = {}, signal?: AbortSignal) =>
     apiRequest<PageResult<Record<string, unknown>>>(
       `/admin/branches${toQuery(params)}`,
+      { signal, timeoutMs: 15_000 },
     ),
   cards: (params: Record<string, string | number | undefined> = {}) =>
     apiRequest<PageResult<Record<string, unknown>>>(

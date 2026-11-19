@@ -102,11 +102,12 @@ export class DatabaseService implements OnModuleDestroy {
     return result.rows.map(row => row.recipient);
   }
 
-  async adminOverview<T = Record<string, unknown>>(branchId?: number): Promise<T> {
+  async adminOverview<T = Record<string, unknown>>(branchId?: number, userId?: number): Promise<T> {
     const result = await this.pool.query<{ result: T }>(`
       WITH bounds AS (
-        SELECT date_trunc('month', CURRENT_TIMESTAMP) AS month_start,
-               date_trunc('month', CURRENT_TIMESTAMP) - interval '1 month' AS previous_start
+        SELECT date_trunc('month', CURRENT_TIMESTAMP AT TIME ZONE $3) AS month_start,
+               CURRENT_TIMESTAMP AT TIME ZONE $3 AS as_of,
+               date_trunc('month', CURRENT_TIMESTAMP AT TIME ZONE $3) - interval '1 month' AS previous_start
       ), scoped_accounts AS (
         SELECT accountid FROM banking.bank_account
         WHERE $1::int IS NULL OR branchid = $1
@@ -116,6 +117,13 @@ export class DatabaseService implements OnModuleDestroy {
         WHERE $1::int IS NULL OR EXISTS (
           SELECT 1 FROM banking.account_holder ah JOIN scoped_accounts sa USING(accountid)
           WHERE ah.customerid=c.customerid AND ah.status='Active'
+        ) OR EXISTS (
+          SELECT 1 FROM banking.loan l WHERE l.customerid=c.customerid AND l.branchid=$1
+        ) OR (
+          NOT EXISTS (SELECT 1 FROM banking.account_holder ah WHERE ah.customerid=c.customerid AND ah.status='Active')
+          AND NOT EXISTS (SELECT 1 FROM banking.loan l WHERE l.customerid=c.customerid)
+          AND EXISTS (SELECT 1 FROM banking.audit_log al WHERE al.entitytype='CUSTOMER'
+            AND al.entityid=c.customerid::text AND al.action='INSERT' AND al.userid=$2)
         )
       ), scoped_transactions AS (
         SELECT DISTINCT bt.transactionid
@@ -125,23 +133,27 @@ export class DatabaseService implements OnModuleDestroy {
            OR EXISTS (SELECT 1 FROM banking.transaction_posting tp JOIN scoped_accounts sa USING(accountid) WHERE tp.transactionid=bt.transactionid)
       ), scoped_loans AS (
         SELECT loanid FROM banking.loan WHERE $1::int IS NULL OR branchid = $1
+      ), latest_risks AS (
+        SELECT DISTINCT ON (r.transactionid) r.*
+        FROM banking.risk_assessment r JOIN scoped_transactions st USING(transactionid)
+        ORDER BY r.transactionid, r.assessedat DESC, r.riskassessmentid DESC
       ), metrics AS (
         SELECT
           (SELECT count(*) FROM scoped_customers)::int AS customers_total,
-          (SELECT count(*) FROM banking.customer c JOIN scoped_customers sc USING(customerid), bounds b WHERE c.createddate >= b.month_start)::int AS customers_current,
+          (SELECT count(*) FROM banking.customer c JOIN scoped_customers sc USING(customerid), bounds b WHERE c.createddate >= b.month_start AND c.createddate <= b.as_of)::int AS customers_current,
           (SELECT count(*) FROM banking.customer c JOIN scoped_customers sc USING(customerid), bounds b WHERE c.createddate >= b.previous_start AND c.createddate < b.month_start)::int AS customers_previous,
           (SELECT count(*) FROM scoped_accounts)::int AS accounts_total,
-          (SELECT count(*) FROM banking.bank_account a JOIN scoped_accounts sa USING(accountid), bounds b WHERE a.opendate >= b.month_start::date)::int AS accounts_current,
+          (SELECT count(*) FROM banking.bank_account a JOIN scoped_accounts sa USING(accountid), bounds b WHERE a.opendate >= b.month_start::date AND a.opendate <= b.as_of::date)::int AS accounts_current,
           (SELECT count(*) FROM banking.bank_account a JOIN scoped_accounts sa USING(accountid), bounds b WHERE a.opendate >= b.previous_start::date AND a.opendate < b.month_start::date)::int AS accounts_previous,
           (SELECT count(*) FROM scoped_transactions)::int AS transactions_total,
-          (SELECT count(*) FROM banking.bank_transaction t JOIN scoped_transactions st USING(transactionid), bounds b WHERE t.transactiondate >= b.month_start)::int AS transactions_current,
+          (SELECT count(*) FROM banking.bank_transaction t JOIN scoped_transactions st USING(transactionid), bounds b WHERE t.transactiondate >= b.month_start AND t.transactiondate <= b.as_of)::int AS transactions_current,
           (SELECT count(*) FROM banking.bank_transaction t JOIN scoped_transactions st USING(transactionid), bounds b WHERE t.transactiondate >= b.previous_start AND t.transactiondate < b.month_start)::int AS transactions_previous,
           (SELECT count(*) FROM scoped_loans)::int AS loans_total,
-          (SELECT count(*) FROM banking.loan l JOIN scoped_loans sl USING(loanid), bounds b WHERE l.startdate >= b.month_start::date)::int AS loans_current,
+          (SELECT count(*) FROM banking.loan l JOIN scoped_loans sl USING(loanid), bounds b WHERE l.startdate >= b.month_start::date AND l.startdate <= b.as_of::date)::int AS loans_current,
           (SELECT count(*) FROM banking.loan l JOIN scoped_loans sl USING(loanid), bounds b WHERE l.startdate >= b.previous_start::date AND l.startdate < b.month_start::date)::int AS loans_previous,
-          (SELECT count(DISTINCT r.transactionid) FROM banking.risk_assessment r JOIN scoped_transactions st USING(transactionid) WHERE r.decision IN ('REVIEW','BLOCK'))::int AS risks_total,
-          (SELECT count(DISTINCT r.transactionid) FROM banking.risk_assessment r JOIN scoped_transactions st USING(transactionid), bounds b WHERE r.decision IN ('REVIEW','BLOCK') AND r.assessedat >= b.month_start)::int AS risks_current,
-          (SELECT count(DISTINCT r.transactionid) FROM banking.risk_assessment r JOIN scoped_transactions st USING(transactionid), bounds b WHERE r.decision IN ('REVIEW','BLOCK') AND r.assessedat >= b.previous_start AND r.assessedat < b.month_start)::int AS risks_previous
+          (SELECT count(DISTINCT r.transactionid) FROM latest_risks r WHERE r.decision IN ('REVIEW','BLOCK'))::int AS risks_total,
+          (SELECT count(DISTINCT r.transactionid) FROM latest_risks r, bounds b WHERE r.decision IN ('REVIEW','BLOCK') AND r.assessedat >= b.month_start AND r.assessedat <= b.as_of)::int AS risks_current,
+          (SELECT count(DISTINCT r.transactionid) FROM latest_risks r, bounds b WHERE r.decision IN ('REVIEW','BLOCK') AND r.assessedat >= b.previous_start AND r.assessedat < b.month_start)::int AS risks_previous
       ), metric_rows AS (
         SELECT * FROM (VALUES
           ('customers','Tổng khách hàng',(SELECT customers_total FROM metrics),(SELECT customers_current FROM metrics),(SELECT customers_previous FROM metrics)),
@@ -155,62 +167,66 @@ export class DatabaseService implements OnModuleDestroy {
         'generatedAt', clock_timestamp(),
         'customers', (SELECT customers_total FROM metrics),
         'activeAccounts', (SELECT count(*)::int FROM banking.bank_account a JOIN scoped_accounts sa USING(accountid) WHERE a.status='Active'),
-        'transactionsToday', (SELECT count(*)::int FROM banking.bank_transaction t JOIN scoped_transactions st USING(transactionid) WHERE t.transactiondate >= CURRENT_DATE),
+        'transactionsToday', (SELECT count(*)::int FROM banking.bank_transaction t JOIN scoped_transactions st USING(transactionid) WHERE t.transactiondate >= (CURRENT_TIMESTAMP AT TIME ZONE $3)::date AND t.transactiondate <= (CURRENT_TIMESTAMP AT TIME ZONE $3)),
         'openReviews', (SELECT count(*)::int FROM banking.review_case r JOIN scoped_transactions st USING(transactionid) WHERE r.status IN ('OPEN','IN_REVIEW')),
         'kpis', (SELECT jsonb_agg(jsonb_build_object(
           'key',key,'label',label,'value',total,'currentPeriod',current_period,'previousPeriod',previous_period,
-          'changePercent',CASE WHEN previous_period=0 THEN CASE WHEN current_period=0 THEN 0 ELSE 100 END
+          'changePercent',CASE WHEN previous_period=0 THEN CASE WHEN current_period=0 THEN 0 ELSE NULL END
             ELSE round(((current_period-previous_period)::numeric/previous_period)*100,1) END
         ) ORDER BY CASE key WHEN 'customers' THEN 1 WHEN 'accounts' THEN 2 WHEN 'transactions' THEN 3 WHEN 'loans' THEN 4 ELSE 5 END) FROM metric_rows),
         'dailyTransactions', (SELECT COALESCE(jsonb_agg(jsonb_build_object('date',d.day::date,'count',COALESCE(t.count,0)) ORDER BY d.day),'[]'::jsonb)
-          FROM generate_series(CURRENT_DATE-9,CURRENT_DATE,interval '1 day') d(day)
+          FROM generate_series((CURRENT_TIMESTAMP AT TIME ZONE $3)::date-9,(CURRENT_TIMESTAMP AT TIME ZONE $3)::date,interval '1 day') d(day)
           LEFT JOIN (SELECT bt.transactiondate::date AS day,count(*)::int AS count FROM banking.bank_transaction bt
             JOIN scoped_transactions st USING(transactionid)
-            WHERE bt.transactiondate >= CURRENT_DATE-9 GROUP BY bt.transactiondate::date) t USING(day)),
+            WHERE bt.transactiondate >= (CURRENT_TIMESTAMP AT TIME ZONE $3)::date-9 AND bt.transactiondate <= (CURRENT_TIMESTAMP AT TIME ZONE $3) GROUP BY bt.transactiondate::date) t USING(day)),
         'transactionTypes', (SELECT COALESCE(jsonb_agg(jsonb_build_object('code',typecode,'label',typename,'count',count) ORDER BY count DESC),'[]'::jsonb)
           FROM (SELECT tt.typecode,tt.typename,count(*)::int AS count FROM banking.bank_transaction bt
             JOIN scoped_transactions st USING(transactionid) JOIN banking.transaction_type tt USING(transactiontypeid), bounds b
-            WHERE bt.transactiondate >= b.month_start GROUP BY tt.typecode,tt.typename) x),
+            WHERE bt.transactiondate >= b.month_start AND bt.transactiondate <= b.as_of GROUP BY tt.typecode,tt.typename) x),
         'transactionStatuses', (SELECT COALESCE(jsonb_agg(jsonb_build_object('status',status,'count',count) ORDER BY count DESC),'[]'::jsonb)
           FROM (SELECT bt.status,count(*)::int AS count FROM banking.bank_transaction bt JOIN scoped_transactions st USING(transactionid),bounds b
-            WHERE bt.transactiondate >= b.month_start GROUP BY bt.status) x),
+            WHERE bt.transactiondate >= b.month_start AND bt.transactiondate <= b.as_of GROUP BY bt.status) x),
         'recentRisks', (SELECT COALESCE(jsonb_agg(to_jsonb(x) ORDER BY x.assessed_at DESC),'[]'::jsonb) FROM (
           SELECT v.transactionid AS "transactionId",v.transactioncode AS "transactionCode",
-            COALESCE(c.fullname,v.description,'Khách hàng #'||COALESCE(v.initiatedbycustomerid::text,'-')) AS customer,
+            COALESCE(c.fullname,CASE WHEN v.initiatedbycustomerid IS NULL THEN 'Không có khách hàng khởi tạo' ELSE 'Chưa tra được tên' END) AS customer, c.customercode AS "customerCode",
             v.amount::float8 AS amount,v.rulescore::int AS "ruleScore",v.modelprobability::float8 AS "modelProbability",
-            v.assessedat AS assessed_at,v.decision
+            v.assessedat AS assessed_at,v.reviewcaseid AS "reviewId",v.decision
           FROM banking.vw_transaction_detail v JOIN scoped_transactions st USING(transactionid) LEFT JOIN banking.customer c ON c.customerid=v.initiatedbycustomerid
           WHERE v.decision IN ('REVIEW','BLOCK') ORDER BY v.assessedat DESC NULLS LAST LIMIT 5) x),
         'pendingReviews', (SELECT COALESCE(jsonb_agg(to_jsonb(x) ORDER BY x.created_at DESC),'[]'::jsonb) FROM (
           SELECT v.transactionid AS "transactionId",v.transactioncode AS "transactionCode",v.reviewcaseid AS "reviewId",
-            COALESCE(c.fullname,v.description,'Khách hàng #'||COALESCE(v.initiatedbycustomerid::text,'-')) AS customer,
+            COALESCE(c.fullname,CASE WHEN v.initiatedbycustomerid IS NULL THEN 'Không có khách hàng khởi tạo' ELSE 'Chưa tra được tên' END) AS customer, c.customercode AS "customerCode",
             v.amount::float8 AS amount,v.rulescore::int AS "ruleScore",v.modelprobability::float8 AS "modelProbability",
             v.reviewcreatedat AS created_at,v.decision
           FROM banking.vw_transaction_detail v JOIN scoped_transactions st USING(transactionid) LEFT JOIN banking.customer c ON c.customerid=v.initiatedbycustomerid
           WHERE v.reviewstatus IN ('OPEN','IN_REVIEW') ORDER BY v.reviewcreatedat DESC NULLS LAST LIMIT 5) x),
         'branches', (SELECT COALESCE(jsonb_agg(jsonb_build_object(
           'branchId',b.branchid,'branchName',b.branchname,
-          'customers',(SELECT count(DISTINCT ah.customerid)::int FROM banking.bank_account ba JOIN banking.account_holder ah USING(accountid) WHERE ba.branchid=b.branchid AND ah.status='Active'),
+          'customers',(SELECT count(*)::int FROM banking.customer c WHERE
+            EXISTS(SELECT 1 FROM banking.bank_account ba JOIN banking.account_holder ah USING(accountid)
+              WHERE ba.branchid=b.branchid AND ah.customerid=c.customerid AND ah.status='Active')
+            OR EXISTS(SELECT 1 FROM banking.loan l WHERE l.branchid=b.branchid AND l.customerid=c.customerid)),
           'accounts',(SELECT count(*)::int FROM banking.bank_account ba WHERE ba.branchid=b.branchid),
           'transactions',(SELECT count(*)::int FROM banking.bank_transaction bt WHERE
             EXISTS(SELECT 1 FROM banking.transaction_posting tp JOIN banking.bank_account ba USING(accountid) WHERE tp.transactionid=bt.transactionid AND ba.branchid=b.branchid)
             OR EXISTS(SELECT 1 FROM banking.transfer_request tr JOIN banking.bank_account ba ON ba.accountid IN (tr.sourceaccountid,tr.destinationaccountid) WHERE tr.transactionid=bt.transactionid AND ba.branchid=b.branchid)),
           'loans',(SELECT count(*)::int FROM banking.loan l WHERE l.branchid=b.branchid),
-          'risks',(SELECT count(DISTINCT ra.transactionid)::int FROM banking.risk_assessment ra WHERE ra.decision IN ('REVIEW','BLOCK') AND (
+          'risks',(SELECT count(DISTINCT ra.transactionid)::int FROM latest_risks ra WHERE ra.decision IN ('REVIEW','BLOCK') AND (
             EXISTS(SELECT 1 FROM banking.transaction_posting tp JOIN banking.bank_account ba USING(accountid) WHERE tp.transactionid=ra.transactionid AND ba.branchid=b.branchid)
             OR EXISTS(SELECT 1 FROM banking.transfer_request tr JOIN banking.bank_account ba ON ba.accountid IN (tr.sourceaccountid,tr.destinationaccountid) WHERE tr.transactionid=ra.transactionid AND ba.branchid=b.branchid)))
         ) ORDER BY b.branchid),'[]'::jsonb) FROM banking.branch b WHERE $1::int IS NULL OR b.branchid=$1),
         'recentActivities', (SELECT COALESCE(jsonb_agg(to_jsonb(x) ORDER BY x.created_at DESC),'[]'::jsonb) FROM (
           SELECT a.auditid AS "auditId",COALESCE(e.fullname,su.username,'System') AS actor,
             COALESCE(r.rolename,'Hệ thống') AS role,
-            concat(a.action,' ',a.entitytype,' #',a.entityid) AS description,a.createdat AS created_at
+            concat(a.action,' ',a.entitytype,' #',a.entityid) AS description,
+            a.action,a.entitytype,a.entityid,a.createdat AS created_at
           FROM banking.audit_log a LEFT JOIN banking.system_user su USING(userid)
           LEFT JOIN banking.employee e ON e.employeeid=su.employeeid
           LEFT JOIN banking.role r ON r.roleid=e.roleid
           WHERE $1::int IS NULL OR e.branchid=$1
           ORDER BY a.createdat DESC LIMIT 5) x)
       ) AS result
-    `, [branchId ?? null]);
+    `, [branchId ?? null, userId ?? null, this.sourceTimezone]);
     return result.rows[0].result;
   }
 
@@ -373,7 +389,18 @@ export class DatabaseService implements OnModuleDestroy {
       if (context.risk) await this.prepareRisk(client, name, args);
       const placeholders = args.map((_, i) => `$${i + 1}`).join(', ');
       const result = await client.query<{ result: T }>(`SELECT ${name}(${placeholders}) AS result`, args);
-      return result.rows[0]?.result;
+      const created = result.rows[0]?.result;
+      if (name === 'banking_api.create_customer' && context.userId != null) {
+        const customerId = created != null && typeof created === 'object' && 'customerid' in created
+          ? created.customerid : null;
+        const audit = await client.query(`SELECT 1 FROM banking.audit_log
+          WHERE entitytype='CUSTOMER' AND entityid=$1 AND action='INSERT' AND userid=$2 LIMIT 1`,
+        [customerId == null ? null : String(customerId), context.userId]);
+        if (!audit.rows.length) {
+          throw new Error('CONFIGURATION:Chưa thể tạo khách hàng vì hệ thống thiếu nhật ký người tạo. Quản trị viên cần khôi phục audit trigger trong sql/z_03_integrity.sql. Hồ sơ chưa được lưu.');
+        }
+      }
+      return created;
     });
   }
 

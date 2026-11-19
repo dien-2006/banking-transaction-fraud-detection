@@ -36,12 +36,14 @@ export function RecordViewButton({
   record,
   title = "Chi tiết bản ghi",
   labels,
+  autoOpen = false,
 }: {
   record: object | readonly unknown[];
   title?: string;
   labels?: readonly string[];
+  autoOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(autoOpen);
   const entries: Array<[string, unknown]> = Array.isArray(record)
     ? record.map((value, index) => [labels?.[index] ?? `Thông tin ${index + 1}`, value])
     : Object.entries(record).map(([key, value]) => [fieldNames[key] ?? key, value]);

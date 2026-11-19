@@ -40,7 +40,6 @@ const routes = {
     "loans",
     "cards",
     "fraud",
-    "reports",
     "notifications",
     "profile",
     "about",

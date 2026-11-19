@@ -26,3 +26,15 @@ export function notificationText(type: unknown): [string, string] {
     ]
   );
 }
+
+/** IDs are emitted by list_employee_notifications; never parse human-readable text. */
+export function staffNotificationHref(
+  item: { id: string; type: string },
+  role: "admin" | "employee",
+): string | null {
+  const review = item.type === "fraud" && /^review-([1-9]\d*)$/.exec(item.id);
+  if (review) return `/${role}/fraud?reviewId=${review[1]}`;
+  const loan = item.type === "loan" && /^loan-([1-9]\d*)$/.exec(item.id);
+  if (loan) return `/${role}/loans?loanId=${loan[1]}`;
+  return null;
+}

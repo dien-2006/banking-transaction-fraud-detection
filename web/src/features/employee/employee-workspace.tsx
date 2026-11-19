@@ -27,6 +27,8 @@ import {
   type EmployeeNotification,
 } from "@/services/bank.service";
 import { useNotificationRead } from "./use-notification-read";
+import { useRouter } from "next/navigation";
+import { staffNotificationHref } from "@/lib/notification-data";
 
 const typeLabels: Record<string, string> = {
   fraud: "Rủi ro & Thẩm định",
@@ -36,6 +38,7 @@ const typeLabels: Record<string, string> = {
 };
 export function EmployeeWorkspace() {
   const user = useSessionUser();
+  const router = useRouter();
   const { readIds, markRead } = useNotificationRead(user.role, user.id);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("");
@@ -115,7 +118,11 @@ export function EmployeeWorkspace() {
             <NotificationRow key={item.id} title={item.title} detail={item.detail} createdAt={item.createdat}
               unread={unread(item)} icon={icons[item.type] ?? Bell}
               tone={item.type === "fraud" ? "warning" : item.type === "loan" ? "product" : "system"}
-              onClick={() => { markRead([item.id]); setSelected(item); }} />
+              onClick={() => {
+                markRead([item.id]);
+                const href = user.role === "customer" ? null : staffNotificationHref(item, user.role);
+                if (href) router.push(href); else setSelected(item);
+              }} />
           ))}
         </div>
         {query.isSuccess && <ListPagination {...pagination} noun="thông báo" />}
@@ -136,11 +143,11 @@ export function EmployeeWorkspace() {
             <Link
               className="btn-primary"
               href={
-                selected.type === "fraud"
+                (user.role !== "customer" && staffNotificationHref(selected, user.role)) || (selected.type === "fraud"
                   ? `/${user.role}/fraud`
                   : selected.type === "loan"
                     ? `/${user.role}/loans`
-                    : `/${user.role}`
+                    : `/${user.role}`)
               }
             >
               Mở phân hệ liên quan

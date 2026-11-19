@@ -36,6 +36,17 @@ D4 Insights là trang báo cáo phân tích của admin, dùng dữ liệu Gold 
 Các biểu đồ được bố trí theo hàng với chiều cao tối thiểu, hỗ trợ cuộn trang
 và hiển thị trên điện thoại; giữ bộ lọc ngày và các mục phân tích hiện có.
 
+Tổng quan nghiệp vụ lấy PostgreSQL qua API dashboard. Tổng khách hàng theo
+cùng phạm vi danh sách khách hàng: liên kết tài khoản/khoản vay tại chi nhánh,
+hoặc hồ sơ chưa được gán chi nhánh do chính nhân viên tạo (theo audit).
+KPI là tổng lũy kế; dòng bên dưới là phát sinh tháng và so với tháng trước.
+Kỳ báo cáo dùng `SOURCE_TIMEZONE`, không cộng dữ liệu phát sinh tương lai vào
+biểu đồ tháng/ngày. Giao dịch rủi ro tính theo đánh giá mới nhất mỗi giao dịch;
+review đang chờ lấy trạng thái OPEN/IN_REVIEW, không suy ra từ trạng thái giao dịch.
+Thống kê từng chi nhánh chỉ tính khách hàng đã có liên kết tại chi nhánh, nên
+không gồm hồ sơ mới chưa được gán. Bảng rủi ro/review hỗ trợ cuộn ngang;
+thiếu điểm/xác suất hiển thị Chưa đánh giá thay vì gán 0.
+
 Danh sách giao dịch, khách hàng, nhân viên, tài khoản và khoản vay tải đủ các
 trang API trong phạm vi được cấp quyền trước khi tìm kiếm và tính thống kê.
 Đổi trang hoặc lọc danh sách không làm thay đổi các chỉ số tổng. Phản hồi phân
@@ -44,8 +55,47 @@ Các bảng phân trang dùng chiều cao hàng thực tế để thêm/bớt b�
 hiển thị, kể cả khi đổi kích thước màn hình hoặc cỡ chữ. Không thêm hàng rỗng
 và không thay đổi dữ liệu nguồn; danh sách tài khoản khách hàng vẫn cố định
 2 tài khoản/trang. Chạy `npm run test:lists` để kiểm tra bố cục các bảng.
+Danh sách khách hàng hiển thị Địa chỉ từ `address` và Phân khúc từ
+`customersegment`; địa chỉ trống hiển thị dấu gạch, không lấy phân khúc thay thế.
+Schema hiện tại chưa có trạng thái KYC, nên trang không hiển thị thống kê
+xác minh; các chỉ số trạng thái lấy từ `customer.status`.
+
+Trang Tài khoản tính Tổng số dư khách hàng (VND) từ tài khoản `CUSTOMER`
+bằng VND trong phạm vi được cấp quyền; không cộng số dư đối ứng `INTERNAL`.
+Danh sách vẫn hiển thị tài khoản nội bộ theo quyền. Tên chủ được tra cứu từ
+hồ sơ khách hàng trong cùng phạm vi, dùng ID khi chưa có tên; bảng, chi tiết,
+gợi ý gần đây và tìm kiếm dùng cùng tên chủ.
+
+Trang Chi nhánh giữ banner, bộ lọc và bảng trong lúc tải dữ liệu. Mỗi yêu cầu
+đọc danh sách có thời hạn 15 giây; khi lỗi, người dùng có thể bấm Thử lại.
+Chạy `npm run test:branches` trên bản production local để kiểm tra trạng thái
+tải, hết thời gian chờ, lỗi API, tải lại và danh sách rỗng trên desktop/mobile.
+
 Thông báo nhân viên lấy từ API; trạng thái đã đọc lưu theo tài khoản trên trình
 duyệt và đồng bộ với chuông thông báo. Các nút thêm mới dùng API quản lý hiện có.
+Nhấn thông báo review/khoản vay (kể cả trong chuông thông báo) mở đúng hồ sơ
+qua `reviewId`/`loanId` và tự mở hộp thoại chi tiết hoặc xử lý. Liên kết lấy ID
+từ khóa thông báo `review-<id>`/`loan-<id>` do API cấp, không phân tích nội dung
+hay tự suy ra tài khoản. Trang đích chỉ tìm trong dữ liệu được API cấp quyền;
+hồ sơ không còn truy cập được có thông báo riêng, không mở hồ sơ thay thế.
+Xóa bộ lọc/Đặt lại để trở về toàn bộ danh sách. Không tự phê duyệt từ liên kết.
+
+Danh sách giao dịch tra `fullname` và `customercode` từ hồ sơ khách hàng được
+cấp quyền theo `initiatedbycustomerid`. Danh sách, giao dịch gần đây, chi tiết
+và tìm kiếm dùng cùng thông tin; không tạo mã khách hàng từ ID. Nếu chưa tra
+được hồ sơ thì hiển thị rõ trạng thái thiếu tên và ID riêng, không gán tên giả.
+
+Trang Thẻ và Fraud & Review cũng tra tên/mã khách hàng và số tài khoản từ
+API hồ sơ/tài khoản theo cùng phạm vi quyền. Không hiển thị ID như số tài khoản
+hoặc tự tạo mã khách hàng. Thẻ vẫn chỉ dùng số đã che; bảng rộng cuộn ngang
+trong khung. Thống kê thẻ bị khóa theo trạng thái `Blocked` (Đã khóa).
+Review gom tài khoản theo ID ổn định, độc lập với quá trình tải tên/số tài khoản;
+mức rủi ro, điểm và quyết định vẫn lấy nguyên từ bản ghi đánh giá của DB.
+
+Danh sách khoản vay tra tên khách hàng từ hồ sơ được cấp quyền, giữ ID khi
+chưa tra được tên. Số tiền vay là `principalamount`; dư nợ theo lịch là
+`outstandingamount` do view DB tổng hợp gốc, lãi và phí của kỳ chưa tất toán.
+Hai chỉ số được ghi nhãn riêng; kỳ trả một phần cần đối soát số tiền còn lại.
 
 Trang thẻ có tìm kiếm, lọc trạng thái, xem chi tiết và đổi PIN. Trang khoản vay
 hiển thị lịch trả nợ. Hồ sơ hỗ trợ đổi mật khẩu; chuyển tiền dùng luồng xác minh

@@ -10,10 +10,12 @@ export function AccountDetails({
   account,
   hidden = false,
   showOwner = false,
+  ownerName,
 }: {
   account: ApiAccount;
   hidden?: boolean;
   showOwner?: boolean;
+  ownerName?: string;
 }) {
   const amount = (value: string) =>
     hidden
@@ -29,9 +31,9 @@ export function AccountDetails({
             "Chủ tài khoản",
             account.accountcategory === "INTERNAL"
               ? "Nội bộ ngân hàng"
-              : account.customerid == null
+              : ownerName || (account.customerid == null
                 ? "Chưa cập nhật"
-                : `Khách hàng #${account.customerid}`,
+                : `Khách hàng #${account.customerid}`),
           ],
         ]
       : []),
@@ -60,7 +62,7 @@ export function AccountDetails({
   );
 }
 
-export function AccountDetailsButton({ account }: { account: ApiAccount }) {
+export function AccountDetailsButton({ account, ownerName }: { account: ApiAccount; ownerName?: string }) {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -68,7 +70,7 @@ export function AccountDetailsButton({ account }: { account: ApiAccount }) {
         Xem
       </button>
       <Modal open={open} onOpenChange={setOpen} title="Chi tiết tài khoản">
-        <AccountDetails account={account} showOwner />
+        <AccountDetails account={account} showOwner ownerName={ownerName} />
       </Modal>
     </>
   );

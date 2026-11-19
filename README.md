@@ -352,16 +352,39 @@ test -f .env || cp .env.example .env
 
 OTP sử dụng email khách hàng trong database và sender đã được xác minh trên Brevo. Các tài khoản PostgreSQL, MinIO và Airflow dùng giá trị do người triển khai cấu hình.
 
-Chỉ dùng `.env` để cấu hình local; `.env.example` là bản mẫu không chứa secret thật. Chạy `python -m scripts.provision_runtime_roles --apply` sau khi PostgreSQL sẵn sàng để tạo tài khoản runtime và lưu bốn cặp `BANKING_DB_*`, `OUTBOX_DB_*`, `NOTIFICATION_DB_*`, `ETL_DB_*` vào cùng `.env`. Docker Compose chọn từng biến cần thiết và truyền đúng tài khoản DB cho mỗi dịch vụ; không truyền toàn bộ `.env` hay credential quản trị vào API/worker. Sau khi sửa cấu hình, tạo lại các container liên quan bằng `docker compose up -d --no-deps --force-recreate <service>`.
+Chỉ dùng `.env` để cấu hình local; `.env.example` là bản mẫu không chứa secret thật. Chạy `python -m scripts.provision_runtime_roles --apply` sau khi PostgreSQL sẵn sàng và bạn đã tự nạp schema/function để tạo tài khoản runtime và lưu bốn cặp `BANKING_DB_*`, `OUTBOX_DB_*`, `NOTIFICATION_DB_*`, `ETL_DB_*` vào cùng `.env`. Docker Compose chọn từng biến cần thiết và truyền đúng tài khoản DB cho mỗi dịch vụ; không truyền toàn bộ `.env` hay credential quản trị vào API/worker. Sau khi sửa cấu hình, tạo lại các container liên quan bằng `docker compose up -d --no-deps --force-recreate <service>`.
 
 ### 3. Khởi động các dịch vụ
+
+Trên môi trường mới, bật PostgreSQL trước:
+
+```bash
+docker compose up -d postgres-bank
+```
+
+PostgreSQL chỉ tạo database theo `POSTGRES_DB` và các đối tượng hệ thống mặc định.
+Schema `banking`, `banking_api`, bảng, function và dữ liệu nghiệp vụ **không được tự tạo**.
+Bạn tự chạy SQL bằng công cụ quản trị database trước khi bật API/worker/batch.
+Các file của thư mục `sql/` vẫn có thể đọc trong container tại `/banking-sql`;
+chỉ mount thư mục này không thực thi SQL.
+
+Nếu muốn chủ động nạp toàn bộ schema và các file `z_*.sql` có sẵn trên database
+trống, có thể chạy thủ công script sau. Không chạy trên database đã có bảng:
+
+```bash
+docker compose exec -T postgres-bank bash -s < docker/postgres-init.sh
+```
+
+Sau khi đã tạo đầy đủ schema/function và cấp tài khoản runtime theo bước 2:
 
 ```bash
 docker compose up -d --build
 docker compose ps -a
 ```
 
-Trên PostgreSQL volume mới, init script tạo schema từ `sql/create_table.sql`, sau đó nạp các file `z_*.sql`. Bootstrap đăng ký model và tạo customer, tài khoản, thiết bị demo. Compose cũng khởi động các thành phần Batch và trigger `bootstrap_first_run` của DAG.
+`demo-bootstrap` không chạy mặc định và API không phụ thuộc dịch vụ này. Chỉ khi
+muốn nạp dữ liệu demo sau khi tạo schema, chạy `docker compose --profile demo run --rm demo-bootstrap`.
+Compose vẫn khởi động các thành phần Batch và trigger `bootstrap_first_run` của DAG khi bật toàn bộ stack.
 
 Database và volume đã tồn tại được giữ lại. Tài khoản đăng nhập web nằm trong `customer_online_account` hoặc `system_user`; sử dụng tài khoản đã được cấp trong database của môi trường triển khai.
 
