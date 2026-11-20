@@ -1,4 +1,5 @@
 import { Controller, Get, Injectable, NotFoundException, Param, ParseIntPipe, ForbiddenException } from '@nestjs/common';
+import { presentBusinessAuthorization } from '../database/business-authorization';
 import { DatabaseService } from '../database/database.service';
 import { AuthUser } from '../security/auth.guard';
 import { CurrentUser, Roles } from '../security/decorators';
@@ -29,7 +30,7 @@ export class LoanPaymentOptionsService {
     const row=result.rows[0];
     if(!row)throw new NotFoundException('Không tìm thấy khoản vay của bạn.');
     const active=['Active','Overdue'].includes(row.status);
-    return {loanId:Number(row.loanid),status:row.status,funded:row.funded,disbursement:row.disbursement,
+    return {loanId:Number(row.loanid),status:row.status,funded:row.funded,disbursement:presentBusinessAuthorization(row.disbursement),
       receivingAccountNumber:row.receivingAccountNumber,ready:active&&row.settlementReady,
       unavailableReason:!active?'Khoản vay chưa đến trạng thái thanh toán hoặc đã kết thúc.':!row.settlementReady?'Ngân hàng tạm thời chưa thể tiếp nhận thanh toán khoản vay. Vui lòng liên hệ chi nhánh.':null,
       schedules:row.schedules};

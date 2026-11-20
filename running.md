@@ -565,14 +565,14 @@ Nhập mật khẩu mới hai lần; script chỉ cập nhật hash đăng nhậ
 hoặc PIN. Không cần đổi mật khẩu mỗi lần bật container. Không dùng
 `docker compose down -v`, xóa schema hoặc reset volume để chữa lỗi web.
 
-### Cập nhật policy phê duyệt khoản vay và nghiệp vụ nhân viên
+### Bản sửa backend: nghiệp vụ nhân viên và trả vay không chạy Risk/ML
 
-Triển khai backend và web cùng các function tài chính mới. Từ môi trường Python đã cài requirements và cấu hình kết nối DB của dự án, chạy:
+Bản này dùng lại các function Banking Core có sẵn; không cần chạy SQL mới trong DBeaver hoặc `scripts.apply_function_fixes`. Các file SQL được giữ ở bản trước thay đổi `1e92edf7`. Sau khi code mới đã được commit/push theo yêu cầu và pull đúng nhánh trên EC2:
 
 ```bash
-python -m scripts.apply_function_fixes --apply
+docker compose --profile web build banking-api web
+docker compose --profile web up -d --no-deps banking-api web
+docker compose logs --tail 100 banking-api
 ```
 
-Script cập nhật function atomically, gồm `staff_authorized_transaction`, admission gate tài chính, commit validator và `list_transactions`; không thay bảng/cột/constraint. Sau đó build/triển khai lại API và web. Không chỉ cập nhật giao diện: backend cũ vẫn có thể đưa giải ngân vào REVIEW. Các khoản giải ngân đang chờ cần được người có quyền mở lại ở trang Khoản vay, chọn đúng tài khoản nhận cũ và xác nhận; không tự động phê duyệt hoặc cộng tiền cho dữ liệu cũ.
-
-Nhân viên/admin không gọi model khi thực hiện nghiệp vụ tại quầy hoặc phê duyệt giải ngân; người xử lý, quyền chi nhánh và bằng chứng ủy quyền được kiểm tra/lưu trong cùng transaction. Giao dịch khách hàng online vẫn dùng model và policy V1. Chứng từ giải ngân được giữ trong DB, chỉ ẩn khỏi danh sách lịch sử giao dịch thông thường.
+Backend ghi dấu cho phép nghiệp vụ vào các bảng hiện có, không tạo điểm dự đoán ML. Nhân viên/admin và trả vay online được miễn Risk/ML; chuyển tiền thông thường của khách hàng vẫn qua Risk/ML. Giải ngân/thu nợ chỉ hoàn tất khi core hạch toán thành công; lệnh cũ đang REVIEW cần được người có quyền xác nhận, không được tự động cộng tiền khi chỉ đọc danh sách. Không chạy lại schema/seed hoặc xóa volume.

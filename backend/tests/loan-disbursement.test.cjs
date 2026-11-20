@@ -35,7 +35,7 @@ test('PostgreSQL disbursement preserves risk, atomic posting, retries, ownership
  const query=async(client,sql,args=[])=>(await client.query(sql,args)).rows[0];
  const risk=async(client,probability,type='DEPOSIT',source=ids.fund,channel='Counter',amount='1000')=>{
   await client.query("SELECT set_config('app.fraud_model',$1,true),set_config('app.user_id',$2,true)",[JSON.stringify({engine:'joblib',version:'isolated-test',modelVersionId:ids.model,databaseName:'fraud_detection_v1',probability,
-   request:{customerId:ids.customer,sourceAccountId:source,amount,typeCode:type,channel,assessedAt:'2035-01-01 12:00:00'}}),type==='LOAN_PAYMENT'?'':String(ids.user)]);
+   request:{customerId:ids.customer,sourceAccountId:source,amount,typeCode:type,channel,assessedAt:'2035-01-01 12:00:00'}}),String(ids.user)]);
  };
  const loan=async(client)=>(await query(client,'SELECT banking_api.create_loan(NULL,$1,$2,$3,$4,1000,0,2,CURRENT_DATE) AS r',[ids.customer,ids.branch,ids.employee,ids.loanType])).r;
  const fund=async(client,l,key=randomUUID(),destination=ids.account)=>(await query(client,'SELECT banking_api.disburse_loan($1,$2,$3,$4,$5) AS r',[l.loanid,destination,ids.fund,'LD-'+key,ids.employee])).r;
@@ -79,18 +79,20 @@ test('PostgreSQL disbursement preserves risk, atomic posting, retries, ownership
    const payment=(await query(c,"SELECT banking_api.pay_loan($1,$2,$3,$4,$5,500,$6,'Online') AS r",[customer,l.loanid,schedule.scheduleid,account,internal,'LP-'+randomUUID()])).r;
    assert.equal(payment.status,'Success');assert.equal((await query(c,'SELECT amountpaid FROM loan_payment WHERE transactionid=$1',[payment.transactionid])).amountpaid,'500.00');
   }));
-  await t.test('staff approval never invokes ML or creates a risk assessment; insufficient bank funds still fail',()=>isolated(async c=>{
-   await risk(c,0.95);await c.query("SELECT set_config('app.fraud_model','',true)");
-   const l=await loan(c),funded=await fund(c,l);
-   assert.equal(funded.status,'Active');assert.equal(funded.disbursement.status,'Success');
-   assert.equal((await query(c,'SELECT count(*)::int AS n FROM risk_assessment WHERE transactionid=$1',[funded.disbursement.transactionid])).n,0);
-   assert.equal((await query(c,'SELECT banking_api.staff_authorized_transaction($1) AS authorized',[funded.disbursement.transactionid])).authorized,true);
-   const visible=(await query(c,"SELECT banking_api.list_transactions($1,NULL,NULL,NULL,NULL,NULL,1,100,NULL) AS r",[customer])).r;
-   assert.ok(!visible.items.some(t=>String(t.transactionid)===String(funded.disbursement.transactionid)));
-   await c.query('UPDATE bank_account SET balance=0 WHERE accountid=$1',[internal]);
-   const failedLoan=await loan(c),failed=await fund(c,failedLoan);
-   assert.equal(failed.disbursement.status,'Failed');assert.equal(failed.status,'Pending');
-   assert.equal((await query(c,'SELECT count(*)::int AS n FROM repayment_schedule WHERE loanid=$1',[failedLoan.loanid])).n,0);
+  await t.test('REVIEW leaves balances/schedule untouched; approval funds once and rejection never funds',()=>isolated(async c=>{
+   await risk(c,0.65);const l=await loan(c),r=await fund(c,l),s=await snapshot(c);assert.equal(r.status,'Pending');assert.equal(r.disbursement.status,'Pending');assert.equal(s.postings,0);assert.equal(s.schedules,0);
+   const page={items:[{loanid:l.loanid,status:'Pending'}]};await attachLoanDisbursements(c,page);assert.equal(page.items[0].disbursement.status,'Pending');assert.equal(page.items[0].disbursement.reviewcaseid,r.disbursement.reviewcaseid);
+   const email=await loadTransactionEmailDetails(c,r.disbursement.transactionid,customer);assert.match(email,/Số tiền yêu cầu: 1\.000 VND/);assert.ok(!/[+−]/.test(email.replace(/Mã giao dịch:.*\n/,'')));
+   const approved=(await query(c,"SELECT banking_api.resolve_review($1,$2,'APPROVE','Verified test') AS r",[r.disbursement.reviewcaseid,user])).r;assert.equal(approved.status,'Success');
+   assert.equal((await query(c,'SELECT status FROM loan WHERE loanid=$1',[l.loanid])).status,'Active');
+   const done=await snapshot(c);await query(c,"SELECT banking_api.resolve_review($1,$2,'APPROVE','Verified test') AS r",[r.disbursement.reviewcaseid,user]);assert.deepEqual(await snapshot(c),done);
+   const rejectedLoan=await loan(c),reject=await fund(c,rejectedLoan);await query(c,"SELECT banking_api.resolve_review($1,$2,'REJECT','Rejected test') AS r",[reject.disbursement.reviewcaseid,user]);
+   assert.equal((await query(c,'SELECT status FROM loan WHERE loanid=$1',[rejectedLoan.loanid])).status,'Pending');assert.equal((await snapshot(c)).postings,2);
+  }));
+  await t.test('BLOCK and insufficient bank funds never activate the loan or create debt',()=>isolated(async c=>{
+   await risk(c,0.95);const blocked=await fund(c,await loan(c));assert.equal(blocked.disbursement.status,'Cancelled');assert.equal(blocked.disbursement.decision,'BLOCK');assert.equal(blocked.status,'Pending');
+   await risk(c,0.01);await c.query('UPDATE bank_account SET balance=0 WHERE accountid=$1',[internal]);const failed=await fund(c,await loan(c));assert.equal(failed.disbursement.status,'Failed');assert.equal(failed.status,'Pending');
+   const s=await snapshot(c);assert.equal(s.postings,0);assert.equal(s.schedules,0);assert.equal((await query(c,'SELECT balance FROM bank_account WHERE accountid=$1',[account])).balance,'0.00');
   }));
   await t.test('the HTTP service uses the exact core result, scoped account options and one audit on replay',()=>isolated(async c=>{
    let predictions=0;
@@ -173,6 +175,26 @@ test('PostgreSQL disbursement preserves risk, atomic posting, retries, ownership
    assert.equal((await query(c,'SELECT status FROM loan WHERE loanid=$1',[l.loanid])).status,'Paid');
    assert.equal((await pay()).r.transactionid,result.r.transactionid);
    assert.equal((await query(c,'SELECT count(*)::int AS n FROM loan_payment WHERE loanid=$1',[l.loanid])).n,1);
+  }));
+  await t.test('backend approval and customer repayment work without model context or SQL changes',()=>isolated(async c=>{
+   const {repayLoanWithoutRisk}=require('../dist/database/loan-repayment');
+   const {listVisibleTransactions}=require('../dist/database/transaction-list');
+   await c.query("SELECT set_config('app.fraud_model','',true)");
+   await c.query("INSERT INTO customer_online_account(customerid,username,passwordhash) VALUES($1,$2,'test-only-unused')",[customer,'repayment-'+randomUUID()]);
+   const service=new CustomerProductsService({pool:c,transaction:async(_context,work)=>work(c),prepareRisk:()=>assert.fail('No staff inference')},new ConfigService({}));
+   const l=await loan(c),actor={role:'employee',userId:Number(user),employeeId:Number(employee),branchId:Number(branch)};
+   const input={decision:'APPROVE',reason:'Verified application',destinationAccountId:Number(account),requestKey:randomUUID()};
+   const result=await service.decideLoan(Number(l.loanid),input,actor);
+   assert.equal(result.status,'Active');assert.equal(result.disbursement.modelEvaluated,false);assert.equal(result.disbursement.modelprobability,null);
+   const visible=await listVisibleTransactions(c,[customer,null,null,null,null,null,1,100,null]);
+   assert.equal(visible.total,0);assert.deepEqual(visible.items,[]);
+   for(const {scheduleid} of (await c.query('SELECT scheduleid FROM repayment_schedule WHERE loanid=$1 ORDER BY installmentno',[l.loanid])).rows) {
+    const args=[customer,l.loanid,scheduleid,account,null,'500','LP-'+randomUUID(),'Online'];
+    const paid=await repayLoanWithoutRisk(c,args);assert.equal(paid.status,'Success');assert.equal(paid.modelEvaluated,false);
+    assert.equal((await repayLoanWithoutRisk(c,args)).transactionid,paid.transactionid);
+   }
+   assert.equal((await query(c,'SELECT status FROM loan WHERE loanid=$1',[l.loanid])).status,'Paid');
+   assert.equal((await query(c,'SELECT balance FROM bank_account WHERE accountid=$1',[account])).balance,'0.00');
   }));
   await t.test('concurrent requests with different keys still disburse once',async()=>{
    const l=await loan(pool);const attempts=await Promise.allSettled(Array.from({length:6},async()=>{const c=await pool.connect();try{await c.query('BEGIN');await risk(c,0.01);const r=await fund(c,l);await c.query('COMMIT');return r;}catch(e){await c.query('ROLLBACK');throw e;}finally{c.release();}}));

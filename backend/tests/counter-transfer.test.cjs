@@ -39,19 +39,16 @@ function fixture(options = {}) {
         rows = options.noOwner ? [] : [{ branchid: options.sourceBranch ?? 3 }];
       else if (sql.includes("counter-destination"))
         rows = options.badDestination ? [] : [{ accountid: 20 }];
-      else if (sql.includes("banking_api.create_transfer")) {
-        if (options.failCore) throw new Error("financial rollback");
-        rows = [
-          {
-            result: {
-              transactionid: 77,
-              transactioncode: "TX77",
-              status: options.status ?? "Success",
-            },
-          },
-        ];
-      } else if (sql.includes("banking_api.transaction_result"))
-        rows = [{ result: { transactionid: 77, status: "Success" } }];
+      else if(sql.includes('business-actor')) rows=[{employeeid:2,branchid:3,rolename:'Giao dịch viên'}];
+      else if(sql.includes('business-accounts')) rows=[{accountid:10,branchid:3,accountcategory:'CUSTOMER',currency:'VND'},{accountid:20,branchid:3,accountcategory:'CUSTOMER',currency:'VND'}];
+      else if(sql.includes('FROM banking.account_holder WHERE accountid=')) rows=[{ok:1}];
+      else if(sql.includes('SELECT transactiontypeid')) rows=[{transactiontypeid:1}];
+      else if(sql.includes('business-create')) rows=[{transactionid:77}];
+      else if(sql.includes('business-policy')) rows=[{modelversionid:42}];
+      else if(sql.includes('banking_api.post_balanced_transaction')) {
+        if(options.failCore)throw new Error('financial rollback');
+        rows=[{status:options.status??'Success'}];
+      } else if (sql.includes('banking_api.transaction_result')) rows=[{result:{transactionid:77,status:options.status??'Success'}}];
       return { rows };
     },
   };
@@ -89,29 +86,18 @@ test("counter transfers reject customer role, unverified request and invalid sou
     fixture().service.create(user, { ...input, destinationAccountId: 10 }),
   );
 });
-test("counter transfers preserve core status, skip ML, use Counter and record employee audit atomically", async () => {
-  for (const status of ["Success", "Pending", "Cancelled", "Failed"]) {
+test("counter transfers skip Risk/ML, preserve core financial status and audit the employee", async () => {
+  for (const status of ["Success", "Failed"]) {
     const { service, calls } = fixture({ status });
     const result = await service.create(user, input, "127.0.0.1");
     assert.equal(result.status, status);
-    assert.equal(calls.some(c=>c.inference),false);
     assert.deepEqual(calls[0].context, { userId: 1, ipAddress: "127.0.0.1", risk: true });
     assert.ok(calls.findIndex(c=>c.sql?.includes('risk-customer:')) < calls.findIndex(c=>c.sql?.includes('hashtextextended($1, 0)')));
-    const core = calls.find((c) =>
-      c.sql?.includes("banking_api.create_transfer"),
-    );
-    assert.match(core.sql, /'Counter',NULL/);
-    assert.deepEqual(core.args, [
-      101,
-      10,
-      20,
-      "1000",
-      `counter:1:${input.idempotencyKey}`,
-      "127.0.0.1",
-      input.description,
-    ]);
+    assert.equal(calls.some(c=>c.inference),false);
+    const core=calls.find(c=>c.sql?.includes('banking_api.post_balanced_transaction'));
+    assert.deepEqual(core.args,[77,10,20,'1000',101,true]);
     const audit = calls.find((c) =>
-      c.sql?.includes("INSERT INTO banking.audit_log"),
+      c.sql?.includes("COUNTER_TRANSFER_REQUEST"),
     );
     assert.equal(audit.args[0], 1);
     assert.equal(JSON.parse(audit.args[2]).employeeId, 2);

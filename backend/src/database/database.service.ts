@@ -3,6 +3,9 @@ import { ConfigService } from '@nestjs/config';
 import { Pool, PoolClient } from 'pg';
 import { JoblibFraudModel } from './joblib-model';
 import { attachLoanDisbursements } from './loan-disbursements';
+import { createAuthorizedMovement, presentBusinessAuthorization } from './business-authorization';
+import { repayLoanWithoutRisk } from './loan-repayment';
+import { listVisibleTransactions } from './transaction-list';
 import type { AuthUser } from '../security/auth.guard';
 
 export interface RequestContext { userId?: number; ipAddress?: string; risk?: boolean }
@@ -67,7 +70,7 @@ export class DatabaseService implements OnModuleDestroy {
       ORDER BY h.accountholderid LIMIT 1
     ) recipient ON true
     WHERE d.body IS NOT NULL`,[transactionId,customerId,this.sourceTimezone]);
-    return result.rows[0]?.result??null;
+    return presentBusinessAuthorization(result.rows[0]?.result??null);
   }
 
   async recentTransferRecipients(customerId: number) {
@@ -385,13 +388,27 @@ export class DatabaseService implements OnModuleDestroy {
 
   async function<T>(name: string, args: unknown[] = [], context: RequestContext = {}): Promise<T> {
     if (!/^banking_api\.[a-z0-9_]+$/.test(name)) throw new Error('Unsafe database function name');
-    if (['banking_api.create_transfer', 'banking_api.create_account_movement', 'banking_api.pay_loan'].includes(name)) context = { ...context, risk: true };
+    if (name === 'banking_api.create_transfer') context = { ...context, risk: true };
     return this.transaction(context, async (client) => {
-      if (context.risk && !context.userId) await this.prepareRisk(client, name, args);
+      if (name === 'banking_api.list_transactions') return listVisibleTransactions(client,args) as Promise<T>;
+      if (name === 'banking_api.pay_loan') return repayLoanWithoutRisk(client,args) as Promise<T>;
+      if (name === 'banking_api.create_account_movement') {
+        if (!context.userId) throw new Error('FORBIDDEN:Staff identity is required for an account movement');
+        return createAuthorizedMovement(client,{
+          operation:'STAFF_MOVEMENT', type:args[0] as 'DEPOSIT'|'WITHDRAWAL'|'OPENING_BALANCE',
+          customerId:args[1] as number|null,sourceId:args[2] as number,destinationId:args[3] as number,
+          amount:String(args[4]),key:String(args[5]),code:String(args[5]),channel:'Counter',description:args[8] as string|null,
+        }) as Promise<T>;
+      }
+      if (context.risk) await this.prepareRisk(client, name, args);
       const placeholders = args.map((_, i) => `$${i + 1}`).join(', ');
       const result = await client.query<{ result: T }>(`SELECT ${name}(${placeholders}) AS result`, args);
       const created = result.rows[0]?.result;
       if (name === 'banking_api.list_loans') await attachLoanDisbursements(client, created);
+      if (name === 'banking_api.customer_dashboard' && created && typeof created === 'object') {
+        const page = await listVisibleTransactions(client,[args[0],null,null,null,null,null,1,5,null]) as {items: unknown[]};
+        Object.assign(created,{recentTransactions:page.items});
+      }
       if (name === 'banking_api.create_customer' && context.userId != null) {
         const customerId = created != null && typeof created === 'object' && 'customerid' in created
           ? created.customerid : null;
@@ -402,7 +419,7 @@ export class DatabaseService implements OnModuleDestroy {
           throw new Error('CONFIGURATION:Chưa thể tạo khách hàng vì hệ thống thiếu nhật ký người tạo. Quản trị viên cần khôi phục audit trigger trong sql/z_03_integrity.sql. Hồ sơ chưa được lưu.');
         }
       }
-      return created;
+      return presentBusinessAuthorization(created);
     });
   }
 

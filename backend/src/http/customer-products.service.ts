@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHmac } from 'node:crypto';
+import { createAuthorizedMovement, presentBusinessAuthorization } from '../database/business-authorization';
 import { DatabaseService } from '../database/database.service';
 import { AuthUser } from '../security/auth.guard';
 import { CustomerAccountDto, CustomerCardDto, CustomerLoanDto, LoanDecisionDto } from './customer-products.dto';
@@ -114,7 +115,7 @@ export class CustomerProductsService {
     const row=result.rows[0];
     return {loanId:Number(row.loanid),status:row.status,ready:row.status==='Pending'&&row.fundingReady,
       unavailableReason:!row.fundingReady?'Ngân hàng tạm thời chưa thể giải ngân. Vui lòng liên hệ bộ phận vận hành.':null,
-      accounts:row.accounts,disbursement:row.disbursement};
+      accounts:row.accounts,disbursement:presentBusinessAuthorization(row.disbursement)};
   }
   async decideLoan(id:number,dto:LoanDecisionDto,user:AuthUser,ip?:string) {
     this.loanOfficer(user);
@@ -170,8 +171,23 @@ export class CustomerProductsService {
           const updated=await client.query('SELECT * FROM banking.loan WHERE loanid=$1',[id]);
           result={...updated.rows[0],disbursement:posted.rows[0].result,resolvedExistingDisbursement:true};
         } else {
-          result=(await client.query('SELECT banking_api.disburse_loan($1::bigint,$2::bigint,$3::bigint,$4::varchar,$5::integer) AS result',
-            [id,dto.destinationAccountId,fundingId,`LD-${dto.requestKey}`,user.employeeId])).rows[0].result;
+          if(!prior) {
+            const eligibleDate=await client.query('SELECT 1 FROM banking.loan WHERE loanid=$1 AND startdate<=CURRENT_DATE',[id]);
+            if(!eligibleDate.rows.length)throw new BadRequestException('Chưa đến ngày bắt đầu giải ngân của khoản vay.');
+            await client.query(`INSERT INTO banking.audit_log(userid,entitytype,entityid,action,newvalue)
+              VALUES($1,'LOAN_DISBURSEMENT',$2,'INSERT',$3::jsonb)`,[user.userId,String(id),JSON.stringify({
+                transactionCode:`LD-${dto.requestKey}`,sourceAccountId:fundingId,destinationAccountId:dto.destinationAccountId,
+              })]);
+            await client.query('UPDATE banking.loan SET employeeid=$2 WHERE loanid=$1',[id,user.employeeId]);
+          }
+          const receipt=await createAuthorizedMovement(client,{
+            operation:'LOAN_DISBURSEMENT',type:'DEPOSIT',customerId:loan.customerid,
+            sourceId:fundingId,destinationId:dto.destinationAccountId!,amount:String(loan.principalamount),
+            key:`LD-${dto.requestKey}`,code:`LD-${dto.requestKey}`,channel:'Counter',
+            description:`LOAN_DISBURSEMENT|${id}`,loanId:id,
+          });
+          const updated=await client.query('SELECT * FROM banking.loan WHERE loanid=$1',[id]);
+          result={...updated.rows[0],disbursement:receipt};
         }
       } else {
         if(loan.status!=='Pending'||existing.rows.length)throw new ConflictException('Khoản vay đã có lệnh giải ngân. Vui lòng xử lý lệnh tại Fraud & Review.');

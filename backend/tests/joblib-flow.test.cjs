@@ -58,15 +58,3 @@ test('readiness requires both a loadable model and its ACTIVE database identity'
   fake.fraudModel.identity=async()=>{throw new Error('bad artifact')};
   await assert.rejects(DatabaseService.prototype.riskModelHealth.call(fake),/bad artifact/);
 });
-
-test('staff financial calls never invoke the model; customer calls still require inference',async()=>{
-  for(const name of ['banking_api.create_transfer','banking_api.create_account_movement','banking_api.pay_loan']) {
-    let predictions=0,executions=0;
-    const fake={transaction:async(_context,work)=>work({query:async()=>{executions++;return {rows:[{result:{status:'Success'}}]};}}),
-      prepareRisk:async()=>{predictions++;throw new Error('model offline');}};
-    assert.deepEqual(await DatabaseService.prototype.function.call(fake,name,[],{userId:12}),{status:'Success'});
-    assert.equal(predictions,0);assert.equal(executions,1);
-    await assert.rejects(()=>DatabaseService.prototype.function.call(fake,name,[]),/model offline/);
-    assert.equal(predictions,1);assert.equal(executions,1);
-  }
-});

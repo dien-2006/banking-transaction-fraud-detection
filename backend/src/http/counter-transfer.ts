@@ -12,6 +12,7 @@ import {
   UnprocessableEntityException,
 } from "@nestjs/common";
 import type { Request } from "express";
+import { createAuthorizedMovement } from "../database/business-authorization";
 import { DatabaseService } from "../database/database.service";
 import { AuthUser } from "../security/auth.guard";
 import { employeeBranch } from "../security/branch-access";
@@ -152,20 +153,11 @@ export class CounterTransferService {
           throw new UnprocessableEntityException(
             "Tài khoản nhận không hợp lệ hoặc không hoạt động",
           );
-        // Staff authorization is checked and audited by Banking Core; no ML inference.
-        const result = await client.query(
-          `SELECT banking_api.create_transfer($1,$2,$3,$4,$5,'Counter',NULL,$6,$7) AS result`,
-          [
-            dto.customerId,
-            dto.sourceAccountId,
-            dto.destinationAccountId,
-            dto.amount,
-            key,
-            ip ?? null,
-            description,
-          ],
-        );
-        const transaction = result.rows[0].result;
+        const transaction = await createAuthorizedMovement(client, {
+          operation:'STAFF_TRANSFER',type:'TRANSFER',customerId:dto.customerId,
+          sourceId:dto.sourceAccountId,destinationId:dto.destinationAccountId,amount:dto.amount,
+          key,channel:'Counter',description,
+        });
         await client.query(
           `INSERT INTO banking.audit_log(userid,entitytype,entityid,action,newvalue,ipaddress)
         VALUES ($1,'COUNTER_TRANSFER_REQUEST',$2,'INSERT',$3::jsonb,$4)`,

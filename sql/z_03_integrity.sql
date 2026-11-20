@@ -92,7 +92,6 @@ BEGIN
         ORDER BY assessedat DESC,riskassessmentid DESC LIMIT 1;
         IF NOT COALESCE(v_reversal,FALSE)
            AND v_decision IS DISTINCT FROM 'ALLOW'
-           AND NOT (v_decision IS NULL AND banking_api.staff_authorized_transaction(v_id))
            AND NOT (COALESCE(v_decision='REVIEW',FALSE) AND EXISTS (
                SELECT 1 FROM review_case WHERE transactionid=v_id AND status='APPROVED')) THEN
             RAISE EXCEPTION 'INTEGRITY:successful transaction % has no risk approval',v_id;

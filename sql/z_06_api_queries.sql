@@ -144,10 +144,7 @@ CREATE OR REPLACE FUNCTION banking_api.list_transactions (p_customer bigint DEFA
             v.*
         FROM
             vw_transaction_detail v
-        WHERE NOT (v.typecode='DEPOSIT' AND EXISTS (
-            SELECT 1 FROM audit_log a WHERE a.entitytype='LOAN_DISBURSEMENT' AND a.action='INSERT'
-              AND a.newvalue->>'transactionCode'=v.transactioncode))
-          AND (p_customer IS NULL
+        WHERE (p_customer IS NULL
             OR v.initiatedbycustomerid = p_customer
             OR EXISTS (
                 SELECT
