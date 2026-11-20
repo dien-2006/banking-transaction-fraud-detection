@@ -334,6 +334,7 @@ báo thiếu Spark/Airflow/Kafka ngay cả khi nhóm web hoạt động bình th
 | Chưa trả được khoản vay | Đặt `LOAN_SETTLEMENT_ACCOUNT_ID` là tài khoản INTERNAL VND đang hoạt động dùng để thu nợ, rồi recreate API |
 | DB mới chưa đăng nhập được | Tạo bảng thôi chưa có người dùng; khôi phục backup hoặc chuẩn bị dữ liệu hợp lệ |
 | Hive báo không tạo được `metastore_db` trên volume mới | Cập nhật Compose và `docker/hive/start-metastore.sh`: init cấp quyền volume, wrapper dùng thư mục con `catalog` cho DB mới. Catalog cũ ở root vẫn được giữ nguyên; không xóa volume |
+| Airflow Scheduler báo `Health check exceeded timeout (10s)` | Bản mới dùng health server nội bộ `127.0.0.1:8974/health` thay Airflow CLI. Cập nhật Compose, chờ task đang chạy hoàn tất rồi recreate riêng scheduler; HTTP 503 vẫn được coi là unhealthy |
 | Máy treo/chậm khi bật toàn bộ | Kiểm tra RAM/swap và dừng nhóm dữ liệu không dùng; không reset DB/volume |
 
 Sau khi cập nhật Compose và script Hive trên máy đích, khởi động lại riêng metastore:
@@ -349,6 +350,20 @@ Không chỉ sửa quyền ghi trên volume rỗng rồi giữ URL Derby cũ: De
 được database ngay tại thư mục mount đã tồn tại. Wrapper chọn thư mục con chưa
 được tạo cho lần đầu và dùng lại catalog đã có cho lần sau. Nếu Hive vẫn lỗi,
 kiểm tra log; không xóa metastore volume vì nó giữ thông tin catalog của Trino.
+
+Sau khi đổi healthcheck Scheduler, chỉ recreate khi task batch đang chạy đã hoàn tất
+để tránh ngắt Spark driver của LocalExecutor:
+
+```bash
+docker compose up -d --no-deps --force-recreate airflow-scheduler
+docker compose ps airflow-scheduler
+docker inspect airflow-scheduler --format '{{json .State.Health}}'
+```
+
+Scheduler có thời gian khởi động 60 giây trước khi tính lỗi healthcheck. Endpoint
+này kiểm tra heartbeat của chính scheduler và không được publish ra host. Nếu vẫn
+unhealthy, xem log healthcheck và RAM/CPU; không tăng parallelism hoặc bỏ kiểm tra
+heartbeat để che tình trạng thiếu tài nguyên.
 
 Các lệnh kiểm thử code, không thay thế kiểm tra triển khai thực tế:
 
