@@ -18,5 +18,6 @@ export class CustomerProductsController {
 @Roles('employee','admin')
 export class LoanDecisionController {
   constructor(private readonly products:CustomerProductsService) {}
+  @Get(':id/disbursement-options') options(@Param('id',ParseIntPipe) id:number,@CurrentUser() user:AuthUser){return this.products.loanDisbursementOptions(id,user);}
   @Post(':id/decision') decide(@Param('id',ParseIntPipe) id:number,@Body() dto:LoanDecisionDto,@CurrentUser() user:AuthUser,@Req() req:Request){return this.products.decideLoan(id,dto,user,req.ip);}
 }

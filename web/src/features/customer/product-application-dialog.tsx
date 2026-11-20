@@ -14,7 +14,7 @@ const titles = {accounts:"Mở tài khoản mới",cards:"Mở thẻ ghi nợ",l
 const descriptions = {
   accounts:"Chọn chi nhánh và sản phẩm. Số tài khoản được cấp tự động khi mở thành công.",
   cards:"Phát hành thẻ ghi nợ mô phỏng trên tài khoản do bạn đứng tên chính. Số thẻ được cấp tự động.",
-  loans:"Gửi hồ sơ để nhân viên chi nhánh thẩm định. Hồ sơ được duyệt chưa đồng nghĩa đã giải ngân.",
+  loans:"Gửi hồ sơ để nhân viên chi nhánh thẩm định và giải ngân vào tài khoản của bạn. Lịch trả nợ chỉ bắt đầu sau khi giải ngân thành công.",
 };
 function requestKey() {
   const bytes=crypto.getRandomValues(new Uint8Array(16));

@@ -358,7 +358,6 @@ services:
       JOBLIB_MODEL_PATH: /app/models/fraud_detection_model.joblib
       JOBLIB_METADATA_PATH: /app/models/model_metadata.json
       PYTHON_EXECUTABLE: /opt/inference/bin/python
-      LOAN_SETTLEMENT_ACCOUNT_ID: ${LOAN_SETTLEMENT_ACCOUNT_ID:-}
       MODEL_DB_NAME: ${MODEL_DB_NAME:-fraud_detection_v1}
       POSTGRES_POOL_MAX: ${POSTGRES_POOL_MAX:-20}
     ports: ["${BANKING_API_BIND_ADDRESS:-127.0.0.1}:${BANKING_API_PORT:-8000}:8000"]

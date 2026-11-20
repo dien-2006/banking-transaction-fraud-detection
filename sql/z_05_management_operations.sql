@@ -12,9 +12,25 @@ CREATE OR REPLACE FUNCTION banking_api.create_branch (p_code varchar(20), p_name
     AS $$
 DECLARE
     v branch%ROWTYPE;
+    v_id integer;
+    v_code text;
+    v_attempt integer;
 BEGIN
-    INSERT INTO branch (branchcode, branchname, address, city, phone, opendate)
-        VALUES (p_code, p_name, p_address, p_city, p_phone, p_open_date)
+    -- Allocate the actual identity once; preserve existing codes and explicit legacy callers.
+    -- Check imported IDs/codes without rewinding or changing the sequence definition.
+    FOR v_attempt IN 1..100 LOOP
+        v_id := nextval(pg_get_serial_sequence('banking.branch', 'branchid'));
+        v_code := COALESCE(NULLIF(btrim(p_code), ''),
+            'CN' || lpad(v_id::text, GREATEST(3, length(v_id::text)), '0'));
+        EXIT WHEN NOT EXISTS (SELECT 1 FROM branch WHERE branchid = v_id)
+            AND (NULLIF(btrim(p_code), '') IS NOT NULL
+                OR NOT EXISTS (SELECT 1 FROM branch WHERE branchcode = v_code));
+        IF v_attempt = 100 THEN
+            PERFORM banking_api.raise_error('CONFIGURATION', 'Chưa thể cấp mã chi nhánh. Quản trị viên cần kiểm tra dãy ID sau khi nhập dữ liệu.');
+        END IF;
+    END LOOP;
+    INSERT INTO branch (branchid, branchcode, branchname, address, city, phone, opendate)
+        VALUES (v_id, v_code, btrim(p_name), btrim(p_address), btrim(p_city), NULLIF(btrim(p_phone), ''), p_open_date)
     RETURNING
         *
     INTO
@@ -180,14 +196,44 @@ CREATE OR REPLACE FUNCTION banking_api.create_employee (p_code varchar(20), p_br
     AS $$
 DECLARE
     v employee%ROWTYPE;
+    v_id integer;
+    v_code text;
+    v_attempt integer;
+    v_branch_name text;
+    v_role_name text;
 BEGIN
-    INSERT INTO employee (employeecode, branchid, roleid, fullname, gender, dateofbirth, phone, email, hiredate, salary)
-        VALUES (p_code, p_branch, p_role, p_name, p_gender, p_birth, p_phone, p_email, p_hire, p_salary)
+    SELECT branchname INTO v_branch_name FROM branch
+        WHERE branchid = p_branch AND status = 'Active' FOR SHARE;
+    IF NOT FOUND THEN
+        PERFORM banking_api.raise_error('VALIDATION', 'Chi nhánh không còn hoạt động hoặc không tồn tại. Vui lòng chọn lại.');
+    END IF;
+    SELECT rolename INTO v_role_name FROM role
+        WHERE roleid = p_role AND status = 'Active' FOR SHARE;
+    IF NOT FOUND THEN
+        PERFORM banking_api.raise_error('VALIDATION', 'Vai trò không còn hoạt động hoặc không tồn tại. Vui lòng chọn lại.');
+    END IF;
+    IF EXISTS (SELECT 1 FROM employee WHERE lower(btrim(email)) = lower(btrim(p_email))) THEN
+        PERFORM banking_api.raise_error('CONFLICT', 'Email đã được sử dụng cho nhân viên khác.');
+    END IF;
+    -- Use the current identity, skip imported IDs/codes, and never reset its sequence.
+    FOR v_attempt IN 1..100 LOOP
+        v_id := nextval(pg_get_serial_sequence('banking.employee', 'employeeid'));
+        v_code := COALESCE(NULLIF(btrim(p_code), ''),
+            'EMP' || lpad(v_id::text, GREATEST(4, length(v_id::text)), '0'));
+        EXIT WHEN NOT EXISTS (SELECT 1 FROM employee WHERE employeeid = v_id)
+            AND (NULLIF(btrim(p_code), '') IS NOT NULL
+                OR NOT EXISTS (SELECT 1 FROM employee WHERE employeecode = v_code));
+        IF v_attempt = 100 THEN
+            PERFORM banking_api.raise_error('CONFIGURATION', 'Chưa thể cấp mã nhân viên. Quản trị viên cần kiểm tra dãy ID sau khi nhập dữ liệu.');
+        END IF;
+    END LOOP;
+    INSERT INTO employee (employeeid, employeecode, branchid, roleid, fullname, gender, dateofbirth, phone, email, hiredate, salary)
+        VALUES (v_id, v_code, p_branch, p_role, btrim(p_name), p_gender, p_birth, btrim(p_phone), lower(btrim(p_email)), p_hire, p_salary)
     RETURNING
         *
     INTO
         v;
-    RETURN to_jsonb (v);
+    RETURN to_jsonb (v) || jsonb_build_object('branchname', v_branch_name, 'rolename', v_role_name);
 END;
 $$;
 
@@ -746,7 +792,15 @@ BEGIN
         PERFORM
             banking_api.raise_error ('CONFLICT', 'loan is not pending');
     END IF;
-    v_base := round(v.principalamount / v.termmonths, 2);
+    IF NOT banking_api.loan_is_funded(p_loan) THEN
+        PERFORM banking_api.raise_error('CONFLICT','Khoản vay chỉ được kích hoạt sau khi giải ngân thành công.');
+    END IF;
+    -- The interest clock starts on actual funding, including a delayed REVIEW.
+    v.startdate := CURRENT_DATE;
+    v.enddate := (v.startdate+(v.termmonths||' months')::interval)::date;
+    -- Truncate regular installments so the final principal never becomes negative
+    -- for small loans with many installments.
+    v_base := trunc(v.principalamount / v.termmonths, 2);
     v_interest := round(v.principalamount * (v.interestrate / 100) / 12, 2);
     FOR v_i IN 1..v.termmonths LOOP
         v_principal := CASE WHEN v_i = v.termmonths THEN
@@ -755,12 +809,13 @@ BEGIN
             v_base
         END;
         INSERT INTO repayment_schedule (loanid, installmentno, duedate, principaldue, interestdue, penaltydue, status)
-            VALUES (v.loanid, v_i, (v.startdate + (v_i || ' months')::interval)::date, v_principal, v_interest, 0, 'Pending');
+            VALUES (v.loanid, v_i, (v.startdate + (v_i || ' months')::interval)::date, v_principal, v_interest, 0,
+                CASE WHEN v_principal+v_interest=0 THEN 'Paid' ELSE 'Pending' END);
     END LOOP;
     UPDATE
         loan
     SET
-        status = 'Active'
+        status = 'Active', startdate=v.startdate, enddate=v.enddate
     WHERE
         loanid = p_loan
     RETURNING

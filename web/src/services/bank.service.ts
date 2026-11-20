@@ -149,8 +149,17 @@ export type CustomerProductKind = "accounts"|"cards"|"loans";
 
 export interface LoanPaymentOptions {
   loanId:number;status:string;ready:boolean;unavailableReason:string|null;
+  funded?:boolean;disbursement?:ApiTransaction|null;receivingAccountNumber?:string|null;
   schedules:Array<{scheduleId:number;installmentNo:number;dueDate:string;status:string;principal:string;interest:string;penalty:string;total:string;pendingPayment:boolean}>;
 }
+export interface LoanDisbursementOptions {
+  loanId:number;status:string;ready:boolean;unavailableReason:string|null;
+  accounts:Array<{accountId:number;accountNumber:string}>;disbursement:ApiTransaction|null;
+}
+export interface LoanDecisionInput {
+  decision:"APPROVE"|"REJECT";reason:string;destinationAccountId?:number;requestKey?:string;
+}
+export interface LoanDecisionResult {loanid:number;status:string;disbursement?:ApiTransaction}
 export interface LoanPaymentInput {
   loanId:number;scheduleId:number;sourceAccountId:number;amount:string;transactionCode:string;
 }
@@ -252,14 +261,14 @@ export interface LoanScheduleItem {
   status: string;
 }
 
-function requireTransactionResult(row: ApiTransaction): ApiTransaction {
+function requireTransactionResult(row: unknown): ApiTransaction {
   if (!isFinancialTransactionResult(row))
     throw new ApiError(
       "Chưa nhận được kết quả giao dịch hợp lệ. Vui lòng kiểm tra lịch sử hoặc thử lại cùng lệnh.",
       502,
       "TRANSACTION_RESULT_UNKNOWN",
     );
-  return row;
+  return row as ApiTransaction;
 }
 
 export const bankService = {
@@ -277,8 +286,17 @@ export const bankService = {
   customerProductCatalog: () => apiRequest<CustomerProductCatalog>("/me/products/catalog"),
   createCustomerProduct: (kind:CustomerProductKind, data:Record<string,unknown>) =>
     apiRequest<Record<string,unknown>>(`/me/products/${kind}`, {method:"POST",body:JSON.stringify(data)}),
-  decideLoan: (id:number, decision:"APPROVE"|"REJECT", reason:string) =>
-    apiRequest<Record<string,unknown>>(`/management/loans/${id}/decision`, {method:"POST",body:JSON.stringify({decision,reason})}),
+  loanDisbursementOptions: (id:number) => apiRequest<LoanDisbursementOptions>(`/management/loans/${id}/disbursement-options`),
+  decideLoan: async (id:number, data:LoanDecisionInput) => {
+    const result=await apiRequest<LoanDecisionResult>(`/management/loans/${id}/decision`, {method:"POST",body:JSON.stringify(data)});
+    if(Number(result.loanid)!==id)throw new ApiError("Kết quả khoản vay không khớp. Vui lòng kiểm tra lại hồ sơ.",502);
+    if(data.decision==="APPROVE") {
+      const transaction=requireTransactionResult(result.disbursement);
+      if(transaction.transactioncode!==`LD-${data.requestKey}`||transaction.typecode!=="DEPOSIT"||Number(transaction.destinationaccountid)!==data.destinationAccountId)
+        throw new ApiError("Chưa nhận được kết quả giải ngân khớp với lệnh đã gửi. Vui lòng kiểm tra hồ sơ hoặc thử lại đúng lệnh.",502);
+    }
+    return result;
+  },
   customerCards: () => apiRequest<ApiCard[]>("/me/cards"),
   revealCardNumber: (id:number,password:string,signal?:AbortSignal) => apiRequest<{cardId:number;cardNumber:string;expiresIn:number}>(`/me/cards/${id}/reveal-number`,{method:"POST",body:JSON.stringify({password}),signal,cache:"no-store"}),
   customerLoans: () => apiRequest<ApiLoan[]>("/me/loans"),

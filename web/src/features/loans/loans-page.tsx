@@ -40,6 +40,8 @@ export function LoansPage() {
   const targetLoan = searchParams.get("loanId");
   const targetLoanId = targetLoan && /^[1-9]\d*$/.test(targetLoan) ? targetLoan : null;
   const [linkedLoan, setLinkedLoan] = useState(targetLoanId);
+  const [processingLoan,setProcessingLoan]=useState<{id:number;code:string;customer:string;amount:string}|null>(null);
+  const [notificationHandled,setNotificationHandled]=useState(false);
   const loansQuery = useQuery({
     queryKey: ["staff-loans", user.role, user.id, user.branchId],
     refetchInterval: 15_000,
@@ -61,6 +63,14 @@ export function LoansPage() {
   const customerName = (row: Record<string, unknown>) =>
     customerNames.get(String(row.customerid)) || recordText(row, ["customername", "fullname"],
       row.customerid == null ? "Chưa cập nhật" : `Khách hàng #${row.customerid}`);
+  useEffect(()=>{
+    if(!linkedLoan||notificationHandled)return;
+    const row=loansQuery.data?.rows.find(row=>String(row.loanid)===linkedLoan);
+    if(row?.status==='Pending'){
+      setProcessingLoan({id:Number(row.loanid),code:recordText(row,['loancode']),customer:customerName(row),amount:money.format(Number(row.principalamount))});
+      setNotificationHandled(true);
+    }
+  },[linkedLoan,notificationHandled,loansQuery.data,customerNames]);
   const attentionRows = (loansQuery.data?.rows ?? [])
     .filter((row) => row.status === "Pending" || row.status === "Overdue")
     .sort((a, b) => Number(b.loanid) - Number(a.loanid))
@@ -85,6 +95,7 @@ export function LoansPage() {
     [product, setProduct] = useState("");
   useEffect(() => {
     setLinkedLoan(targetLoanId);
+    setNotificationHandled(false);
     if (targetLoanId) { setQ(""); setStatus(""); setProduct(""); setTab("Danh sách khoản vay"); }
   }, [targetLoanId]);
   const filtered = useMemo(
@@ -341,9 +352,13 @@ export function LoansPage() {
                           <RecordStatus status={x[5]} domain="loan" />
                         </td>
                         <td className="p-2">
-                          {x[5] === "Pending" ? <LoanDecisionButtons key={`${x[6]}:${linkedLoan ?? "list"}`} id={Number(x[6])} code={x[0]} customer={x[1]} amount={x[3]} autoOpen={x[6] === linkedLoan} /> : <RecordViewButton
+                          {x[5] === "Pending" && <button className="d4-view-button" onClick={()=>{
+                            setNotificationHandled(true);
+                            setProcessingLoan({id:Number(x[6]),code:x[0],customer:x[1],amount:x[3]});
+                          }}>Xử lý</button>}
+                          {x[5] !== "Pending" && <RecordViewButton
                             key={`${x[6]}:${linkedLoan ?? "list"}`}
-                            autoOpen={x[6] === linkedLoan}
+                            autoOpen={x[6] === linkedLoan&&!notificationHandled}
                             record={[
                               ...x.slice(0, 5),
                               recordStatus(x[5], "loan").label,
@@ -441,6 +456,7 @@ export function LoansPage() {
           </aside>
         </section>
       )}
+      {processingLoan&&<LoanDecisionButtons key={processingLoan.id} {...processingLoan} autoOpen actionable={false} onClosed={()=>setProcessingLoan(null)} />}
     </div>
   );
 }

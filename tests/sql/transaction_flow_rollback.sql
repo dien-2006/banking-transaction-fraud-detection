@@ -102,9 +102,11 @@ BEGIN
     -- A loan installment cannot accumulate two pending payments with different request codes.
     SELECT loantypeid INTO STRICT loan_type FROM banking.loan_type LIMIT 1;
     INSERT INTO banking.loan(loancode,customerid,branchid,employeeid,loantypeid,principalamount,interestrate,termmonths,startdate,enddate,status)
-    VALUES(prefix,owner_id,branch_id,employee_id,loan_type,1000,0,1,CURRENT_DATE,CURRENT_DATE+30,'Active') RETURNING loanid INTO loan_id;
-    INSERT INTO banking.repayment_schedule(loanid,installmentno,duedate,principaldue,interestdue,status)
-    VALUES(loan_id,1,CURRENT_DATE+30,1000,0,'Pending') RETURNING scheduleid INTO schedule_id;
+    VALUES(prefix,owner_id,branch_id,employee_id,loan_type,1000,0,1,CURRENT_DATE,CURRENT_DATE+30,'Pending') RETURNING loanid INTO loan_id;
+    PERFORM set_config('app.user_id',actor_id::text,true);
+    result := banking_api.disburse_loan(loan_id,source_id,internal_id,'LD-'||public.gen_random_uuid()::text,employee_id);
+    ASSERT result->'disbursement'->>'status'='Success';
+    SELECT scheduleid INTO STRICT schedule_id FROM banking.repayment_schedule WHERE loanid=loan_id;
     PERFORM set_config('d4.test_decision','REVIEW',true);
     result := banking_api.pay_loan(owner_id,loan_id,schedule_id,source_id,internal_id,1000,prefix||'-loan','Online');
     replay := banking_api.pay_loan(owner_id,loan_id,schedule_id,source_id,internal_id,1000,prefix||'-loan','Online');

@@ -1,32 +1,68 @@
 "use client";
-import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Modal } from "@/components/ui";
-import { bankService } from "@/services/bank.service";
+import { TransactionResult } from "@/components/transaction-result";
+import { useSessionUser } from "@/components/session-context";
+import { bankService, type LoanDecisionInput, type LoanDecisionResult } from "@/services/bank.service";
+import { ApiError } from "@/services/api.client";
 import "../customer/product-application-dialog.css";
 
-export function LoanDecisionButtons({id,code,customer,amount,autoOpen=false}:{id:number;code:string;customer:string;amount:string;autoOpen?:boolean}) {
-  const client=useQueryClient();
-  const [decision,setDecision]=useState<"APPROVE"|"REJECT"|null>(autoOpen ? "APPROVE" : null),[reason,setReason]=useState("");
-  const [busy,setBusy]=useState(false),[error,setError]=useState("");
-  const open=(value:typeof decision)=>{setDecision(value);setError("");setReason("");};
+export function LoanDecisionButtons({id,code,customer,amount,autoOpen=false,actionable=true,onClosed}:{id:number;code:string;customer:string;amount:string;autoOpen?:boolean;actionable?:boolean;onClosed?:()=>void}) {
+  const client=useQueryClient(),user=useSessionUser();
+  const sending=useRef(false);
+  const [decision,setDecision]=useState<"APPROVE"|"REJECT"|null>(autoOpen?"APPROVE":null);
+  const [reason,setReason]=useState(""),[accountId,setAccountId]=useState("");
+  const [busy,setBusy]=useState(false),[error,setError]=useState<unknown>(null);
+  const [draft,setDraft]=useState<LoanDecisionInput|null>(null),[result,setResult]=useState<LoanDecisionResult|null>(null);
+  useEffect(()=>{if(autoOpen)setDecision("APPROVE");},[autoOpen]);
+  const options=useQuery({queryKey:["loan-disbursement-options",user.id,id],queryFn:()=>bankService.loanDisbursementOptions(id),enabled:!!decision,refetchInterval:15_000});
+  const pending=options.data?.disbursement?.status==="Pending";
+  const review=options.data?.disbursement?.reviewcaseid??result?.disbursement?.reviewcaseid;
+  const reviewHref=`/${user.role==="admin"?"admin":"employee"}/fraud${review?`?reviewId=${review}`:""}`;
+  const refresh=async()=>{
+    await Promise.all([client.invalidateQueries({queryKey:["staff-loans"]}),client.invalidateQueries({queryKey:["staff-accounts"]}),client.invalidateQueries({queryKey:["staff-transactions"]}),options.refetch()]);
+  };
+  const open=()=>{setDecision("APPROVE");setError(null);setReason("");setAccountId("");setDraft(null);setResult(null);void options.refetch();};
+  const submit=async(input:LoanDecisionInput)=>{
+    if(sending.current)return;sending.current=true;setBusy(true);setError(null);setDraft(input);
+    try{setResult(await bankService.decideLoan(id,input));}
+    catch(caught){setError(caught);}
+    finally{await refresh();sending.current=false;setBusy(false);}
+  };
+  const close=()=>{if(!busy){setDecision(null);onClosed?.();}};
+  const rejected=error instanceof ApiError&&[400,401,403,404,409,422].includes(error.status);
+  const reset=()=>{setDraft(null);setResult(null);setError(null);void options.refetch();};
   return <>
-    <button className="d4-view-button" onClick={()=>open("APPROVE")}>Xử lý</button>
-    <Modal open={!!decision} onOpenChange={value=>{if(!value&&!busy)setDecision(null);}} title="Xử lý hồ sơ vay" description="Chỉ xử lý hồ sơ đang chờ thẩm định. Quyết định được lưu cùng lý do và người xử lý." className="product-application-dialog">
-      <form className="resource-create-form product-application-form" onSubmit={async event=>{
-        event.preventDefault();if(!decision||busy)return;setBusy(true);setError("");
-        try{await bankService.decideLoan(id,decision,reason.trim());await client.invalidateQueries({queryKey:["staff-loans"]});setDecision(null);}
-        catch(caught){setError(caught instanceof Error?caught.message:"Không thể xử lý hồ sơ.");void client.invalidateQueries({queryKey:["staff-loans"]});}
-        finally{setBusy(false);}
+    {actionable&&<button className="d4-view-button" onClick={open}>Xử lý</button>}
+    <Modal open={!!decision} onOpenChange={value=>{if(!value)close();}} title="Xử lý hồ sơ vay" description="Kiểm tra hồ sơ và chọn tài khoản nhận tiền của khách hàng trước khi xác nhận." className="product-application-dialog loan-decision-dialog">
+      {result?.disbursement?<div className="loan-decision-result"><TransactionResult operation="Giải ngân khoản vay" status={result.disbursement.status} decision={result.disbursement.decision} amount={amount} reference={result.disbursement.transactioncode}
+        details={[["Mã khoản vay",code],["Khách hàng",customer],["Tài khoản nhận",options.data?.accounts.find(a=>Number(a.accountId)===draft?.destinationAccountId)?.accountNumber??"Xem chứng từ giao dịch"]]}
+        actions={<>{result.disbursement.status==="Pending"&&<Link className="btn-secondary" href={reviewHref}>Xem hồ sơ review</Link>}{["Failed","Cancelled"].includes(result.disbursement.status)&&<button className="btn-secondary" onClick={reset}>Kiểm tra lại hồ sơ</button>}<button className="btn-primary" onClick={close}>Đóng</button></>}/>
+        <p className="product-application-note">{result.disbursement.status==="Success"?"Tiền đã được ghi có vào tài khoản nhận. Lịch trả nợ được tính từ ngày giải ngân.":"Khoản vay chưa được kích hoạt và chưa phát sinh lịch trả nợ."}</p></div>
+      :result?<div className="product-application-result"><h3>Đã từ chối hồ sơ vay</h3><p>{code} · {customer}</p><button className="btn-primary" onClick={close}>Đóng</button></div>
+      :<form className="resource-create-form product-application-form" onSubmit={event=>{
+        event.preventDefault();if(!decision||busy||draft)return;
+        void submit({decision,reason:reason.trim(),...(decision==="APPROVE"?{destinationAccountId:Number(accountId),requestKey:crypto.randomUUID()}: {})});
       }}>
         <div className="resource-create-fields"><p className="product-application-note">{code} · {customer} · {amount}</p>
-          <label className="mt-4">Quyết định *<select aria-label="Quyết định *" className="field" disabled={busy} value={decision??"APPROVE"} onChange={event=>setDecision(event.target.value as "APPROVE"|"REJECT")}><option value="APPROVE">Phê duyệt</option><option value="REJECT">Từ chối</option></select></label>
-          <p className="product-application-note">{decision==="APPROVE"?"Phê duyệt kích hoạt khoản vay và tạo lịch trả nợ. Thao tác này không chuyển tiền giải ngân.":"Hồ sơ sẽ chuyển sang trạng thái Đã hủy; không phát sinh lịch trả nợ."}</p>
-          <label className="mt-4">Lý do xử lý *<textarea aria-label="Lý do xử lý *" className="field" required minLength={3} maxLength={255} disabled={busy} value={reason} onChange={e=>setReason(e.target.value)}/></label>
+          {options.isPending?<p role="status">Đang tải tài khoản nhận tiền…</p>:options.isError?<p role="alert" className="product-application-error">Không tải được thông tin giải ngân. <button type="button" onClick={()=>void options.refetch()}>Thử lại</button></p>
+          :pending?<p className="product-application-note">Đã có lệnh giải ngân đang chờ kiểm tra. <Link href={reviewHref}>Mở hồ sơ tại Fraud & Review</Link>.</p>:options.data?.status!=="Pending"?<p className="product-application-note">Hồ sơ đã được xử lý. Vui lòng tải lại danh sách.</p>:null}
+          <fieldset disabled={busy||!!draft||pending||!options.isSuccess||options.data?.status!=="Pending"} className="loan-decision-fields">
+            <label>Quyết định *<select aria-label="Quyết định *" className="field" value={decision??"APPROVE"} onChange={e=>setDecision(e.target.value as "APPROVE"|"REJECT")}><option value="APPROVE">Phê duyệt và giải ngân</option><option value="REJECT">Từ chối</option></select></label>
+            {decision==="APPROVE"&&<><label>Tài khoản nhận giải ngân *<select aria-label="Tài khoản nhận giải ngân *" className="field" required value={accountId} onChange={e=>setAccountId(e.target.value)}><option value="">Chọn tài khoản của khách hàng vay</option>{options.data?.accounts.map(a=><option key={a.accountId} value={a.accountId}>{a.accountNumber}</option>)}</select></label>
+              {!options.data?.accounts.length&&options.isSuccess&&<p className="product-application-note">Khách hàng cần có tài khoản VND đang hoạt động do mình đứng tên chính để nhận tiền.</p>}
+              {options.data?.unavailableReason&&<p role="alert" className="product-application-error">{options.data.unavailableReason}</p>}</>}
+            <p className="product-application-note">{decision==="APPROVE"?"Tiền được chuyển từ ngân hàng vào đúng tài khoản đã chọn sau kiểm soát rủi ro. Chỉ khi giải ngân thành công mới kích hoạt khoản vay và tạo lịch trả nợ.":"Hồ sơ sẽ chuyển sang Đã hủy; không giải ngân và không tạo lịch trả nợ."}</p>
+            <label>Lý do xử lý *<textarea aria-label="Lý do xử lý *" className="field" required minLength={3} maxLength={255} value={reason} onChange={e=>setReason(e.target.value)}/></label>
+          </fieldset>
+          {!!error&&<p className="product-application-error" role="alert">{error instanceof Error?error.message:"Chưa xác định được kết quả. Kiểm tra hồ sơ hoặc thử lại đúng lệnh."}</p>}
         </div>
-        {error&&<p className="product-application-error" role="alert">{error}</p>}
-        <footer><button className="btn-secondary" type="button" disabled={busy} onClick={()=>setDecision(null)}>Quay lại</button><button className="btn-primary" disabled={busy||reason.trim().length<3}>{busy?"Đang xử lý…":decision==="APPROVE"?"Xác nhận duyệt":"Xác nhận từ chối"}</button></footer>
-      </form>
+        <footer><button className="btn-secondary" type="button" disabled={busy} onClick={close}>Đóng</button>
+          {draft&&error?<button className="btn-primary" type="button" disabled={busy} onClick={()=>rejected?reset():void submit(draft)}>{busy?"Đang xử lý…":rejected?"Kiểm tra lại thông tin":"Thử lại đúng lệnh"}</button>
+          :<button className="btn-primary" disabled={busy||!options.isSuccess||pending||options.data?.status!=="Pending"||reason.trim().length<3||(decision==="APPROVE"&&(!options.data?.ready||!accountId))}>{busy?"Đang xử lý…":decision==="APPROVE"?"Xác nhận duyệt và giải ngân":"Xác nhận từ chối"}</button>}</footer>
+      </form>}
     </Modal>
   </>;
 }

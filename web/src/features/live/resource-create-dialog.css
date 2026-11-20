@@ -11,6 +11,9 @@
 .account-create-form .resource-create-label .field, .customer-create-form .resource-create-label .field { margin-top: 0; min-height: 40px; height: 40px; font-weight: 400; }
 .resource-create-guidance { font-size: 12px; color: #6c7e9f; }
 .resource-create-guidance > span { color: #ed1741; font-weight: 700; }
+.employee-create-section { min-width: 0; border: 1px solid #e7ecf5; border-radius: 12px; padding: 12px; }
+.employee-create-section > legend { padding: 0 6px; font-size: 14px; font-weight: 700; color: #07135c; }
+.d4-modal.employee-create-dialog { max-height: calc(100dvh - 32px); }
 .creation-product-note { border-radius: 10px; background: #f5f8fd; color: #61769c; font-size: 12px; padding: 12px; line-height: 1.6; }
 .creation-result { overflow-y: auto; color: #07135c; }
 .creation-result > svg { color: #009c78; margin: 8px auto 12px; }

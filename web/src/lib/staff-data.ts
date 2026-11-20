@@ -1,6 +1,6 @@
 import { formatCurrency, formatDateTime } from "./presentation";
 import type { ApiTransaction } from "@/services/bank.service";
-import { customerStatuses, transactionTypes } from "./customer-data";
+import { customerStatuses, transactionTypes, transactionPurpose } from "./customer-data";
 
 export const transactionStatusLabels = customerStatuses;
 export const transactionTypeLabels = transactionTypes;
@@ -17,9 +17,8 @@ export function presentTransaction(row: ApiTransaction) {
       row.initiatedbycustomerid == null
         ? "—"
         : `KH #${row.initiatedbycustomerid}`,
-    description:
-      row.description || transactionTypeLabels[row.typecode] || row.typename,
-    type: transactionTypeLabels[row.typecode] || row.typename || row.typecode,
+    description: transactionPurpose(row).description,
+    type: transactionPurpose(row).label,
     amount: Number(row.amount),
     currency: row.currency,
     amountText: formatCurrency(row.amount, row.currency),
@@ -32,8 +31,7 @@ export function presentTransaction(row: ApiTransaction) {
 export function transactionSummary(rows: ApiTransaction[]) {
   const groups = new Map<string, number>();
   for (const row of rows) {
-    const label =
-      transactionTypeLabels[row.typecode] || row.typename || row.typecode;
+    const label = transactionPurpose(row).label;
     groups.set(label, (groups.get(label) ?? 0) + 1);
   }
   return {

@@ -27,6 +27,14 @@ const transaction = {
   sourceaccountid: 11,
   destinationaccountid: 22,
 };
+test("a loan disbursement shows a readable purpose and only Success counts as received money",()=>{
+  const base={...transaction,typecode:"DEPOSIT",description:"LOAN_DISBURSEMENT|42",sourceaccountid:99,destinationaccountid:11};
+  const success=transactionView(base,accounts);
+  assert.equal(success.description,"Giải ngân khoản vay");assert.equal(success.type,"Giải ngân khoản vay");
+  assert.equal(success.direction,"in");assert.ok(success.amountText.startsWith("+"));
+  for(const status of ["Pending","Cancelled","Failed"])assert.ok(!transactionView({...base,status},accounts).amountText.startsWith("+"));
+  assert.equal(transactionView({...base,typecode:"TRANSFER"},accounts).description,"LOAN_DISBURSEMENT|42");
+});
 
 test("classifies a CUSTOMER savings account by its product, preserves bank statuses", () => {
   assert.equal(

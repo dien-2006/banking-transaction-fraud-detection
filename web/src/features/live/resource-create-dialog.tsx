@@ -27,12 +27,11 @@ type Field = {
 };
 const base: Record<Resource, Field[]> = {
   branches: [
-    { name: "code", label: "Mã chi nhánh" },
-    { name: "name", label: "Tên chi nhánh" },
-    { name: "address", label: "Địa chỉ" },
-    { name: "city", label: "Thành phố" },
-    { name: "phone", label: "Điện thoại" },
-    { name: "openDate", label: "Ngày mở", type: "date" },
+    { name: "name", label: "Tên chi nhánh", maxLength: 150, placeholder: "Ví dụ: Chi nhánh Cầu Giấy" },
+    { name: "city", label: "Tỉnh / Thành phố", maxLength: 100, placeholder: "Ví dụ: Hà Nội" },
+    { name: "address", label: "Địa chỉ chi nhánh", maxLength: 255, placeholder: "Số nhà, tên đường, phường/xã" },
+    { name: "phone", label: "Số điện thoại liên hệ", type: "tel", maxLength: 20, required: false, placeholder: "Ví dụ: 024 1234 5678" },
+    { name: "openDate", label: "Ngày bắt đầu hoạt động", type: "date" },
   ],
   customers: [
     { name: "name", label: "Họ tên", maxLength: 150, placeholder: "Nhập đầy đủ họ và tên" },
@@ -56,24 +55,24 @@ const base: Record<Resource, Field[]> = {
     { name: "segment", label: "Phân khúc", maxLength: 30, required: false, placeholder: "Nhập phân khúc nếu đã xác định" },
   ],
   employees: [
-    { name: "code", label: "Mã nhân viên" },
+    { name: "name", label: "Họ tên", maxLength: 150, placeholder: "Nhập đầy đủ họ và tên" },
     { name: "branchId", label: "Chi nhánh", type: "number" },
     { name: "roleId", label: "Vai trò", type: "number" },
-    { name: "name", label: "Họ tên" },
     {
       name: "gender",
       label: "Giới tính",
+      required: false,
       options: [
         { value: "Male", label: "Nam" },
         { value: "Female", label: "Nữ" },
         { value: "Other", label: "Khác" },
       ],
     },
-    { name: "birthDate", label: "Ngày sinh", type: "date" },
-    { name: "phone", label: "Điện thoại" },
-    { name: "email", label: "Email", type: "email" },
+    { name: "birthDate", label: "Ngày sinh", type: "date", required: false },
+    { name: "phone", label: "Điện thoại", type: "tel", maxLength: 20, placeholder: "Ví dụ: 0901234567" },
+    { name: "email", label: "Email", type: "email", maxLength: 150, placeholder: "Ví dụ: ten@example.com" },
     { name: "hireDate", label: "Ngày vào làm", type: "date" },
-    { name: "salary", label: "Lương", type: "number" },
+    { name: "salary", label: "Lương (VND)", type: "number", min: 0, step: "0.01", placeholder: "Nhập lương, có thể bằng 0" },
   ],
   accounts: [
     { name: "branchId", label: "Chi nhánh", type: "number" },
@@ -121,7 +120,8 @@ export function ResourceCreateDialog({
 }) {
   const user = useSessionUser();
   const queryClient = useQueryClient();
-  const enhanced = ["customers", "accounts", "cards", "loans"].includes(resource);
+  const enhanced = ["branches", "employees", "customers", "accounts", "cards", "loans"].includes(resource);
+  const needsReferences = resource !== "branches";
   const today = dateKey(new Date().toISOString());
   const [open, setOpen] = useState(false),
     [error, setError] = useState("");
@@ -135,7 +135,7 @@ export function ResourceCreateDialog({
   const refs = useQuery({
     queryKey: ["reference-data", user.role, user.id, user.branchId],
     queryFn: bankService.referenceData,
-    enabled: open,
+    enabled: open && needsReferences,
   });
   const reference = refs.data as ReferenceData | undefined;
   const loanProduct = reference?.loanTypes?.find((item) => String(item.id) === loanProductId);
@@ -158,10 +158,10 @@ export function ResourceCreateDialog({
                 : field.name === "loanTypeId"
                   ? data?.loanTypes
                   : undefined;
-        return values
+        return values || (resource === "employees" && ["branchId", "roleId"].includes(field.name))
           ? {
               ...field,
-              options: values.map((value) => ({
+              options: (values ?? []).map((value) => ({
                   value: String(value.id),
                   label: value.name,
                   disabled: field.name === "branchId" && user.role === "employee"
@@ -175,7 +175,7 @@ export function ResourceCreateDialog({
   const mutation = useMutation({
     mutationFn: async (body: Record<string, unknown>) => {
       const result = await bankService.managementCreate(resource, body);
-      const identity: Record<string, [string,string]> = { customers:["customerid","customercode"], accounts:["accountid","accountnumber"], cards:["cardid","maskedcardnumber"], loans:["loanid","loancode"] };
+      const identity: Record<string, [string,string]> = { branches:["branchid","branchcode"], employees:["employeeid","employeecode"], customers:["customerid","customercode"], accounts:["accountid","accountnumber"], cards:["cardid","maskedcardnumber"], loans:["loanid","loancode"] };
       const contract = identity[resource];
       if (contract && (!result || !Number.isSafeInteger(Number(result[contract[0]])) || Number(result[contract[0]])<=0 || !result[contract[1]])) {
         throw new ApiError("Chưa nhận được kết quả lưu hợp lệ.",200,"UNKNOWN_RESULT");
@@ -186,6 +186,7 @@ export function ResourceCreateDialog({
       if (enhanced) setCreatedRecord(created); else setOpen(false);
       setError("");
       onCreated(created);
+      if (resource === "branches") void queryClient.invalidateQueries({ queryKey: ["reference-data"] });
       if (resource === "accounts") {
         void queryClient.invalidateQueries({ queryKey: ["staff-customers", user.role, user.id, user.branchId] });
         void queryClient.invalidateQueries({ queryKey: ["account-owner-options", user.role, user.id, user.branchId] });
@@ -212,13 +213,14 @@ export function ResourceCreateDialog({
         setAccountCustomer(null);
         void queryClient.invalidateQueries({ queryKey: ["account-owner-options", user.role, user.id, user.branchId] });
       }
-      if (caught instanceof ApiError && ["branchId", "accountTypeId"].includes(caught.field ?? "")) void refs.refetch();
+      if (caught instanceof ApiError && (["branchId", "roleId", "accountTypeId"].includes(caught.field ?? "")
+        || (resource === "employees" && caught.code === "VALIDATION"))) void refs.refetch();
     },
   });
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    if (mutation.isPending || !refs.isSuccess) return;
+    if (mutation.isPending || (needsReferences && !refs.isSuccess)) return;
     setError("");
     const form = new FormData(event.currentTarget),
       body: Record<string, unknown> = {};
@@ -284,11 +286,32 @@ export function ResourceCreateDialog({
       setErrorField("name");
       return;
     }
-    if (resource === "customers" && body.phone && !/^\+?[0-9][0-9 ().-]{5,19}$/.test(String(body.phone))) {
+    if (resource === "branches") {
+      const missing = fields.find((field) => field.required !== false && !body[field.name]);
+      if (missing) { setError(`Vui lòng nhập ${missing.label.toLocaleLowerCase("vi")}.`); setErrorField(missing.name); return; }
+    }
+    if (resource === "employees") {
+      const missing = fields.find((field) => field.required !== false && (body[field.name] == null || body[field.name] === ""));
+      if (missing) { setError(`Vui lòng ${missing.options ? "chọn" : "nhập"} ${missing.label.toLocaleLowerCase("vi")}.`); setErrorField(missing.name); return; }
+      for (const [key, choices] of [["branchId", reference?.branches], ["roleId", reference?.roles]] as const) {
+        if (!choices?.some((choice) => choice.id === body[key])) {
+          setError(key === "branchId" ? "Vui lòng chọn chi nhánh đang hoạt động." : "Vui lòng chọn vai trò đang hoạt động.");
+          setErrorField(key); return;
+        }
+      }
+      if (!/^\d{1,17}(?:\.\d{1,2})?$/.test(String(body.salary ?? ""))) {
+        setError("Lương phải từ 0 trở lên, tối đa 17 chữ số nguyên và 2 chữ số thập phân."); setErrorField("salary"); return;
+      }
+      if (body.birthDate && String(body.hireDate) < String(body.birthDate)) {
+        setError("Ngày vào làm không được trước ngày sinh."); setErrorField("hireDate"); return;
+      }
+    }
+    if (["customers", "branches", "employees"].includes(resource) && body.phone && !/^\+?[0-9][0-9 ().-]{5,19}$/.test(String(body.phone))) {
       setError("Số điện thoại không đúng định dạng. Ví dụ: 0901234567 hoặc +84 901 234 567.");
       setErrorField("phone");
       return;
     }
+    if (resource === "employees" && typeof body.email === "string") body.email = body.email.toLowerCase();
     mutation.mutate(body);
   };
   const begin = () => {
@@ -297,14 +320,14 @@ export function ResourceCreateDialog({
     setFormKey((value) => value + 1); setOpen(true);
   };
   const renderField = (field: Field) => (
-            <label className={`resource-create-label text-sm font-bold ${resource === "customers" && field.name === "address" ? "sm:col-span-2" : ""}`} key={field.name === "interestRate" ? `${field.name}-${loanProductId}` : field.name}>
-              <span>{field.label}{enhanced && field.required !== false && <span className="customer-field-required" aria-hidden="true"> *</span>}</span>
+            <label className={`resource-create-label text-sm font-bold ${(["customers", "branches"].includes(resource) && field.name === "address") || (resource === "employees" && field.name === "name") ? "sm:col-span-2" : ""}`} key={field.name === "interestRate" ? `${field.name}-${loanProductId}` : field.name}>
+              <span>{field.label}{enhanced && field.required !== false && <span className="customer-field-required" aria-hidden="true"> *</span>}{["branches", "employees"].includes(resource) && field.required === false && <small className="ml-1 font-normal text-slate-500">(không bắt buộc)</small>}</span>
               {field.options ? (
                 <select
                   className="field mt-1"
                   name={field.name}
                   aria-label={field.label}
-                  disabled={mutation.isPending}
+                  disabled={mutation.isPending || (resource === "employees" && ["branchId", "roleId"].includes(field.name) && (!refs.isSuccess || !field.options.length))}
                   required={field.required !== false}
                   aria-invalid={!!error && errorField === field.name || undefined}
                   aria-describedby={error && errorField === field.name ? errorId : undefined}
@@ -317,7 +340,7 @@ export function ResourceCreateDialog({
                     onChange: () => { if (enhanced) setError(""); },
                   })}
                 >
-                  <option value="">{resource === "customers" && field.required === false ? "Chưa cung cấp" : `Chọn ${field.label.toLowerCase()}`}</option>
+                  <option value="">{field.required === false ? "Chưa cung cấp" : resource === "employees" && !refs.isSuccess ? "Đang tải danh mục…" : `Chọn ${field.label.toLowerCase()}`}</option>
                   {field.options.map((option) => (
                     <option value={option.value} key={option.value} disabled={option.disabled}>
                       {option.label}{option.disabled ? " — Ngoài phạm vi phụ trách" : ""}
@@ -336,9 +359,9 @@ export function ResourceCreateDialog({
                   aria-describedby={error && errorField === field.name ? errorId : undefined}
                   maxLength={field.maxLength}
                   placeholder={field.placeholder}
-                  defaultValue={field.name === "issueDate" || field.name === "startDate" ? today : field.name === "interestRate" ? loanProduct?.defaultInterestRate : undefined}
+                  defaultValue={["issueDate", "startDate", "openDate", "hireDate"].includes(field.name) ? today : field.name === "interestRate" ? loanProduct?.defaultInterestRate : undefined}
                   onChange={(event) => { if (enhanced) setError(""); if (field.name === "issueDate") setCardIssueDate(event.target.value || today); }}
-                  max={resource === "customers" && field.name === "birthDate" ? today : field.name === "principal" ? loanProduct?.maximumAmount : field.name === "termMonths" ? loanProduct?.maximumTermMonths : undefined}
+                  max={["customers", "employees"].includes(resource) && field.name === "birthDate" ? today : field.name === "principal" ? loanProduct?.maximumAmount : field.name === "termMonths" ? loanProduct?.maximumTermMonths : undefined}
                   min={field.min ?? (field.name === "expiryDate" ? cardIssueDate : undefined)}
                   step={field.step ?? (field.type === "number" ? "any" : undefined)}
                   inputMode={field.name.toLowerCase().includes("pin") ? "numeric" : undefined}
@@ -352,6 +375,7 @@ export function ResourceCreateDialog({
                 </span>
               )}
               {field.name === "cardType" && <datalist id="creation-card-types">{reference?.cardTypes?.map((type) => <option key={type} value={type} />)}</datalist>}
+              {resource === "employees" && ["branchId", "roleId"].includes(field.name) && refs.isSuccess && !field.options?.length && <small className="font-normal text-rose-600">{field.name === "branchId" ? "Chưa có chi nhánh đang hoạt động để chọn." : "Chưa có vai trò đang hoạt động để chọn."}</small>}
             </label>
   );
   return (
@@ -368,12 +392,14 @@ export function ResourceCreateDialog({
         open={open}
         onOpenChange={(value) => !mutation.isPending && setOpen(value)}
         title={resource === "accounts" ? "Mở tài khoản" : resource === "cards" ? "Phát hành thẻ" : resource === "loans" ? "Tạo hồ sơ vay" : `Thêm ${titles[resource]}`}
-        className={enhanced ? `customer-create-dialog${resource === "accounts" ? " account-opening-dialog" : ""}` : ""}
+        className={enhanced ? `customer-create-dialog${resource === "accounts" ? " account-opening-dialog" : ""}${resource === "employees" ? " employee-create-dialog" : ""}` : ""}
         description={resource === "customers"
           ? "Tạo hồ sơ khách hàng mới. Mã khách hàng được tự động cấp sau khi lưu."
           : resource === "accounts" ? "Mở tài khoản ngân hàng cho khách hàng đã có hồ sơ."
           : resource === "cards" ? "Chọn khách hàng đã có ID và tài khoản hợp lệ. Hệ thống tự cấp số thẻ; kết quả chỉ hiển thị số đã che."
           : resource === "loans" ? "Chọn khách hàng đã có ID và sản phẩm vay. Hệ thống tự cấp mã hồ sơ; hồ sơ mới cần được phê duyệt."
+          : resource === "branches" ? "Nhập thông tin hoạt động và liên hệ. Mã chi nhánh được cấp khi tạo thành công."
+          : resource === "employees" ? "Mã nhân viên được cấp khi lưu. Chọn chi nhánh và vai trò để phân công."
           : "Dữ liệu sẽ được kiểm tra bởi API nghiệp vụ."}
       >
         {createdRecord && enhanced ? <CreationResult resource={resource} record={createdRecord} onClose={() => setOpen(false)} onAnother={begin} /> :
@@ -382,11 +408,12 @@ export function ResourceCreateDialog({
             if (!enhanced) return;
             event.preventDefault();
             const input = event.target as HTMLInputElement | HTMLSelectElement;
-            if (input.form?.querySelector(":invalid") !== input) return;
+            if (input.form?.querySelector("input:invalid, select:invalid, textarea:invalid") !== input) return;
             const field = fields.find((entry) => entry.name === input.name);
             if (!field) return;
             const label = field.label.toLocaleLowerCase("vi");
             const message = input.validity.valueMissing ? `Vui lòng ${field.options ? "chọn" : "nhập"} ${label}.`
+              : field.name === "salary" ? "Lương phải từ 0 trở lên và có tối đa 2 chữ số thập phân."
               : field.name === "email" ? "Email không đúng định dạng. Ví dụ: ten@example.com."
               : field.name === "birthDate" ? "Ngày sinh phải hợp lệ và không được ở tương lai."
               : `Thông tin ${label} không hợp lệ. Vui lòng kiểm tra lại.`;
@@ -395,7 +422,17 @@ export function ResourceCreateDialog({
             input.focus();
           }}>
           <div className="resource-create-fields grid gap-4 sm:grid-cols-2">
-          {enhanced && resource !== "accounts" && <p className="resource-create-guidance sm:col-span-2"><span aria-hidden="true">*</span> Trường bắt buộc.{resource === "customers" ? " Các ô còn lại có thể để trống." : ""}</p>}
+          {enhanced && resource !== "accounts" && <p className="resource-create-guidance sm:col-span-2"><span aria-hidden="true">*</span> Trường bắt buộc.{resource === "customers" ? " Các ô còn lại có thể để trống." : resource === "branches" ? " Số điện thoại có thể bổ sung sau." : resource === "employees" ? " Giới tính và ngày sinh có thể bổ sung sau. Điện thoại và email không được trùng nhân viên khác." : ""}</p>}
+          {resource === "employees" && <>
+            <fieldset className="employee-create-section sm:col-span-2">
+              <legend>Thông tin nhân viên</legend>
+              <div className="grid gap-3 sm:grid-cols-2">{fields.filter((field) => ["name", "gender", "birthDate", "phone", "email"].includes(field.name)).map(renderField)}</div>
+            </fieldset>
+            <fieldset className="employee-create-section sm:col-span-2">
+              <legend>Phân công và lương</legend>
+              <div className="grid gap-3 sm:grid-cols-2">{fields.filter((field) => ["branchId", "roleId", "hireDate", "salary"].includes(field.name)).map(renderField)}</div>
+            </fieldset>
+          </>}
           {resource === "accounts" && <>
             <div className="account-opening-owner">
               <AccountCustomerPicker selected={accountCustomer} showId={false}
@@ -420,7 +457,7 @@ export function ResourceCreateDialog({
             {cardAccounts.isError && <small className="text-red-600">Không thể tải tài khoản. <button type="button" onClick={() => void cardAccounts.refetch()}>Thử lại</button></small>}
             {accountCustomer && cardAccounts.isSuccess && !cardAccounts.data.length && <small>Khách hàng chưa có tài khoản đang hoạt động trong phạm vi của bạn. Hãy mở tài khoản trước khi phát hành thẻ.</small>}
           </label>}
-          {resource !== "accounts" && fields.filter((field) => resource !== "customers" || !["occupation", "customerType", "segment"].includes(field.name)).map(renderField)}
+          {resource !== "accounts" && resource !== "employees" && fields.filter((field) => resource !== "customers" || !["occupation", "customerType", "segment"].includes(field.name)).map(renderField)}
           {resource === "customers" && <details className="customer-extra-fields sm:col-span-2">
             <summary>Thông tin bổ sung <span>Nghề nghiệp, loại khách hàng, phân khúc</span></summary>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -429,7 +466,7 @@ export function ResourceCreateDialog({
           </details>}
           {resource === "loans" && loanProduct && <p className="creation-product-note sm:col-span-2">Sản phẩm: {loanProduct.name} · Tối đa {loanProduct.maximumAmount == null ? "Chưa cập nhật" : formatCurrency(loanProduct.maximumAmount,"VND")} · Kỳ hạn tối đa {loanProduct.maximumTermMonths ?? "Chưa cập nhật"} tháng · Lãi suất tham khảo {loanProduct.defaultInterestRate ?? "Chưa cập nhật"}%/năm.</p>}
           {resource === "cards" && <p className="creation-product-note sm:col-span-2">PIN gồm 4–6 chữ số. Không hiển thị lại sau khi phát hành thẻ.</p>}
-          {refs.isError && (
+          {needsReferences && refs.isError && (
             <p className="text-sm text-red-600 sm:col-span-2" role="alert">
               Không thể tải danh mục tham chiếu: {refs.error.message}
               <button
@@ -454,9 +491,9 @@ export function ResourceCreateDialog({
             </button>
             <button
               className="btn-primary"
-              disabled={mutation.isPending || !refs.isSuccess}
+              disabled={mutation.isPending || (needsReferences && !refs.isSuccess)}
             >
-              {mutation.isPending ? "Đang lưu..." : resource === "customers" ? "Tạo khách hàng" : resource === "accounts" ? "Mở tài khoản" : resource === "cards" ? "Phát hành thẻ" : resource === "loans" ? "Tạo hồ sơ vay" : "Lưu dữ liệu"}
+              {mutation.isPending ? "Đang lưu..." : resource === "employees" ? "Tạo nhân viên" : resource === "branches" ? "Tạo chi nhánh" : resource === "customers" ? "Tạo khách hàng" : resource === "accounts" ? "Mở tài khoản" : resource === "cards" ? "Phát hành thẻ" : resource === "loans" ? "Tạo hồ sơ vay" : "Lưu dữ liệu"}
             </button>
           </footer>
         </form>}

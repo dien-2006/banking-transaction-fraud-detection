@@ -19,4 +19,7 @@
 .product-application-result dt,.product-application-result p {color:#63789e;font-size:13px;}
 .product-application-result dd {font-weight:600;overflow-wrap:anywhere;}
 .product-application-result button {margin-top:20px;}
+.loan-decision-dialog {max-width:760px;max-height:calc(100dvh - 32px);}
+.loan-decision-fields {grid-template-columns:minmax(0,1fr) !important;}
+.loan-decision-result {overflow-y:auto;min-height:0;}
 @media(max-width:480px){.product-application-form fieldset{grid-template-columns:minmax(0,1fr);}.product-application-result dl>div{padding:8px 0;}}

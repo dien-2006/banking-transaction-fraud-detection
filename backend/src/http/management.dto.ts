@@ -1,7 +1,24 @@
 import { IsBoolean, IsDateString, IsEmail, IsIn, IsInt, IsNumberString, IsOptional, IsPositive, IsString, Length, MaxLength, MinLength, Matches, ValidateBy } from 'class-validator';
 import { Transform } from 'class-transformer';
 
-export class BranchCreateDto { @IsString() @MaxLength(20) code!:string; @IsString() @MaxLength(150) name!:string; @IsString() @MaxLength(255) address!:string; @IsString() @MaxLength(100) city!:string; @IsString() @MaxLength(20) phone!:string; @IsDateString() openDate!:string; }
+export class BranchCreateDto {
+  @Transform(({ value }) => typeof value === 'string' ? value.trim() || undefined : value ?? undefined)
+  @IsOptional() @IsString() @MaxLength(20) code?: string;
+  @Transform(({ value }) => typeof value === 'string' ? value.trim() : value)
+  @IsString({ message: 'Vui lòng nhập tên chi nhánh.' }) @MinLength(1, { message: 'Vui lòng nhập tên chi nhánh.' })
+  @MaxLength(150, { message: 'Tên chi nhánh không được vượt quá 150 ký tự.' }) name!: string;
+  @Transform(({ value }) => typeof value === 'string' ? value.trim() : value)
+  @IsString({ message: 'Vui lòng nhập địa chỉ chi nhánh.' }) @MinLength(1, { message: 'Vui lòng nhập địa chỉ chi nhánh.' })
+  @MaxLength(255, { message: 'Địa chỉ không được vượt quá 255 ký tự.' }) address!: string;
+  @Transform(({ value }) => typeof value === 'string' ? value.trim() : value)
+  @IsString({ message: 'Vui lòng nhập tỉnh/thành phố.' }) @MinLength(1, { message: 'Vui lòng nhập tỉnh/thành phố.' })
+  @MaxLength(100, { message: 'Tỉnh/thành phố không được vượt quá 100 ký tự.' }) city!: string;
+  @Transform(({ value }) => typeof value === 'string' ? value.trim() || undefined : value ?? undefined)
+  @IsOptional() @IsString() @MaxLength(20, { message: 'Số điện thoại không được vượt quá 20 ký tự.' })
+  @Matches(/^\+?[0-9][0-9 ().-]{5,19}$/, { message: 'Số điện thoại liên hệ không đúng định dạng.' }) phone?: string;
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'Vui lòng chọn ngày bắt đầu hoạt động hợp lệ.' })
+  @IsDateString({ strict: true }, { message: 'Ngày bắt đầu hoạt động không hợp lệ.' }) openDate!: string;
+}
 export class BranchUpdateDto { @IsString() @MaxLength(150) name!:string; @IsString() @MaxLength(255) address!:string; @IsString() @MaxLength(100) city!:string; @IsString() @MaxLength(20) phone!:string; }
 export class StatusDto { @IsString() status!:string; @IsOptional() @IsString() @MaxLength(255) reason?:string; }
 
@@ -45,7 +62,33 @@ export class CustomerCreateDto {
 }
 export class CustomerUpdateDto { @IsString() @MaxLength(150) name!:string; @IsString() @MaxLength(20) phone!:string; @IsEmail() email!:string; @IsString() @MaxLength(255) address!:string; @IsString() @MaxLength(100) occupation!:string; @IsString() @MaxLength(30) customerType!:string; @IsString() @MaxLength(30) segment!:string; }
 
-export class EmployeeCreateDto { @IsString() @MaxLength(20) code!:string; @IsInt() @IsPositive() branchId!:number; @IsInt() @IsPositive() roleId!:number; @IsString() @MaxLength(150) name!:string; @IsIn(['Male','Female','Other']) gender!:string; @IsDateString() birthDate!:string; @IsString() @MaxLength(20) phone!:string; @IsEmail() email!:string; @IsDateString() hireDate!:string; @IsNumberString() salary!:string; }
+export class EmployeeCreateDto {
+  @Transform(optionalCustomerText) @IsOptional() @IsString() @MaxLength(20) code?: string;
+  @IsInt({ message: 'Vui lòng chọn chi nhánh.' }) @IsPositive({ message: 'Vui lòng chọn chi nhánh.' }) branchId!: number;
+  @IsInt({ message: 'Vui lòng chọn vai trò.' }) @IsPositive({ message: 'Vui lòng chọn vai trò.' }) roleId!: number;
+  @Transform(({ value }) => typeof value === 'string' ? value.trim() : value)
+  @IsString({ message: 'Vui lòng nhập họ tên nhân viên.' }) @MinLength(1, { message: 'Vui lòng nhập họ tên nhân viên.' })
+  @MaxLength(150, { message: 'Họ tên không được vượt quá 150 ký tự.' }) name!: string;
+  @Transform(optionalCustomerText) @IsOptional()
+  @IsIn(['Male','Female','Other','Unknown'], { message: 'Giới tính không hợp lệ.' }) gender?: string;
+  @Transform(optionalCustomerText) @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'Ngày sinh phải có định dạng YYYY-MM-DD.' })
+  @IsDateString({ strict: true }, { message: 'Ngày sinh không hợp lệ.' }) @notFutureBirthDate birthDate?: string;
+  @Transform(({ value }) => typeof value === 'string' ? value.trim() : value)
+  @IsString({ message: 'Vui lòng nhập số điện thoại.' }) @MaxLength(20, { message: 'Số điện thoại tối đa 20 ký tự.' })
+  @Matches(/^\+?[0-9][0-9 ().-]{5,19}$/, { message: 'Số điện thoại không đúng định dạng.' }) phone!: string;
+  @Transform(({ value }) => typeof value === 'string' ? value.trim().toLowerCase() : value)
+  @IsEmail({}, { message: 'Vui lòng nhập email hợp lệ.' }) @MaxLength(150, { message: 'Email tối đa 150 ký tự.' }) email!: string;
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'Vui lòng chọn ngày vào làm hợp lệ.' })
+  @IsDateString({ strict: true }, { message: 'Ngày vào làm không hợp lệ.' })
+  @ValidateBy({ name: 'hireAfterBirth', validator: {
+    validate: (value: unknown, args) => {
+      const birth = (args?.object as { birthDate?: string })?.birthDate;
+      return !birth || (typeof value === 'string' && value >= birth);
+    }, defaultMessage: () => 'Ngày vào làm không được trước ngày sinh.',
+  } }) hireDate!: string;
+  @Matches(/^\d{1,17}(?:\.\d{1,2})?$/, { message: 'Lương phải từ 0 trở lên, tối đa 17 chữ số nguyên và 2 chữ số thập phân.' }) salary!: string;
+}
 export class EmployeeUpdateDto { @IsInt() @IsPositive() branchId!:number; @IsInt() @IsPositive() roleId!:number; @IsString() @MaxLength(150) name!:string; @IsString() @MaxLength(20) phone!:string; @IsEmail() email!:string; @IsNumberString() salary!:string; }
 export class RegisterLoginDto { @IsString() @Length(3,100) username!:string; @IsString() @MinLength(8) password!:string; }
 

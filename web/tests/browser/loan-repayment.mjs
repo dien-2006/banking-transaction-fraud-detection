@@ -31,6 +31,7 @@ try{
   });
   await page.goto(base+'/customer/loans');await page.getByRole('button',{name:'Xem chi tiết LN-PAYMENT-41',exact:true}).click();
   const dialog=page.getByRole('dialog'),payment=dialog.getByRole('region',{name:'Thanh toán khoản vay',exact:true});
+  if(scenario==='no-settlement'){await payment.getByText('Ngân hàng chưa cấu hình tài khoản nhận tiền trả nợ.',{exact:true}).waitFor();assert.equal(await payment.getByRole('button',{name:'Tiếp tục thanh toán',exact:true}).count(),0);await page.close();continue;}
   await payment.getByLabel('Tài khoản nguồn *',{exact:true}).selectOption('1');
   if(scenario==='pending-payment'){
    assert.ok(await payment.getByLabel('Kỳ thanh toán *',{exact:true}).locator('option[value="417"]').evaluate(option=>option.disabled));assert.equal(writes.length,0);

@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHmac } from 'node:crypto';
 import { DatabaseService } from '../database/database.service';
@@ -92,29 +92,70 @@ export class CustomerProductsService {
       return result;
     });
   }
-  async decideLoan(id:number,dto:LoanDecisionDto,user:AuthUser,ip?:string) {
+  private loanOfficer(user:AuthUser) {
     if(!['employee','admin'].includes(user.role)||!user.employeeId||!user.userId||(user.role==='employee'&&!user.branchId))
       throw new ForbiddenException('Không có quyền duyệt khoản vay.');
+  }
+  async loanDisbursementOptions(id:number,user:AuthUser) {
+    this.loanOfficer(user);
+    const result=await this.db.pool.query(`SELECT l.loanid,l.status,
+      banking_api.loan_counterparty_account(l.loanid,TRUE) IS NOT NULL AS "fundingReady",
+      (SELECT banking_api.transaction_result(t.transactionid) FROM banking.bank_transaction t
+        WHERE t.description=concat('LOAN_DISBURSEMENT|',l.loanid) ORDER BY t.transactionid DESC LIMIT 1) AS disbursement,
+      COALESCE((SELECT jsonb_agg(jsonb_build_object('accountId',a.accountid,'accountNumber',a.accountnumber) ORDER BY a.accountid)
+        FROM banking.bank_account a JOIN banking.account_holder h USING(accountid)
+        WHERE h.customerid=l.customerid AND h.status='Active' AND h.holdertype='PRIMARY_OWNER'
+          AND h.startdate<=(CURRENT_TIMESTAMP AT TIME ZONE $3)::date
+          AND (h.enddate IS NULL OR h.enddate>=(CURRENT_TIMESTAMP AT TIME ZONE $3)::date)
+          AND a.status='Active' AND a.accountcategory='CUSTOMER' AND a.currency='VND'),'[]'::jsonb) AS accounts
+      FROM banking.loan l WHERE l.loanid=$1 AND ($2::integer IS NULL OR l.branchid=$2)`,
+      [id,user.role==='employee'?user.branchId:null,this.config.get('SOURCE_TIMEZONE','Asia/Ho_Chi_Minh')]);
+    if(!result.rows[0])throw new NotFoundException('Không tìm thấy khoản vay trong phạm vi được cấp quyền.');
+    const row=result.rows[0];
+    return {loanId:Number(row.loanid),status:row.status,ready:row.status==='Pending'&&row.fundingReady,
+      unavailableReason:!row.fundingReady?'Ngân hàng tạm thời chưa thể giải ngân. Vui lòng liên hệ bộ phận vận hành.':null,
+      accounts:row.accounts,disbursement:row.disbursement};
+  }
+  async decideLoan(id:number,dto:LoanDecisionDto,user:AuthUser,ip?:string) {
+    this.loanOfficer(user);
     if(dto.reason.trim().length<3)throw new BadRequestException('Vui lòng nhập lý do xử lý.');
+    if(dto.decision==='APPROVE'&&(!Number.isSafeInteger(dto.destinationAccountId)||!dto.destinationAccountId||!dto.requestKey))
+      throw new BadRequestException('Chọn tài khoản nhận tiền giải ngân và mã yêu cầu hợp lệ.');
     return this.db.transaction({userId:user.userId,ipAddress:ip},async client=>{
       const row=await client.query('SELECT * FROM banking.loan WHERE loanid=$1 FOR UPDATE',[id]), loan=row.rows[0];
       if(!loan)throw new NotFoundException('Không tìm thấy khoản vay.');
       if(user.role==='employee'&&Number(loan.branchid)!==Number(user.branchId))throw new ForbiddenException('Khoản vay thuộc chi nhánh khác.');
-      if(loan.status!=='Pending')throw new ConflictException('Hồ sơ đã được xử lý. Vui lòng tải lại danh sách.');
+      const existing=await client.query(`SELECT t.transactionid,tr.sourceaccountid FROM banking.bank_transaction t
+        JOIN banking.transfer_request tr USING(transactionid)
+        WHERE t.transactioncode=$2 OR (t.description=concat('LOAN_DISBURSEMENT|',$1::bigint) AND t.status IN ('Pending','Success'))
+        ORDER BY CASE WHEN t.transactioncode=$2 THEN 0 ELSE 1 END,t.transactionid DESC`,
+        [id,dto.requestKey?`LD-${dto.requestKey}`:null]);
+      if(loan.status!=='Pending'&&!existing.rows.length)throw new ConflictException('Hồ sơ đã được xử lý. Vui lòng tải lại danh sách.');
+      let result:Record<string,unknown>;
       if(dto.decision==='APPROVE') {
+        const fundingId=existing.rows[0]?.sourceaccountid
+          ?? (await client.query('SELECT banking_api.loan_counterparty_account($1,TRUE) AS accountid',[id])).rows[0]?.accountid;
+        if(!fundingId)throw new ServiceUnavailableException('Ngân hàng tạm thời chưa thể giải ngân. Vui lòng liên hệ bộ phận vận hành.');
         const eligible=await client.query(`SELECT c.customerid FROM banking.customer c JOIN banking.branch b ON b.branchid=$2
           JOIN banking.loan_type t ON t.loantypeid=$3
           WHERE c.customerid=$1 AND c.status='Active' AND b.status='Active' AND t.status='Active' FOR SHARE OF c,b,t`,
           [loan.customerid,loan.branchid,loan.loantypeid]);
-        if(!eligible.rows.length)throw new ConflictException('Khách hàng, chi nhánh hoặc sản phẩm vay đã ngừng hoạt động.');
-        await client.query(`UPDATE banking.loan SET employeeid=$2,startdate=GREATEST(startdate,CURRENT_DATE),
-          enddate=(GREATEST(startdate,CURRENT_DATE)+(termmonths||' months')::interval)::date WHERE loanid=$1`,[id,user.employeeId]);
+        if(!existing.rows.length&&!eligible.rows.length)throw new ConflictException('Khách hàng, chi nhánh hoặc sản phẩm vay đã ngừng hoạt động.');
+        if(!existing.rows.length) {
+          // Same model and immutable DEPOSIT type as the Banking Core movement.
+          await this.db.prepareRisk(client,'banking_api.create_account_movement',
+            ['DEPOSIT',loan.customerid,fundingId,dto.destinationAccountId,loan.principalamount,`LD-${dto.requestKey}`,'Counter']);
+        }
+        result=(await client.query('SELECT banking_api.disburse_loan($1::bigint,$2::bigint,$3::bigint,$4::varchar,$5::integer) AS result',
+          [id,dto.destinationAccountId,fundingId,`LD-${dto.requestKey}`,user.employeeId])).rows[0].result;
+      } else {
+        if(loan.status!=='Pending'||existing.rows.length)throw new ConflictException('Khoản vay đã có lệnh giải ngân. Vui lòng xử lý lệnh tại Fraud & Review.');
+        result=(await client.query("UPDATE banking.loan SET status='Cancelled' WHERE loanid=$1 RETURNING *",[id])).rows[0];
       }
-      const result=dto.decision==='APPROVE'
-        ? (await client.query('SELECT banking_api.approve_loan($1) AS result',[id])).rows[0].result
-        : (await client.query("UPDATE banking.loan SET status='Cancelled' WHERE loanid=$1 RETURNING *",[id])).rows[0];
       await client.query(`INSERT INTO banking.audit_log(userid,entitytype,entityid,action,oldvalue,newvalue,ipaddress)
-        VALUES($1,'LOAN',$2,'STATUS_CHANGE',$3::jsonb,$4::jsonb,$5)`,[user.userId,String(id),JSON.stringify(loan),JSON.stringify({...result,decision:dto.decision,reason:dto.reason.trim()}),ip??null]);
+        SELECT $1::integer,'LOAN',$2::varchar,'STATUS_CHANGE',$3::jsonb,$4::jsonb,$5::varchar
+        WHERE NOT EXISTS(SELECT 1 FROM banking.audit_log WHERE entitytype='LOAN' AND entityid=$2::varchar
+          AND newvalue->>'requestKey'=$6::text)`,[user.userId,String(id),JSON.stringify(loan),JSON.stringify({...result,decision:dto.decision,reason:dto.reason.trim(),requestKey:dto.requestKey}),ip??null,dto.requestKey??null]);
       return result;
     });
   }

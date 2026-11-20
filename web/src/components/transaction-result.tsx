@@ -18,6 +18,7 @@ import { Modal } from "./ui";
 import "./transaction-result.css";
 import type { ApiTransaction } from "@/services/bank.service";
 import { formatCurrency, formatDateTime } from "@/lib/presentation";
+import { transactionPurpose } from "@/lib/customer-data";
 
 export interface TransactionResultProps {
   status?: string;
@@ -224,7 +225,7 @@ export function TransactionRecordResult({
     <TransactionResult
       status={transaction.status}
       decision={transaction.decision}
-      operation={transaction.typename || "Giao dịch"}
+      operation={transactionPurpose(transaction).label || "Giao dịch"}
       amount={
         hidden
           ? "••••••"
@@ -236,7 +237,7 @@ export function TransactionRecordResult({
         [accountLabel, hidden ? "••••••" : account],
         [
           "Nội dung",
-          transaction.description || transaction.typename || "Không có",
+          transactionPurpose(transaction).description || "Không có",
         ],
         [
           "Phí",

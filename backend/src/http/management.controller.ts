@@ -14,7 +14,7 @@ export class ManagementController {
   constructor(private readonly db:DatabaseService, private readonly products:CustomerProductsService){}
   private context(user:AuthUser,req:Request){return {userId:user.userId,ipAddress:req.ip};}
 
-  @Post('branches') @Roles('admin') createBranch(@Body()d:BranchCreateDto,@CurrentUser()u:AuthUser,@Req()r:Request){return this.db.function('banking_api.create_branch',[d.code,d.name,d.address,d.city,d.phone,d.openDate],this.context(u,r));}
+  @Post('branches') @Roles('admin') createBranch(@Body()d:BranchCreateDto,@CurrentUser()u:AuthUser,@Req()r:Request){return this.db.function('banking_api.create_branch',[d.code??null,d.name,d.address,d.city,d.phone??null,d.openDate],this.context(u,r));}
   @Patch('branches/:id') @Roles('admin') updateBranch(@Param('id',ParseIntPipe)id:number,@Body()d:BranchUpdateDto,@CurrentUser()u:AuthUser,@Req()r:Request){return this.db.function('banking_api.update_branch',[id,d.name,d.address,d.city,d.phone],this.context(u,r));}
   @Patch('branches/:id/status') @Roles('admin') branchStatus(@Param('id',ParseIntPipe)id:number,@Body()d:StatusDto,@CurrentUser()u:AuthUser,@Req()r:Request){return this.db.function('banking_api.change_branch_status',[id,d.status],this.context(u,r));}
 
@@ -24,7 +24,7 @@ export class ManagementController {
   @Post('customers/:id/login') async registerCustomer(@Param('id',ParseIntPipe)id:number,@Body()d:RegisterLoginDto,@CurrentUser()u:AuthUser,@Req()r:Request){await assertResourceBranch(this.db,u,'customer',id);return this.db.function('banking_api.register_customer_online_account',[id,d.username,d.password],this.context(u,r));}
   @Patch('customers/:customerId/devices/:deviceId') async deviceStatus(@Param('customerId',ParseIntPipe)customerId:number,@Param('deviceId',ParseIntPipe)deviceId:number,@Body()d:DeviceStatusDto,@CurrentUser()u:AuthUser,@Req()r:Request){await assertResourceBranch(this.db,u,'customer',customerId);return this.db.function('banking_api.change_device_status',[customerId,deviceId,d.status,d.trusted??null],this.context(u,r));}
 
-  @Post('employees') @Roles('admin') createEmployee(@Body()d:EmployeeCreateDto,@CurrentUser()u:AuthUser,@Req()r:Request){return this.db.function('banking_api.create_employee',[d.code,d.branchId,d.roleId,d.name,d.gender,d.birthDate,d.phone,d.email,d.hireDate,d.salary],this.context(u,r));}
+  @Post('employees') @Roles('admin') createEmployee(@Body()d:EmployeeCreateDto,@CurrentUser()u:AuthUser,@Req()r:Request){return this.db.function('banking_api.create_employee',[d.code??null,d.branchId,d.roleId,d.name,d.gender??null,d.birthDate??null,d.phone,d.email,d.hireDate,d.salary],this.context(u,r));}
   @Patch('employees/:id') @Roles('admin') updateEmployee(@Param('id',ParseIntPipe)id:number,@Body()d:EmployeeUpdateDto,@CurrentUser()u:AuthUser,@Req()r:Request){return this.db.function('banking_api.update_employee',[id,d.branchId,d.roleId,d.name,d.phone,d.email,d.salary],this.context(u,r));}
   @Patch('employees/:id/status') @Roles('admin') employeeStatus(@Param('id',ParseIntPipe)id:number,@Body()d:StatusDto,@CurrentUser()u:AuthUser,@Req()r:Request){return this.db.function('banking_api.change_employee_status',[id,d.status],this.context(u,r));}
   @Post('employees/:id/login') @Roles('admin') registerEmployee(@Param('id',ParseIntPipe)id:number,@Body()d:RegisterLoginDto,@CurrentUser()u:AuthUser,@Req()r:Request){return this.db.function('banking_api.register_system_user',[id,d.username,d.password],this.context(u,r));}
@@ -52,6 +52,6 @@ export class ManagementController {
   @Patch('cards/:id/limit') async cardLimit(@Param('id',ParseIntPipe)id:number,@Body()d:LimitDto,@CurrentUser()u:AuthUser,@Req()r:Request){await assertResourceBranch(this.db,u,'card',id);return this.db.function('banking_api.change_card_limit',[id,d.limit],this.context(u,r));}
 
   @Post('loans') async createLoan(@Body()d:LoanCreateDto,@CurrentUser()u:AuthUser,@Req()r:Request){assertBranch(u,d.branchId);await assertResourceBranch(this.db,u,'customer',d.customerId);return this.db.function('banking_api.create_loan',[d.code??null,d.customerId,d.branchId,u.employeeId,d.loanTypeId,d.principal,d.interestRate,d.termMonths,d.startDate],this.context(u,r));}
-  @Post('loans/:id/approve') async approveLoan(@Param('id',ParseIntPipe)id:number,@CurrentUser()u:AuthUser,@Req()r:Request,@Body()d:LoanApprovalDto){await assertResourceBranch(this.db,u,'loan',id);return this.products.decideLoan(id,{decision:'APPROVE',reason:d.reason},u,r.ip);}
+  @Post('loans/:id/approve') async approveLoan(@Param('id',ParseIntPipe)id:number,@CurrentUser()u:AuthUser,@Req()r:Request,@Body()d:LoanApprovalDto){await assertResourceBranch(this.db,u,'loan',id);return this.products.decideLoan(id,{...d,decision:'APPROVE'},u,r.ip);}
   @Post('transactions/:id/fraud-label') async fraudLabel(@Param('id',ParseIntPipe)id:number,@Body()d:FraudLabelDto,@CurrentUser()u:AuthUser,@Req()r:Request){await assertResourceBranch(this.db,u,'transaction',id);return this.db.function('banking_api.add_fraud_label',[id,d.label,d.source??'MANUAL_REVIEW',d.note??null],this.context(u,r));}
 }

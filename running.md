@@ -271,6 +271,95 @@ không thay thế việc nạp đủ `z_01` đến `z_07` hoặc khôi phục tr
 Chỉ thay `.env` thì chạy lại `up -d` của service liên quan để recreate và nhận env mới;
 `docker compose restart` không nạp env mới. Không xóa volume để cập nhật code.
 
+### Cập nhật chức năng thêm chi nhánh tự cấp mã
+
+Form quản trị thêm chi nhánh không nhập mã. Mã `CN...` được cấp trong function
+`banking_api.create_branch` từ identity `branchid` hiện có; giữ nguyên các mã cũ.
+Tên chi nhánh, tỉnh/thành phố, địa chỉ và ngày bắt đầu hoạt động là bắt buộc;
+điện thoại có thể để trống. Ngày mặc định hôm nay, có thể chọn lại.
+
+Khi nâng cấp DB đã có trên EC2:
+
+1. Push/pull code mới. Trong DBeaver kết nối đúng DB EC2, chạy **riêng toàn bộ khối**
+   `CREATE OR REPLACE FUNCTION banking_api.create_branch ... $$;` ở đầu
+   `sql/z_05_management_operations.sql`. Commit nếu tắt Auto-commit.
+2. Build và recreate API/web:
+
+```bash
+docker compose --profile web build banking-api web
+docker compose --profile web up -d --no-deps banking-api web
+```
+
+Không chạy lại `create_table.sql` hay dữ liệu INSERT. Không đổi bảng, cột hoặc constraint.
+Nếu DB chưa cập nhật function, API trả lỗi cấu hình cấp mã thay vì yêu cầu người dùng nhập mã.
+Mã có thể có khoảng trống khi một lần lưu thất bại; không reset sequence để lấp khoảng trống.
+
+Kiểm thử browser: `cd web && npm run test:branch-create` với `WEB_AUDIT_URL` trỏ tới web thử nghiệm.
+Script dùng API mô phỏng, không tạo chi nhánh trong DB thật.
+
+### Cập nhật chức năng thêm nhân viên tự cấp mã
+
+Form admin thêm nhân viên tự cấp mã `EMP...` từ identity `employeeid` hiện có,
+giữ nguyên các mã nhân viên cũ. Các trường bắt buộc: họ tên, chi nhánh, vai trò,
+điện thoại, email, ngày vào làm và lương (VND). Giới tính/ngày sinh có thể bỏ trống;
+lương có thể bằng 0. Chi nhánh và vai trò lấy từ DB, phải còn hoạt động khi lưu.
+Điện thoại/email không được trùng nhân viên khác. Đây là thao tác tạo hồ sơ,
+chưa tạo `system_user`, tên đăng nhập hay mật khẩu.
+
+Khi nâng cấp DB đang có trên EC2, sau khi push/pull code mới:
+
+1. Trong DBeaver, kết nối đúng DB EC2, chạy **riêng toàn bộ khối**
+   `CREATE OR REPLACE FUNCTION banking_api.create_employee ... $$;` trong
+   `sql/z_05_management_operations.sql`. Commit nếu tắt Auto-commit.
+2. Nếu chưa áp dụng thay đổi chi nhánh ở mục trước, chạy riêng khối `create_branch` nữa.
+   Không chạy lại bảng hoặc dữ liệu INSERT.
+3. Build và recreate API/web:
+
+```bash
+docker compose --profile web build banking-api web
+docker compose --profile web up -d --no-deps banking-api web
+```
+
+Không đổi bảng, cột, PK/FK hay constraint. Khi function chưa được cập nhật,
+API báo lỗi cấu hình cấp mã nhân viên. Không reset sequence để lấp khoảng trống mã.
+Kiểm thử browser: `cd web && npm run test:employee-create` với `WEB_AUDIT_URL`
+trỏ tới web thử nghiệm; script mô phỏng API, không sửa DB hoặc cấp đăng nhập thật.
+
+### Cập nhật giải ngân và thanh toán khoản vay
+
+Khi nâng cấp DB đang có dữ liệu, tạm dừng thao tác duyệt vay/review trong lúc cập nhật:
+
+1. Pull bản code mới. Trong DBeaver, đúng DB EC2, mở một transaction (`BEGIN;`),
+   chạy toàn bộ định nghĩa function trong `sql/z_04_financial_operations.sql`,
+   sau đó chạy riêng toàn bộ khối `CREATE OR REPLACE FUNCTION banking_api.approve_loan ... $$;`
+   trong `sql/z_05_management_operations.sql`, rồi `COMMIT;`. Nếu có lỗi, `ROLLBACK;`
+   và kiểm tra lỗi trước khi tiếp tục. Không chạy lại `create_table.sql` hoặc INSERT dữ liệu.
+2. Không cần thêm ID tài khoản giải ngân/thu nợ vào `.env`. Khách hàng nhận tiền
+   và trả nợ bằng tài khoản ngân hàng của mình trên web; đối ứng ngân hàng được backend
+   tự xử lý từ dữ liệu DB hiện có. Hệ thống không tự tạo tài khoản hoặc số dư.
+3. Build và recreate API/web:
+
+```bash
+docker compose --profile web build banking-api web
+docker compose --profile web up -d --no-deps banking-api web
+```
+
+4. Nhân viên/admin vào Khoản vay → Xử lý → chọn tài khoản nhận của khách hàng →
+   nhập lý do → **Xác nhận duyệt và giải ngân**. Chỉ kết quả `Success` mới cộng tiền
+   vào tài khoản nhận và tạo lịch trả nợ. `Pending/REVIEW` xử lý tiếp tại Fraud & Review;
+   `BLOCK` hoặc thiếu tiền không ghi có. Nếu lỗi mạng, thử lại **đúng lệnh** hiện tại.
+5. Khách hàng xem chứng từ giải ngân và phần trả nợ trong chi tiết khoản vay.
+   Khoản vay cũ đang Active/Overdue vẫn trả nợ trực tuyến theo lịch hiện có;
+   bản cập nhật không tự cộng tiền, sửa lịch cũ hoặc giải ngân lại khoản đã duyệt.
+
+Kiểm thử tài chính riêng: tạo DB kiểm thử rỗng có tên `d4_loan_test_*`, nạp schema
+và SQL theo thứ tự ở mục 2, rồi chạy test bằng URL DB loopback (không dùng DB thật):
+
+```bash
+cd backend
+LOAN_DISBURSEMENT_TEST_URL='postgresql://USER:PASSWORD@127.0.0.1:PORT/d4_loan_test_NAME' node --test tests/loan-disbursement.test.cjs
+```
+
 ### Cập nhật chức năng đăng ký khách hàng
 
 Trang `/register` dùng Brevo (`BREVO_API_KEY`, `OTP_SENDER_EMAIL`, `OTP_SENDER_NAME`)
@@ -394,7 +483,7 @@ báo thiếu Spark/Airflow/Kafka ngay cả khi nhóm web hoạt động bình th
 | Tạo khách hàng xong nhân viên không thấy | Kiểm tra `trg_audit_customer` ở bước 3; thiếu thì khôi phục từ `z_03` khi đã dừng ghi. Hồ sơ cũ thiếu audit cần xác minh người tạo, không tự gán quyền |
 | Trùng khóa chính sau nhập seed | Trong DBeaver chỉ chạy khối `DO $sync_seed_identities$` cuối `examble_data.sql` khi dừng ghi; không chạy lại INSERT |
 | Không nhận OTP | Nếu đã hiện ô nhập mã, xem Brevo Transactional Logs: accepted chưa phải delivered. `sending platform ... disabled` cần xử lý trạng thái tài khoản với Brevo; `sender ... not valid` cần xác minh sender/domain khớp `OTP_SENDER_EMAIL`. Đổi `.env` phải recreate API |
-| Chưa trả được khoản vay | Đặt `LOAN_SETTLEMENT_ACCOUNT_ID` là tài khoản INTERNAL VND đang hoạt động dùng để thu nợ, rồi recreate API |
+| Chưa trả được khoản vay | Kiểm tra khoản vay/lịch trả nợ, số dư khả dụng của tài khoản khách hàng và log API; không cần cấu hình ID tài khoản thu nợ |
 | DB mới chưa đăng nhập được | Tạo bảng thôi chưa có người dùng; khôi phục backup hoặc chuẩn bị dữ liệu hợp lệ |
 | Hive báo không tạo được `metastore_db` trên volume mới | Cập nhật Compose và `docker/hive/start-metastore.sh`: init cấp quyền volume, wrapper dùng thư mục con `catalog` cho DB mới. Catalog cũ ở root vẫn được giữ nguyên; không xóa volume |
 | Airflow Scheduler báo `Health check exceeded timeout (10s)` | Bản mới dùng health server nội bộ `127.0.0.1:8974/health` thay Airflow CLI. Cập nhật Compose, chờ task đang chạy hoàn tất rồi recreate riêng scheduler; HTTP 503 vẫn được coi là unhealthy |

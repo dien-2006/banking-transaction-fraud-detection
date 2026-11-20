@@ -129,7 +129,9 @@ def test_overdue_loan_can_pay_only_remaining_components(db,partial):
     typ=db.execute("SELECT loantypeid FROM loan_type WHERE loantypename='Test loan'").fetchone()['loantypeid']
     loan=db.execute("SELECT banking_api.create_loan(%s,%s,%s,%s,%s,1000,0,1,CURRENT_DATE) AS r",
         (str(uuid.uuid4())[:30],v['customerid'],v['branchid'],v['employeeid'],typ)).fetchone()['r']['loanid']
-    db.execute('SELECT banking_api.approve_loan(%s)',(loan,))
+    db.execute("SELECT set_config('app.user_id',%s,true)",(str(v['userid']),))
+    db.execute('SELECT banking_api.disburse_loan(%s,%s,%s,%s,%s)',
+        (loan,v['source'],v['internal'],'LD-'+str(uuid.uuid4()),v['employeeid']))
     schedule=db.execute('SELECT scheduleid FROM repayment_schedule WHERE loanid=%s',(loan,)).fetchone()['scheduleid']
     if partial:
         # Historical partial payment must have matching loan-payment postings.

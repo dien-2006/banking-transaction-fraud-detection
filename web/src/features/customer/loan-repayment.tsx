@@ -41,6 +41,13 @@ export function LoanRepayment({loan,hidden,onReveal,onBusyChange}:{loan:ApiLoan;
   };
   const rejected=failure instanceof ApiError&&[400,401,403,404,409,422].includes(failure.status);
   return <section className="loan-repayment" aria-labelledby={`loan-payment-title-${loan.loanid}`}>
+    {options.data?.disbursement&&<div className="loan-payment-confirm">
+      <h3>Giải ngân khoản vay</h3>
+      <dl><div><dt>Trạng thái</dt><dd>{options.data.disbursement.status==="Success"?"Đã giải ngân":options.data.disbursement.status==="Pending"?"Đang chờ kiểm tra":options.data.disbursement.status==="Cancelled"?"Đã hủy":"Chưa giải ngân thành công"}</dd></div>
+        <div><dt>Tài khoản nhận</dt><dd>{options.data.receivingAccountNumber}</dd></div>
+        <div><dt>Số tiền</dt><dd>{hidden?"••••••":formatVnd(options.data.disbursement.amount)}</dd></div>
+        <div><dt>Mã giao dịch</dt><dd>{options.data.disbursement.transactioncode}</dd></div></dl>
+    </div>}
     <h3 id={`loan-payment-title-${loan.loanid}`}>Thanh toán khoản vay</h3>
     {draft&&(result||failure)?<TransactionResult operation="Thanh toán khoản vay" status={result?.status} decision={result?.decision} error={failure??undefined}
       amount={formatVnd(draft.input.amount)} reference={result?.transactioncode} time={result?formatDateTime(result.transactiondate):undefined}
@@ -54,7 +61,7 @@ export function LoanRepayment({loan,hidden,onReveal,onBusyChange}:{loan:ApiLoan;
     </div>:hidden?<p>Thông tin đang được ẩn. <button type="button" className="btn-secondary" onClick={onReveal}>Hiện thông tin để thanh toán</button></p>
     :options.isPending||accounts.isPending?<p role="status">Đang tải thông tin thanh toán…</p>
     :options.isError||accounts.isError?<p role="alert">Không thể tải thông tin thanh toán. <button type="button" className="btn-secondary" onClick={()=>{void options.refetch();void accounts.refetch();}}>Thử lại</button></p>
-    :!options.data||!["Active","Overdue"].includes(options.data.status)?<p className="loan-payment-notice">{options.data?.unavailableReason??"Chưa thể thanh toán khoản vay này."}</p>
+    :!options.data||!options.data.ready?<p className="loan-payment-notice">{options.data?.unavailableReason??"Chưa thể thanh toán khoản vay này."}</p>
     :!options.data.schedules.length?<p>Không còn kỳ trả nợ chưa thanh toán.</p>
     :<form onSubmit={prepare}>
       {!options.data.ready&&<p className="loan-payment-notice" role="status">{options.data.unavailableReason}</p>}

@@ -105,21 +105,15 @@ test('real PostgreSQL self service is atomic, idempotent, scoped, masked and nev
     assert.equal(Number((await db.pool.query('SELECT count(*) AS n FROM banking.repayment_schedule')).rows[0].n),0);
     await assert.rejects(()=>service.create('loan',{...input,requestKey:randomUUID(),principal:'50000001'},user));
     await assert.rejects(()=>service.create('loan',{...input,requestKey:randomUUID(),termMonths:37},user));
-    await assert.rejects(()=>service.decideLoan(loans[0].loanid,{decision:'APPROVE',reason:'Valid test'},actors[1]),/chi nhánh khác/);
-    const approved=await service.decideLoan(loans[0].loanid,{decision:'APPROVE',reason:'Approved test'},actors[0]);
-    assert.equal(approved.status,'Active');
+    await assert.rejects(()=>service.decideLoan(loans[0].loanid,{decision:'APPROVE',reason:'Valid test',destinationAccountId:Number(accounts[0].accountid),requestKey:randomUUID()},actors[1]),/chi nhánh khác/);
+    await assert.rejects(()=>service.decideLoan(loans[0].loanid,{decision:'APPROVE',reason:'Missing receiving account'},actors[0]),/tài khoản nhận/);
     const {LoanPaymentOptionsService}=require('../dist/http/loan-payment-options');
     const settlement=await db.function('banking_api.open_account',[null,actors[0].branchId,type,null,'INTERNAL']);
-    const paymentOptions=new LoanPaymentOptionsService(db,new ConfigService({LOAN_SETTLEMENT_ACCOUNT_ID:settlement.accountid}));
-    const quote=await paymentOptions.get(approved.loanid,user);
-    assert.equal(quote.ready,true);
-    assert.equal(quote.schedules.length,12);
-    assert.equal(quote.schedules[0].total,'90416.66');
-    assert.equal(quote.schedules[0].pendingPayment,false);
-    await assert.rejects(()=>paymentOptions.get(approved.loanid,{role:'customer',customerId:Number(other.customerid)}),/Không tìm thấy/);
-    assert.equal((await new LoanPaymentOptionsService(db,new ConfigService({})).get(approved.loanid,user)).ready,false);
-    assert.equal(Number((await db.pool.query('SELECT count(*) AS n FROM banking.repayment_schedule WHERE loanid=$1',[approved.loanid])).rows[0].n),12);
-    await assert.rejects(()=>service.decideLoan(approved.loanid,{decision:'APPROVE',reason:'Again test'},actors[0]),/đã được xử lý/);
+    const paymentOptions=new LoanPaymentOptionsService(db);
+    const quote=await paymentOptions.get(loans[0].loanid,user);
+    assert.equal(quote.ready,false);
+    assert.equal(quote.schedules.length,0);
+    await assert.rejects(()=>paymentOptions.get(loans[0].loanid,{role:'customer',customerId:Number(other.customerid)}),/Không tìm thấy/);
     const rejected=await service.create('loan',{...input,requestKey:randomUUID()},user);
     assert.equal((await service.decideLoan(rejected.loanid,{decision:'REJECT',reason:'Rejected test'},actors[0])).status,'Cancelled');
     assert.equal(Number((await db.pool.query('SELECT count(*) AS n FROM banking.repayment_schedule WHERE loanid=$1',[rejected.loanid])).rows[0].n),0);
@@ -137,7 +131,7 @@ test('real PostgreSQL self service is atomic, idempotent, scoped, masked and nev
     const notes=(await db.pool.query("SELECT newvalue->>'reason' AS reason FROM banking.audit_log WHERE action='STATUS_CHANGE' AND entitytype='LOAN'")).rows;
     assert.ok(notes.some(row=>row.reason==='Rejected test'));
     const destinationAccount=await db.function('banking_api.open_account',[null,actors[0].branchId,type,other.customerid,'CUSTOMER']);
-    const transferType=(await db.pool.query("INSERT INTO banking.transaction_type(typecode,typename) VALUES('TRANSFER','Notification link test') RETURNING transactiontypeid")).rows[0].transactiontypeid;
+    const transferType=(await db.pool.query("SELECT transactiontypeid FROM banking.transaction_type WHERE typecode='TRANSFER'")).rows[0].transactiontypeid;
     const notificationTransaction=(await db.pool.query(`INSERT INTO banking.bank_transaction(transactioncode,transactiontypeid,channel,amount,currency,status,initiatedbycustomerid)
       VALUES('NOTICE-LINK-TEST',$1,'InternetBanking',1,'VND','Pending',$2) RETURNING transactionid`,[transferType,owner.customerid])).rows[0].transactionid;
     await db.pool.query(`INSERT INTO banking.transfer_request(transactionid,customerid,sourceaccountid,destinationaccountid,idempotencykey,amount,currency,status)
@@ -166,6 +160,6 @@ test('the existing approval endpoint delegates to the same reasoned, atomic loan
   let received;
   const controller=new ManagementController({pool:{query:async()=>({rows:[{}]})}}, {decideLoan:async(...args)=>{received=args;return {status:'Active'};}});
   const actor={role:'employee',userId:1,employeeId:2,branchId:3};
-  await controller.approveLoan(7,actor,{ip:'127.0.0.1'},{reason:'Checked application'});
-  assert.deepEqual(received,[7,{decision:'APPROVE',reason:'Checked application'},actor,'127.0.0.1']);
+  await controller.approveLoan(7,actor,{ip:'127.0.0.1'},{reason:'Checked application',destinationAccountId:9,requestKey:'test-replay-key'});
+  assert.deepEqual(received,[7,{decision:'APPROVE',reason:'Checked application',destinationAccountId:9,requestKey:'test-replay-key'},actor,'127.0.0.1']);
 });

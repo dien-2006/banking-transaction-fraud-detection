@@ -60,14 +60,16 @@ try{
   const rows=[{...loanRows[0],loanid:901,loancode:'LN00000901',status:'Pending'},{...loanRows[0],loanid:902,loancode:'LN00000902',status:'Pending'}],decisions=[];
   await page.route('**/api/v1/**',route=>{
    const url=new URL(route.request().url()),path=url.pathname.replace('/api/v1','');
-   if(route.request().method()==='POST'){assert.match(path,/^\/management\/loans\/\d+\/decision$/);const data=route.request().postDataJSON();const row=rows.find(row=>String(row.loanid)===path.split('/')[3]);if(row.status!=='Pending')return route.fulfill({status:409,json:{message:'Hồ sơ đã được xử lý'}});decisions.push(data);row.status=data.decision==='APPROVE'?'Active':'Cancelled';return route.fulfill({json:row});}
+   if(route.request().method()==='POST'){assert.match(path,/^\/management\/loans\/\d+\/decision$/);const data=route.request().postDataJSON();const row=rows.find(row=>String(row.loanid)===path.split('/')[3]);if(row.status!=='Pending')return route.fulfill({status:409,json:{message:'Hồ sơ đã được xử lý'}});decisions.push(data);row.status=data.decision==='APPROVE'?'Active':'Cancelled';return route.fulfill({json:{...row,...(data.decision==='APPROVE'?{disbursement:{transactionid:500,transactioncode:'LD-'+data.requestKey,typecode:'DEPOSIT',amount:'1000000',currency:'VND',status:'Success',destinationaccountid:data.destinationAccountId}}:{})}});}
+   if(path.endsWith('/disbursement-options')){const row=rows.find(r=>String(r.loanid)===path.split('/')[3]);return route.fulfill({json:{loanId:row.loanid,status:row.status,ready:true,accounts:[{accountId:1,accountNumber:'1000000000000001'}],disbursement:null}});}
    if(path==='/admin/loans')return route.fulfill({json:{items:rows,total:rows.length,page:1,pageSize:20}});return route.fulfill({json:fixtureResponse(url,role)});
   });
   await page.goto(base+'/'+role+'/loans');
   for(const decision of ['REJECT','APPROVE']){
    await page.getByRole('button',{name:'Xử lý',exact:true}).first().click();const dialog=page.getByRole('dialog',{name:'Xử lý hồ sơ vay',exact:true});await dialog.getByLabel('Quyết định *',{exact:true}).selectOption(decision);
-   const confirm=dialog.getByRole('button',{name:decision==='APPROVE'?'Xác nhận duyệt':'Xác nhận từ chối',exact:true});assert.ok(await confirm.isDisabled());await dialog.getByLabel('Lý do xử lý *',{exact:true}).fill(decision==='APPROVE'?'Đã kiểm tra hồ sơ thử nghiệm':'Hồ sơ thử nghiệm chưa đủ điều kiện');
-   await page.screenshot({path:`/tmp/d4-self-service/${role}-${decision}.png`});await confirm.click();await dialog.waitFor({state:'hidden'});
+   const confirm=dialog.getByRole('button',{name:decision==='APPROVE'?'Xác nhận duyệt và giải ngân':'Xác nhận từ chối',exact:true});assert.ok(await confirm.isDisabled());await dialog.getByLabel('Lý do xử lý *',{exact:true}).fill(decision==='APPROVE'?'Đã kiểm tra hồ sơ thử nghiệm':'Hồ sơ thử nghiệm chưa đủ điều kiện');
+   if(decision==='APPROVE')await dialog.getByLabel('Tài khoản nhận giải ngân *',{exact:true}).selectOption('1');
+   await page.screenshot({path:`/tmp/d4-self-service/${role}-${decision}.png`});await confirm.click();await dialog.getByRole('button',{name:'Đóng',exact:true}).click();await dialog.waitFor({state:'hidden'});
   }
   assert.deepEqual(decisions.map(row=>row.decision),['REJECT','APPROVE']);assert.equal(await page.getByRole('button',{name:'Xử lý',exact:true}).count(),0);await page.close();console.log('PASS staff loan approval/rejection and reason',role);
  }

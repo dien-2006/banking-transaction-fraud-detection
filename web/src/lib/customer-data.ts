@@ -18,6 +18,12 @@ export const transactionTypes: Record<string, string> = {
   OPENING_BALANCE: "Số dư mở tài khoản",
   REVERSAL: "Hoàn giao dịch",
 };
+export function transactionPurpose(row: Pick<ApiTransaction,"typecode"|"description"|"typename">) {
+  const disbursement=row.typecode==="DEPOSIT"&&/^LOAN_DISBURSEMENT\|[1-9]\d*$/.test(row.description??"");
+  const repayment=row.typecode==="LOAN_PAYMENT"&&/^LOAN_PAYMENT\|[1-9]\d*\|[1-9]\d*\|(Counter|Account|Online)$/.test(row.description??"");
+  const label=disbursement?"Giải ngân khoản vay":transactionTypes[row.typecode]||row.typename||row.typecode;
+  return {label,description:disbursement||repayment?label:row.description||label};
+}
 export const formatVnd = (value: string | number) =>
   formatCurrency(value, "VND");
 export const customerDate = (value?: string | null) => formatDate(value);
@@ -68,9 +74,9 @@ export function transactionView(
     type:
       direction === "internal"
         ? "Chuyển giữa tài khoản"
-        : (transactionTypes[transaction.typecode] ?? transaction.typename),
+        : transactionPurpose(transaction).label,
     time: formatDateTime(transaction.transactiondate),
-    description: transaction.description || transaction.typename,
+    description: transactionPurpose(transaction).description,
   };
 }
 

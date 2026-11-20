@@ -280,6 +280,65 @@ BEGIN
 END;
 $$;
 
+-- The fixed schema has no disbursement table/type. A DEPOSIT is linked to its
+-- loan by an append-only audit record; a description alone is never evidence.
+CREATE OR REPLACE FUNCTION banking_api.loan_disbursement_transaction_id(p_loan bigint)
+RETURNS bigint LANGUAGE sql STABLE SET search_path=banking,pg_temp AS $$
+    SELECT t.transactionid FROM loan l
+    JOIN bank_transaction t ON t.description=concat('LOAN_DISBURSEMENT|',l.loanid)
+        AND t.initiatedbycustomerid=l.customerid AND t.amount=l.principalamount
+        AND t.fee=0 AND t.currency='VND' AND t.status='Success'
+    JOIN transaction_type tt ON tt.transactiontypeid=t.transactiontypeid AND tt.typecode='DEPOSIT'
+    JOIN transfer_request tr ON tr.transactionid=t.transactionid AND tr.status='Completed'
+        AND tr.customerid=l.customerid AND tr.amount=t.amount
+    JOIN bank_account src ON src.accountid=tr.sourceaccountid AND src.accountcategory='INTERNAL'
+    JOIN bank_account dst ON dst.accountid=tr.destinationaccountid AND dst.accountcategory='CUSTOMER'
+    WHERE l.loanid=p_loan
+      AND EXISTS (SELECT 1 FROM audit_log a WHERE a.entitytype='LOAN_DISBURSEMENT'
+        AND a.entityid=l.loanid::text AND a.action='INSERT'
+        AND a.newvalue->>'transactionCode'=t.transactioncode
+        AND a.newvalue->>'sourceAccountId'=tr.sourceaccountid::text
+        AND a.newvalue->>'destinationAccountId'=tr.destinationaccountid::text)
+      AND (SELECT count(*) FROM transaction_posting p WHERE p.transactionid=t.transactionid)=2
+      AND EXISTS (SELECT 1 FROM transaction_posting p WHERE p.transactionid=t.transactionid
+        AND p.accountid=tr.sourceaccountid AND p.postingtype='DEBIT' AND p.amount=t.amount)
+      AND EXISTS (SELECT 1 FROM transaction_posting p WHERE p.transactionid=t.transactionid
+        AND p.accountid=tr.destinationaccountid AND p.postingtype='CREDIT' AND p.amount=t.amount)
+    ORDER BY t.transactionid LIMIT 1;
+$$;
+
+CREATE OR REPLACE FUNCTION banking_api.loan_is_funded(p_loan bigint)
+RETURNS boolean LANGUAGE sql STABLE SET search_path=banking,pg_temp AS $$
+    SELECT banking_api.loan_disbursement_transaction_id(p_loan) IS NOT NULL;
+$$;
+
+-- Bank-side accounting is resolved from DB, never entered by the customer or
+-- wired to environment-specific account IDs. Customer accounts are excluded.
+-- Funding prefers a bank account able to cover principal, then the same branch.
+-- Repayment returns to the original funding account, or an existing repayment
+-- counterparty. Legacy loans without receipts use the same-branch bank pool.
+CREATE OR REPLACE FUNCTION banking_api.loan_counterparty_account(p_loan bigint,p_funding boolean)
+RETURNS bigint LANGUAGE sql STABLE SET search_path=banking,pg_temp AS $$
+WITH funded_from AS (
+    SELECT tr.sourceaccountid AS accountid FROM transfer_request tr
+    WHERE tr.transactionid=banking_api.loan_disbursement_transaction_id(p_loan)
+), repaid_to AS (
+    SELECT p.accountid FROM loan_payment lp JOIN bank_transaction t USING(transactionid)
+    JOIN transaction_posting p USING(transactionid)
+    JOIN bank_account a ON a.accountid=p.accountid
+    WHERE lp.loanid=p_loan AND t.status='Success' AND p.postingtype='CREDIT'
+      AND a.accountcategory='INTERNAL' AND a.currency='VND'
+    ORDER BY lp.loanpaymentid DESC,p.postingid LIMIT 1
+)
+SELECT a.accountid FROM loan l CROSS JOIN bank_account a JOIN account_type at USING(accounttypeid)
+WHERE l.loanid=p_loan AND a.accountcategory='INTERNAL' AND a.status='Active' AND a.currency='VND'
+ORDER BY CASE WHEN NOT p_funding AND a.accountid=(SELECT accountid FROM funded_from) THEN 0
+              WHEN NOT p_funding AND a.accountid=(SELECT accountid FROM repaid_to) THEN 1 ELSE 2 END,
+    CASE WHEN p_funding AND a.balance-l.principalamount<at.minbalance THEN 1 ELSE 0 END,
+    CASE WHEN a.branchid=l.branchid THEN 0 ELSE 1 END,a.accountid
+LIMIT 1;
+$$;
+
 CREATE OR REPLACE FUNCTION banking_api.post_balanced_transaction (p_transaction_id bigint, p_debit bigint, p_credit bigint, p_amount numeric, p_customer bigint DEFAULT NULL, p_check_owner boolean DEFAULT FALSE)
     RETURNS text
     LANGUAGE plpgsql
@@ -291,6 +350,8 @@ DECLARE
     vt RECORD;
     v_decision text;
     v_type text;
+    v_loan loan%ROWTYPE;
+    v_disbursement boolean;
 BEGIN
     IF p_amount <= 0 OR p_debit = p_credit THEN
         PERFORM
@@ -313,6 +374,27 @@ BEGIN
         RETURN vt.status;
     END IF;
     SELECT typecode INTO v_type FROM transaction_type WHERE transactiontypeid=vt.transactiontypeid;
+    v_disbursement := split_part(COALESCE(vt.description,''),'|',1)='LOAN_DISBURSEMENT';
+    IF v_disbursement THEN
+        SELECT * INTO v_loan FROM loan WHERE loanid::text=split_part(vt.description,'|',2) FOR UPDATE;
+        IF NOT FOUND OR vt.description IS DISTINCT FROM concat('LOAN_DISBURSEMENT|',v_loan.loanid)
+           OR v_loan.status<>'Pending' OR v_type<>'DEPOSIT'
+           OR vt.initiatedbycustomerid IS DISTINCT FROM v_loan.customerid
+           OR p_customer IS DISTINCT FROM v_loan.customerid
+           OR p_amount IS DISTINCT FROM v_loan.principalamount OR vt.amount IS DISTINCT FROM p_amount
+           OR vt.fee<>0 OR banking_api.loan_is_funded(v_loan.loanid)
+           OR EXISTS(SELECT 1 FROM repayment_schedule WHERE loanid=v_loan.loanid)
+           OR NOT EXISTS(SELECT 1 FROM audit_log a WHERE a.entitytype='LOAN_DISBURSEMENT'
+             AND a.entityid=v_loan.loanid::text AND a.action='INSERT'
+             AND a.newvalue->>'transactionCode'=vt.transactioncode
+             AND a.newvalue->>'sourceAccountId'=p_debit::text
+             AND a.newvalue->>'destinationAccountId'=p_credit::text) THEN
+            PERFORM banking_api.raise_error('CONFLICT','Khoản vay không đủ điều kiện giải ngân hoặc đã được giải ngân.');
+        END IF;
+        PERFORM b.branchid FROM branch b JOIN loan_type lt ON lt.loantypeid=v_loan.loantypeid
+          WHERE b.branchid=v_loan.branchid AND b.status='Active' AND lt.status='Active' FOR SHARE OF b,lt;
+        IF NOT FOUND THEN PERFORM banking_api.raise_error('CONFLICT','Chi nhánh hoặc sản phẩm vay đã ngừng hoạt động.'); END IF;
+    END IF;
     IF v_type = 'REVERSAL' THEN
         IF NOT EXISTS (SELECT 1 FROM bank_transaction WHERE transactionid=vt.originaltransactionid AND status='Success') THEN
             PERFORM banking_api.raise_error('FORBIDDEN','reversal requires a successful original transaction');
@@ -366,6 +448,17 @@ BEGIN
     IF vd.status <> 'Active' OR vc.status <> 'Active' THEN
         PERFORM
             banking_api.raise_error ('ACCOUNT_INACTIVE', 'account is not active');
+    END IF;
+    IF v_disbursement THEN
+        IF (SELECT count(*) FROM bank_account a WHERE a.accountid IN(p_debit,p_credit)
+            AND ((a.accountid=p_debit AND a.accountcategory='INTERNAL')
+              OR (a.accountid=p_credit AND a.accountcategory='CUSTOMER')) AND a.currency='VND')<>2 THEN
+            PERFORM banking_api.raise_error('VALIDATION','Tài khoản giải ngân không hợp lệ.');
+        END IF;
+        PERFORM 1 FROM account_holder h WHERE h.accountid=p_credit AND h.customerid=v_loan.customerid
+          AND h.holdertype='PRIMARY_OWNER' AND h.status='Active' AND h.startdate<=CURRENT_DATE
+          AND (h.enddate IS NULL OR h.enddate>=CURRENT_DATE) FOR SHARE;
+        IF NOT FOUND THEN PERFORM banking_api.raise_error('FORBIDDEN','Tài khoản nhận không còn do khách hàng vay đứng tên chính.'); END IF;
     END IF;
     IF v_type<>'REVERSAL' THEN
         PERFORM c.customerid FROM customer c WHERE c.customerid=vt.initiatedbycustomerid OR c.customerid IN (
@@ -441,6 +534,11 @@ BEGIN
         status = 'Success'
     WHERE
         transactionid = p_transaction_id;
+    IF v_disbursement THEN
+        -- This also runs after REVIEW -> APPROVE. Any schedule error rolls back
+        -- postings, balances, Success, review decision and outbox together.
+        PERFORM banking_api.approve_loan(v_loan.loanid);
+    END IF;
     IF vt.initiatedbycustomerid IS NOT NULL THEN
         INSERT INTO notification_outbox (customerid, transactionid, notificationtype)
             VALUES (vt.initiatedbycustomerid, p_transaction_id, 'TRANSACTION_COMPLETED');
@@ -595,6 +693,14 @@ DECLARE
     v_owner boolean;
     v_existing RECORD;
 BEGIN
+    IF split_part(COALESCE(p_description,''),'|',1)='LOAN_DISBURSEMENT'
+       AND NOT EXISTS(SELECT 1 FROM audit_log a WHERE a.entitytype='LOAN_DISBURSEMENT'
+         AND a.action='INSERT' AND a.entityid=split_part(p_description,'|',2)
+         AND a.newvalue->>'transactionCode'=p_transaction_code
+         AND a.newvalue->>'sourceAccountId'=p_debit::text
+         AND a.newvalue->>'destinationAccountId'=p_credit::text) THEN
+        PERFORM banking_api.raise_error('FORBIDDEN','Giải ngân phải được thực hiện từ hồ sơ vay.');
+    END IF;
     IF p_type_code NOT IN ('DEPOSIT', 'WITHDRAWAL', 'OPENING_BALANCE') THEN
         PERFORM
             banking_api.raise_error ('VALIDATION', 'unsupported movement type');
@@ -729,6 +835,68 @@ BEGIN
             banking_api.post_balanced_transaction (v_id, p_debit, p_credit, p_amount, v_customer, v_owner);
     END IF;
     RETURN banking_api.transaction_result (v_id);
+END;
+$$;
+
+-- One durable request key per attempt; the loan lock also prevents two different
+-- request keys from funding the same loan. Only failed/blocked attempts may retry.
+CREATE OR REPLACE FUNCTION banking_api.disburse_loan(p_loan bigint,p_destination bigint,p_internal bigint,p_code varchar(40),p_employee integer)
+RETURNS jsonb LANGUAGE plpgsql SET search_path=banking,pg_temp AS $$
+DECLARE v loan%ROWTYPE; v_existing record; v_result jsonb;
+BEGIN
+    SELECT * INTO v FROM loan WHERE loanid=p_loan FOR UPDATE;
+    IF NOT FOUND THEN PERFORM banking_api.raise_error('NOT_FOUND','Không tìm thấy khoản vay.'); END IF;
+    IF NOT EXISTS(SELECT 1 FROM employee e JOIN "system_user" u USING(employeeid) JOIN role r USING(roleid)
+        WHERE e.employeeid=p_employee AND u.userid=NULLIF(current_setting('app.user_id',true),'')::integer
+          AND u.isactive AND e.status='Active' AND r.status='Active'
+          AND (e.branchid=v.branchid OR lower(r.rolename) LIKE '%admin%' OR r.rolename='Quản trị hệ thống')) THEN
+        PERFORM banking_api.raise_error('FORBIDDEN','Không có quyền giải ngân khoản vay này.');
+    END IF;
+    IF p_code IS NULL OR p_code !~* '^LD-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN
+        PERFORM banking_api.raise_error('VALIDATION','Mã yêu cầu giải ngân không hợp lệ.');
+    END IF;
+    PERFORM pg_advisory_xact_lock(hashtextextended(p_code,0));
+    SELECT t.*,tr.sourceaccountid,tr.destinationaccountid INTO v_existing
+      FROM bank_transaction t JOIN transfer_request tr USING(transactionid)
+      WHERE t.transactioncode=p_code OR tr.idempotencykey=p_code;
+    IF FOUND THEN
+        IF v_existing.description IS DISTINCT FROM concat('LOAN_DISBURSEMENT|',p_loan)
+           OR v_existing.amount IS DISTINCT FROM v.principalamount
+           OR v_existing.initiatedbycustomerid IS DISTINCT FROM v.customerid
+           OR v_existing.sourceaccountid IS DISTINCT FROM p_internal
+           OR v_existing.destinationaccountid IS DISTINCT FROM p_destination THEN
+            PERFORM banking_api.raise_error('CONFLICT','Yêu cầu đã được dùng với thông tin giải ngân khác.');
+        END IF;
+        RETURN to_jsonb(v)||jsonb_build_object('disbursement',banking_api.transaction_result(v_existing.transactionid));
+    END IF;
+    IF v.status<>'Pending' OR EXISTS(SELECT 1 FROM repayment_schedule WHERE loanid=p_loan)
+       OR banking_api.loan_is_funded(p_loan) THEN
+        PERFORM banking_api.raise_error('CONFLICT','Hồ sơ đã được xử lý. Khoản vay cũ cần đối soát, không tự giải ngân lại.');
+    END IF;
+    IF EXISTS(SELECT 1 FROM bank_transaction t WHERE t.description=concat('LOAN_DISBURSEMENT|',p_loan)
+        AND t.status IN ('Pending','Success')) THEN
+        PERFORM banking_api.raise_error('CONFLICT','Khoản vay đã có lệnh giải ngân. Vui lòng theo dõi lệnh hiện tại.');
+    END IF;
+    IF v.startdate>CURRENT_DATE THEN
+        PERFORM banking_api.raise_error('VALIDATION','Chưa đến ngày bắt đầu giải ngân của khoản vay.');
+    END IF;
+    IF NOT EXISTS(SELECT 1 FROM bank_account WHERE accountid=p_internal AND accountcategory='INTERNAL'
+        AND status='Active' AND currency='VND') THEN
+        PERFORM banking_api.raise_error('CONFIGURATION','Chưa cấu hình tài khoản nguồn giải ngân VND của ngân hàng.');
+    END IF;
+    PERFORM 1 FROM account_holder h JOIN bank_account a USING(accountid) JOIN customer c USING(customerid)
+      WHERE a.accountid=p_destination AND a.accountcategory='CUSTOMER' AND a.status='Active' AND a.currency='VND'
+        AND c.customerid=v.customerid AND c.status='Active' AND h.status='Active' AND h.holdertype='PRIMARY_OWNER'
+        AND h.startdate<=CURRENT_DATE AND (h.enddate IS NULL OR h.enddate>=CURRENT_DATE) FOR SHARE OF h,c;
+    IF NOT FOUND THEN PERFORM banking_api.raise_error('FORBIDDEN','Chọn tài khoản VND đang hoạt động do khách hàng vay đứng tên chính.'); END IF;
+    INSERT INTO audit_log(userid,entitytype,entityid,action,newvalue)
+      VALUES(NULLIF(current_setting('app.user_id',true),'')::integer,'LOAN_DISBURSEMENT',p_loan::text,'INSERT',
+        jsonb_build_object('transactionCode',p_code,'sourceAccountId',p_internal,'destinationAccountId',p_destination));
+    UPDATE loan SET employeeid=p_employee WHERE loanid=p_loan;
+    v_result:=banking_api.create_account_movement('DEPOSIT',v.customerid,p_internal,p_destination,v.principalamount,
+      p_code,'Counter',p_employee,concat('LOAN_DISBURSEMENT|',p_loan));
+    SELECT * INTO v FROM loan WHERE loanid=p_loan;
+    RETURN to_jsonb(v)||jsonb_build_object('disbursement',v_result);
 END;
 $$;
 
@@ -1024,6 +1192,9 @@ BEGIN
         IF v_existing.initiatedbycustomerid IS DISTINCT FROM p_customer THEN
             PERFORM banking_api.raise_error('FORBIDDEN', 'transaction code belongs to another customer');
         END IF;
+        -- Preserve the recorded bank destination when replaying a request,
+        -- even if pool availability or account status changed since posting.
+        IF p_internal IS NULL THEN p_internal:=v_existing.destinationaccountid; END IF;
         IF v_existing.typecode <> 'LOAN_PAYMENT'
            OR v_existing.sourceaccountid IS DISTINCT FROM p_source
            OR v_existing.destinationaccountid IS DISTINCT FROM p_internal
@@ -1048,6 +1219,12 @@ BEGIN
     IF vs.loanstatus NOT IN ('Active','Overdue') OR vs.status = 'Paid' THEN
         PERFORM
             banking_api.raise_error ('CONFLICT', 'loan or schedule is not payable');
+    END IF;
+    IF p_internal IS NULL THEN
+        p_internal:=banking_api.loan_counterparty_account(p_loan,FALSE);
+    END IF;
+    IF p_internal IS NULL THEN
+        PERFORM banking_api.raise_error('CONFIGURATION','Ngân hàng tạm thời chưa thể tiếp nhận thanh toán khoản vay. Vui lòng liên hệ chi nhánh.');
     END IF;
     IF EXISTS (
         SELECT 1 FROM bank_transaction bt JOIN transaction_type tt USING (transactiontypeid)
@@ -1200,7 +1377,8 @@ BEGIN
         PERFORM
             banking_api.raise_error ('CONFLICT', 'transaction is not reversible');
     END IF;
-    IF EXISTS (SELECT 1 FROM transaction_type WHERE transactiontypeid=vo.transactiontypeid AND typecode='LOAN_PAYMENT') THEN
+    IF EXISTS (SELECT 1 FROM transaction_type WHERE transactiontypeid=vo.transactiontypeid AND typecode='LOAN_PAYMENT')
+       OR split_part(COALESCE(vo.description,''),'|',1)='LOAN_DISBURSEMENT' THEN
         PERFORM banking_api.raise_error('CONFLICT','loan payment reversal is not supported; requires loan-domain compensation');
     END IF;
     IF (

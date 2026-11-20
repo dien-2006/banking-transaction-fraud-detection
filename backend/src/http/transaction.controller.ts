@@ -8,7 +8,6 @@ import {
   Post,
   Query,
   Req,
-  ServiceUnavailableException,
 } from "@nestjs/common";
 import { Request } from "express";
 import { DatabaseService } from "../database/database.service";
@@ -22,8 +21,6 @@ import {
   TransferDto,
 } from "./dto";
 import { OtpService } from "../security/otp.service";
-import { ConfigService } from "@nestjs/config";
-import { loanSettlementAccountId } from './loan-payment-options';
 import {
   assertResourceBranch,
   employeeBranch,
@@ -35,7 +32,6 @@ export class TransactionController {
   constructor(
     private readonly db: DatabaseService,
     private readonly otp: OtpService,
-    private readonly config: ConfigService,
   ) {}
 
   @Get()
@@ -150,16 +146,12 @@ export class TransactionController {
   loanPayment(@CurrentUser() user: AuthUser, @Body() dto: LoanPaymentDto) {
     if (user.role !== 'customer' || !user.customerId)
       throw new ForbiddenException("Customer identity required");
-    const internalCreditAccountId = loanSettlementAccountId(this.config);
-    if (!internalCreditAccountId) {
-      throw new ServiceUnavailableException("Ngân hàng chưa cấu hình tài khoản nhận tiền trả nợ. Vui lòng liên hệ chi nhánh.");
-    }
     return this.db.function("banking_api.pay_loan", [
       user.customerId,
       dto.loanId,
       dto.scheduleId,
       dto.sourceAccountId,
-      internalCreditAccountId,
+      null, // Banking Core resolves the bank-side counterparty from this loan.
       dto.amount,
       dto.transactionCode,
       "Online",

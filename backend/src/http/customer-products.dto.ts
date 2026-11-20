@@ -1,4 +1,4 @@
-import { IsIn, IsInt, IsOptional, IsPositive, IsString, IsUUID, Length, Matches, MaxLength } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsPositive, IsString, IsUUID, Length, Matches, MaxLength, ValidateIf } from 'class-validator';
 import { customerCardTypes } from './customer-card-policy';
 
 export class ProductRequestDto {
@@ -21,6 +21,8 @@ export class CustomerLoanDto extends ProductRequestDto {
 }
 export class LoanApprovalDto {
   @IsString() @Length(3,255) @MaxLength(255) reason!: string;
+  @ValidateIf(data=>data.decision!=='REJECT') @IsInt() @IsPositive() destinationAccountId?: number;
+  @ValidateIf(data=>data.decision!=='REJECT') @IsUUID() requestKey?: string;
 }
 export class LoanDecisionDto extends LoanApprovalDto {
   @IsIn(['APPROVE','REJECT']) decision!: 'APPROVE'|'REJECT';
