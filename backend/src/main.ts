@@ -8,6 +8,9 @@ import { AppModule } from './app.module';
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   const config = app.get(ConfigService);
+  // The Docker deployment has exactly one trusted gateway hop. Direct host
+  // development keeps proxy trust disabled unless explicitly configured.
+  app.getHttpAdapter().getInstance().set('trust proxy', config.get<string>('TRUST_PROXY_HOPS') === '1' ? 1 : false);
   app.setGlobalPrefix('api/v1');
   app.use(helmet());
   app.enableCors({

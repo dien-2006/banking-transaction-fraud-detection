@@ -345,6 +345,7 @@ services:
       POSTGRES_INTERNAL_PORT: 5432
       PORT: 8000
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      TRUST_PROXY_HOPS: "1"
       JWT_SECRET: ${JWT_SECRET}
       TRINO_URL: http://trino:8080
       TRINO_USER: ${TRINO_USER:-d4-bank-api}

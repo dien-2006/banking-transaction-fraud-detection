@@ -271,6 +271,36 @@ không thay thế việc nạp đủ `z_01` đến `z_07` hoặc khôi phục tr
 Chỉ thay `.env` thì chạy lại `up -d` của service liên quan để recreate và nhận env mới;
 `docker compose restart` không nạp env mới. Không xóa volume để cập nhật code.
 
+### Cập nhật chức năng đăng ký khách hàng
+
+Trang `/register` dùng Brevo (`BREVO_API_KEY`, `OTP_SENDER_EMAIL`, `OTP_SENDER_NAME`)
+và Redis để xác minh email. Đăng ký thành công chỉ tạo hồ sơ + tài khoản đăng nhập;
+khách hàng mở tài khoản ngân hàng riêng sau khi đăng nhập. Email đã có hồ sơ không
+được tự nhận quyền truy cập từ form này.
+
+Khi cập nhật từ phiên bản chưa có đăng ký:
+
+1. Commit/push code rồi pull đúng bản trên EC2.
+2. Khi đã tạm dừng các thao tác tạo tài khoản, dùng DBeaver chạy riêng khối
+   `CREATE OR REPLACE FUNCTION banking_api.register_customer_online_account ... $$;`
+   trong `sql/z_05_management_operations.sql`, Commit nếu tắt Auto-commit.
+   Bản function mới chuẩn hóa tên đăng nhập và chặn trùng không phân biệt hoa/thường.
+   Không chạy lại `create_table.sql`, INSERT hoặc đổi cấu trúc bảng.
+3. Build và recreate API/web:
+
+```bash
+docker compose --profile web build banking-api web
+docker compose --profile web up -d --no-deps banking-api web gateway
+```
+
+Compose đặt `TRUST_PROXY_HOPS=1` cho API sau Caddy, để giới hạn đăng ký theo IP
+người truy cập. Khi chạy API trực tiếp ngoài Docker, mặc định không tin header proxy.
+Nếu thay số lớp proxy cần xem lại cấu hình tin cậy trước khi triển khai.
+
+Kiểm thử đăng ký bằng email thử nghiệm: gửi mã, thử OTP sai/hết hạn, gửi lại mã,
+tạo thành công rồi đăng nhập bằng tài khoản vừa tạo. Email accepted từ provider
+chưa bảo đảm delivery; xem Spam và trạng thái provider khi không nhận được mã.
+
 ## 7. Các nhóm tùy chọn
 
 ### D4 Insights: đọc Gold đã có

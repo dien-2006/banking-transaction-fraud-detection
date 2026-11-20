@@ -30,6 +30,7 @@ Dự án kết hợp ba lĩnh vực: **ứng dụng ngân hàng**, **phát hiệ
 ### Khách hàng
 
 - Đăng nhập và quản lý hồ sơ cá nhân.
+- Đăng ký tài khoản đăng nhập tại `/register`: họ tên, điện thoại, email, tên đăng nhập và mật khẩu; xác minh email bằng OTP trước khi lưu. Mã khách hàng tự cấp; hồ sơ và tài khoản đăng nhập được tạo trong cùng một transaction DB, chưa có tài khoản ngân hàng và chưa xác minh KYC. Email đã có hồ sơ phải được chi nhánh hỗ trợ, không tự gắn vào ID khách hàng có sẵn. OTP đăng ký tách biệt với OTP chuyển tiền, hết hạn sau 5 phút, tối đa 5 lần thử; gửi lại sau 60 giây. Gửi lại cùng yêu cầu sau lỗi mạng không tạo thêm khách hàng nhờ dấu yêu cầu trong audit log hiện có. Cần cấu hình Brevo hợp lệ.
 - Xem tài khoản, số dư, thẻ và lịch sử giao dịch.
 - Tự mở thêm tài khoản khách hàng tại chi nhánh và sản phẩm đang hoạt động; số tài khoản được tự cấp, số dư ban đầu bằng 0. Tự phát hành thẻ ghi nợ mô phỏng trên tài khoản VND mà mình đứng tên chính, với PIN được băm và số thẻ chỉ trả về dạng đã che. Hạn mức thẻ do server cấu hình qua `CUSTOMER_CARD_DAILY_LIMIT` (mặc định 50.000.000 VND/ngày), hiệu lực 3 năm; không tự phát hành thẻ tín dụng.
 - Gửi hồ sơ vay theo lãi suất và giới hạn của sản phẩm trong DB. Hồ sơ lưu ở trạng thái `Pending`; hệ thống chọn nhân viên đang hoạt động của chi nhánh để tiếp nhận. Nhân viên/admin xử lý tại trang Khoản vay, nút **Xử lý**, chọn phê duyệt hoặc từ chối và nhập lý do. Phê duyệt tạo lịch trả nợ theo nghiệp vụ hiện có, không tự giải ngân; từ chối chuyển hồ sơ sang `Cancelled`.
@@ -476,6 +477,7 @@ API nghiệp vụ có prefix **`/api/v1`**. Các nhóm endpoint chính:
 | Nhóm | Ví dụ | Mục đích |
 |---|---|---|
 | Xác thực | `POST /auth/login` | Đăng nhập và nhận JWT |
+| Đăng ký khách hàng | `POST /auth/registration/otp`, `POST /auth/registration` | Gửi OTP email, xác minh và tạo tài khoản đăng nhập mới |
 | Khách hàng | `GET /me/accounts`, `GET /me/loans` | Tra cứu dữ liệu của người dùng |
 | OTP | `POST /security/otp/request`, `POST /security/otp/verify` | Xác minh giao dịch |
 | Chuyển tiền | `POST /transactions/transfers` | Chuyển khoản online |

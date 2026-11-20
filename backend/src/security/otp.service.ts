@@ -3,10 +3,10 @@ import {
   HttpException,
   HttpStatus,
   Injectable,
-  Logger,
   ServiceUnavailableException,
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import { sendOtpEmail } from "./otp-email";
 import { createHmac, randomInt, randomUUID } from "node:crypto";
 import { DatabaseService } from "../database/database.service";
 import { AuthUser } from "./auth.guard";
@@ -35,7 +35,6 @@ interface Authorization {
 
 @Injectable()
 export class OtpService {
-  private readonly logger = new Logger(OtpService.name);
   private readonly secret: string;
   constructor(
     private readonly redis: RedisService,
@@ -228,44 +227,6 @@ export class OtpService {
     return `${name.slice(0, 2)}***@${domain}`;
   }
   private async send(email: string, name: string, code: string) {
-    const apiKey = this.config.get<string>("BREVO_API_KEY"),
-      sender = this.config.get<string>("OTP_SENDER_EMAIL");
-    if (!apiKey || !sender)
-      throw new ServiceUnavailableException(
-        "Dịch vụ gửi OTP chưa được cấu hình. Vui lòng liên hệ quản trị viên.",
-      );
-    let response: Response;
-    try {
-      response = await fetch("https://api.brevo.com/v3/smtp/email", {
-        method: "POST",
-        signal: AbortSignal.timeout(10000),
-        headers: {
-          accept: "application/json",
-          "api-key": apiKey,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          sender: {
-            email: sender,
-            name: this.config.get<string>("OTP_SENDER_NAME", "D4 Bank"),
-          },
-          to: [{ email, name }],
-          subject: "Mã xác thực giao dịch D4 Bank",
-          textContent: `Mã OTP của bạn là ${code}. Mã có hiệu lực trong 5 phút. Không cung cấp mã này cho bất kỳ ai.`,
-        }),
-      });
-    } catch {
-      this.logger.warn('OTP email provider connection failed');
-      throw new ServiceUnavailableException("Không kết nối được dịch vụ gửi OTP. Vui lòng thử lại.");
-    }
-    if (!response.ok) {
-      // Only status/code are logged; provider messages can include email addresses.
-      const detail = await response.json().catch(() => ({})) as { code?: string };
-      const code = typeof detail.code === 'string' && /^[a-z_]{1,50}$/.test(detail.code) ? detail.code : 'unknown';
-      this.logger.warn(`OTP email rejected: status=${response.status}, code=${code}`);
-      throw new ServiceUnavailableException("Không thể gửi email OTP");
-    }
-    const receipt = await response.json() as { messageId?: string };
-    return receipt.messageId ?? null;
+    return sendOtpEmail(this.config, email, name, code);
   }
 }

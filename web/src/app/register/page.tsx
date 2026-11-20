@@ -1,2 +1,8 @@
 import { AuthSimple } from "@/components/auth-simple";
-export default function RegisterPage() { return <AuthSimple title="Đăng ký D4 Bank" description="Để bảo vệ dữ liệu định danh, tài khoản online chỉ được tạo sau khi nhân viên xác minh hồ sơ. Vui lòng liên hệ chi nhánh; nhân viên sẽ tạo khách hàng và tài khoản đăng nhập trong màn Quản lý khách hàng."><p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600">Sau khi được cấp tên đăng nhập, bạn có thể quay lại trang đăng nhập và sử dụng hệ thống ngay.</p></AuthSimple>; }
+import { RegisterForm } from "@/features/auth/register-form";
+
+export default function RegisterPage() {
+  return <AuthSimple title="Đăng ký D4 Bank" description="Tạo tài khoản đăng nhập khách hàng bằng email của bạn. Mã khách hàng được hệ thống tự động cấp khi đăng ký thành công.">
+    <RegisterForm />
+  </AuthSimple>;
+}

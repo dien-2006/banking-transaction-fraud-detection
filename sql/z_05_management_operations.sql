@@ -284,6 +284,15 @@ CREATE OR REPLACE FUNCTION banking_api.register_customer_online_account (p_custo
 DECLARE
     v customer_online_account%ROWTYPE;
 BEGIN
+    p_username := lower(btrim(p_username));
+    IF p_username IS NULL OR length(p_username) < 3 OR length(p_username) > 100 THEN
+        PERFORM banking_api.raise_error('VALIDATION', 'Tên đăng nhập phải từ 3 đến 100 ký tự.');
+    END IF;
+    -- Authentication is case-insensitive; serialize all customer login creation.
+    PERFORM pg_advisory_xact_lock(hashtextextended('customer-login:' || p_username, 0));
+    IF EXISTS (SELECT 1 FROM customer_online_account WHERE lower(btrim(username)) = p_username) THEN
+        PERFORM banking_api.raise_error('CONFLICT', 'Tên đăng nhập đã được sử dụng. Vui lòng chọn tên khác.');
+    END IF;
     IF NOT EXISTS (
         SELECT
             1
