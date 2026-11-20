@@ -521,10 +521,22 @@ services:
       minio-init: {condition: service_completed_successfully}
     networks: [bank-network]
 
+  hive-metastore-init:
+    image: apache/hive:${HIVE_VERSION:-4.0.0}
+    restart: "no"
+    user: "0:0"
+    network_mode: none
+    entrypoint: [/bin/sh, -ec]
+    command:
+      - chown -R hive:hive /opt/hive/metastore_db
+    volumes:
+      - hive_metastore_data:/opt/hive/metastore_db
+
   hive-metastore:
     image: apache/hive:${HIVE_VERSION:-4.0.0}
     container_name: bank-hive-metastore
     restart: unless-stopped
+    entrypoint: [/bin/sh, /opt/hive/start-metastore.sh]
     environment:
       SERVICE_NAME: metastore
       SERVICE_OPTS: -Xmx512m
@@ -536,6 +548,9 @@ services:
       # Keep existing managed warehouse locations valid when upgrading old volumes.
       - hive_metastore_data:/opt/hive/data
       - ./docker/hive/conf/core-site.xml:/opt/hive/conf/core-site.xml:ro
+      - ./docker/hive/start-metastore.sh:/opt/hive/start-metastore.sh:ro
+    depends_on:
+      hive-metastore-init: {condition: service_completed_successfully}
     healthcheck:
       test: [CMD-SHELL, "timeout 3 bash -c '</dev/tcp/localhost/9083'"]
       interval: 10s

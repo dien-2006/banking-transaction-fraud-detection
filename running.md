@@ -100,14 +100,22 @@ Chạy **Execute SQL Script** cho từng file theo đúng thứ tự:
 | Thứ tự | File | Mục đích |
 | --- | --- | --- |
 | 1 | [sql/create_table.sql](sql/create_table.sql) | Tạo schema và bảng trên DB trống |
-| 2 | [sql/z_01_foundation.sql](sql/z_01_foundation.sql) | Extension, schema API và các hàm nền |
-| 3 — tùy chọn | [sql/examble_data.sql](sql/examble_data.sql) | Nạp bộ dữ liệu mô phỏng của dự án |
-| 4 | [sql/z_02_views.sql](sql/z_02_views.sql) | View đọc dữ liệu |
-| 5 | [sql/z_03_integrity.sql](sql/z_03_integrity.sql) | Audit và kiểm tra tính toàn vẹn |
-| 6 | [sql/z_04_financial_operations.sql](sql/z_04_financial_operations.sql) | Giao dịch, risk và xử lý tài chính |
-| 7 | [sql/z_05_management_operations.sql](sql/z_05_management_operations.sql) | Tạo/cập nhật hồ sơ, tài khoản, thẻ, khoản vay |
-| 8 | [sql/z_06_api_queries.sql](sql/z_06_api_queries.sql) | Truy vấn phục vụ API/web |
-| 9 | [sql/z_07_outbox_and_indexes.sql](sql/z_07_outbox_and_indexes.sql) | Outbox và index theo thiết kế có sẵn |
+| 2 | `CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;` | Chạy riêng để chuẩn bị hash mật khẩu |
+| 3 — tùy chọn | [sql/examble_data.sql](sql/examble_data.sql) | Nạp dữ liệu mẫu trước foundation để tránh trùng ID danh mục/model |
+| 4 | [sql/z_01_foundation.sql](sql/z_01_foundation.sql) | Schema API và các hàm nền |
+| 5 | [sql/z_02_views.sql](sql/z_02_views.sql) | View đọc dữ liệu |
+| 6 | [sql/z_03_integrity.sql](sql/z_03_integrity.sql) | Audit và kiểm tra tính toàn vẹn |
+| 7 | [sql/z_04_financial_operations.sql](sql/z_04_financial_operations.sql) | Giao dịch, risk và xử lý tài chính |
+| 8 | [sql/z_05_management_operations.sql](sql/z_05_management_operations.sql) | Tạo/cập nhật hồ sơ, tài khoản, thẻ, khoản vay |
+| 9 | [sql/z_06_api_queries.sql](sql/z_06_api_queries.sql) | Truy vấn phục vụ API/web |
+| 10 | [sql/z_07_outbox_and_indexes.sql](sql/z_07_outbox_and_indexes.sql) | Outbox và index theo thiết kế có sẵn |
+
+`z_01` tự thêm danh mục giao dịch và model bootstrap. Vì vậy không chạy `z_01`
+trước bộ INSERT có ID cố định trong `examble_data.sql`. Thứ tự trên dành cho DB
+trống; nếu đã chạy một phần và gặp trùng ID, dừng script, kiểm tra dữ liệu đã commit
+trước khi quyết định chạy tiếp. Không bỏ qua lỗi hoặc chạy lại toàn bộ INSERT.
+Nên tắt Auto-commit khi nạp seed, Commit một lần sau khi cả file thành công và
+Rollback nếu có lỗi.
 
 Nếu dùng dữ liệu mẫu, nạp **trước** khi tạo trigger để không xử lý snapshot lịch sử
 như giao dịch mới. Chạy đến hết `examble_data.sql`, gồm khối `sync_seed_identities`
@@ -325,7 +333,22 @@ báo thiếu Spark/Airflow/Kafka ngay cả khi nhóm web hoạt động bình th
 | Không nhận OTP | Kiểm tra cấu hình Brevo/sender và trạng thái delivery của provider; accepted không đồng nghĩa đã vào hộp thư |
 | Chưa trả được khoản vay | Đặt `LOAN_SETTLEMENT_ACCOUNT_ID` là tài khoản INTERNAL VND đang hoạt động dùng để thu nợ, rồi recreate API |
 | DB mới chưa đăng nhập được | Tạo bảng thôi chưa có người dùng; khôi phục backup hoặc chuẩn bị dữ liệu hợp lệ |
+| Hive báo không tạo được `metastore_db` trên volume mới | Cập nhật Compose và `docker/hive/start-metastore.sh`: init cấp quyền volume, wrapper dùng thư mục con `catalog` cho DB mới. Catalog cũ ở root vẫn được giữ nguyên; không xóa volume |
 | Máy treo/chậm khi bật toàn bộ | Kiểm tra RAM/swap và dừng nhóm dữ liệu không dùng; không reset DB/volume |
+
+Sau khi cập nhật Compose và script Hive trên máy đích, khởi động lại riêng metastore:
+
+```bash
+docker compose stop hive-metastore
+docker compose up -d --force-recreate hive-metastore
+docker compose ps hive-metastore
+docker compose logs --tail 80 hive-metastore
+```
+
+Không chỉ sửa quyền ghi trên volume rỗng rồi giữ URL Derby cũ: Derby không tạo
+được database ngay tại thư mục mount đã tồn tại. Wrapper chọn thư mục con chưa
+được tạo cho lần đầu và dùng lại catalog đã có cho lần sau. Nếu Hive vẫn lỗi,
+kiểm tra log; không xóa metastore volume vì nó giữ thông tin catalog của Trino.
 
 Các lệnh kiểm thử code, không thay thế kiểm tra triển khai thực tế:
 
