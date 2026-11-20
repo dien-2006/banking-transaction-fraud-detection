@@ -4,6 +4,8 @@ const {randomUUID}=require('node:crypto');
 const {validate}=require('class-validator'),{plainToInstance}=require('class-transformer');
 const {LoanDecisionDto,LoanApprovalDto}=require('../dist/http/customer-products.dto');
 const {CustomerProductsService}=require('../dist/http/customer-products.service');
+const {attachLoanDisbursements}=require('../dist/database/loan-disbursements');
+const {loadTransactionEmailDetails}=require('../dist/notification-email');
 const {LoanPaymentOptionsService}=require('../dist/http/loan-payment-options');
 const {ConfigService}=require('@nestjs/config');
 
@@ -62,6 +64,8 @@ test('PostgreSQL disbursement preserves risk, atomic posting, retries, ownership
   ids={branch,employee,user,customer,account,fund:internal,loanType,model,otherAccount};
   await t.test('ALLOW credits exact principal, debits bank, starts schedule and is replay safe',()=>isolated(async c=>{
    const l=await loan(c),key=randomUUID(),r=await fund(c,l,key);assert.equal(r.status,'Active');assert.equal(r.disbursement.status,'Success');
+   const email=await loadTransactionEmailDetails(c,r.disbursement.transactionid,customer);assert.match(email,/\+1\.000 VND \(Ghi có\)/);assert.ok(!email.includes('Ghi nợ'));
+   const page={items:[{loanid:l.loanid,status:'Active'}]};await attachLoanDisbursements(c,page);assert.equal(page.items[0].disbursement.status,'Success');
    assert.equal((await query(c,'SELECT balance FROM bank_account WHERE accountid=$1',[account])).balance,'1000.00');
    assert.equal((await query(c,'SELECT balance FROM bank_account WHERE accountid=$1',[internal])).balance,'999000.00');
    assert.equal((await query(c,'SELECT banking_api.loan_is_funded($1) AS ready',[l.loanid])).ready,true);
@@ -77,6 +81,8 @@ test('PostgreSQL disbursement preserves risk, atomic posting, retries, ownership
   }));
   await t.test('REVIEW leaves balances/schedule untouched; approval funds once and rejection never funds',()=>isolated(async c=>{
    await risk(c,0.65);const l=await loan(c),r=await fund(c,l),s=await snapshot(c);assert.equal(r.status,'Pending');assert.equal(r.disbursement.status,'Pending');assert.equal(s.postings,0);assert.equal(s.schedules,0);
+   const page={items:[{loanid:l.loanid,status:'Pending'}]};await attachLoanDisbursements(c,page);assert.equal(page.items[0].disbursement.status,'Pending');assert.equal(page.items[0].disbursement.reviewcaseid,r.disbursement.reviewcaseid);
+   const email=await loadTransactionEmailDetails(c,r.disbursement.transactionid,customer);assert.match(email,/Số tiền yêu cầu: 1\.000 VND/);assert.ok(!/[+−]/.test(email.replace(/Mã giao dịch:.*\n/,'')));
    const approved=(await query(c,"SELECT banking_api.resolve_review($1,$2,'APPROVE','Verified test') AS r",[r.disbursement.reviewcaseid,user])).r;assert.equal(approved.status,'Success');
    assert.equal((await query(c,'SELECT status FROM loan WHERE loanid=$1',[l.loanid])).status,'Active');
    const done=await snapshot(c);await query(c,"SELECT banking_api.resolve_review($1,$2,'APPROVE','Verified test') AS r",[r.disbursement.reviewcaseid,user]);assert.deepEqual(await snapshot(c),done);

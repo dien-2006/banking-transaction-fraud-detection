@@ -1,7 +1,7 @@
 "use client";
 import { LoanDecisionButtons } from "./loan-decision-buttons";
 import { ManagementBanner } from "@/components/management-banner";
-import { RecordStatus } from "@/components/record-status";
+import { loanState } from "@/lib/loan-state";
 import { recordStatus } from "@/lib/record-status";
 import { DistributionChart } from "@/components/distribution-chart";
 
@@ -86,6 +86,8 @@ export function LoansPage() {
         recordText(row, ["status"]),
         recordText(row, ["loanid"]),
         recordText(row, ["customerid"]),
+        loanState(row).label,
+        loanState(row).reviewId,
       ]),
     [loansQuery.data, customerNames],
   );
@@ -103,7 +105,7 @@ export function LoansPage() {
       loans.filter(
         (x) =>
           (!linkedLoan || x[6] === linkedLoan) &&
-          (!status || x[5] === status) &&
+          (!status || x[8] === status) &&
           (!product || x[2] === product) &&
           x
             .join(" ")
@@ -148,7 +150,7 @@ export function LoansPage() {
       "Khoản vay đang hoạt động",
       summary ? String(summary.active) : "—",
     ],
-    [Clock3, "Chờ phê duyệt", summary ? String(summary.pending) : "—"],
+    [Clock3, "Chưa hoàn tất giải ngân", summary ? String(summary.pending) : "—"],
     [CircleAlert, "Quá hạn cần xử lý", summary ? String(summary.overdue) : "—"],
   ] as const;
   return (
@@ -276,9 +278,9 @@ export function LoansPage() {
                 }}
               >
                 <option value="">Tất cả trạng thái</option>
-                {[...new Set(loans.map((row) => row[5]))].map((name) => (
+                {[...new Set(loans.map((row) => row[8]))].map((name) => (
                   <option key={name} value={name}>
-                    {recordStatus(name, "loan").label}
+                    {name}
                   </option>
                 ))}
               </select>
@@ -349,10 +351,10 @@ export function LoansPage() {
                         <td className="p-2 font-semibold">{x[3]}</td>
                         <td className="p-2">{x[4]}</td>
                         <td className="p-2">
-                          <RecordStatus status={x[5]} domain="loan" />
+                          <span className={`d4-record-status ${recordStatus(x[5], "loan").tone}`}>{x[8]}</span>
                         </td>
                         <td className="p-2">
-                          {x[5] === "Pending" && <button className="d4-view-button" onClick={()=>{
+                          {x[9] ? <Link className="d4-view-button" href={`/${user.role === "admin" ? "admin" : "employee"}/fraud?reviewId=${x[9]}`}>Thẩm định</Link> : x[5] === "Pending" && <button className="d4-view-button" onClick={()=>{
                             setNotificationHandled(true);
                             setProcessingLoan({id:Number(x[6]),code:x[0],customer:x[1],amount:x[3]});
                           }}>Xử lý</button>}

@@ -360,6 +360,25 @@ cd backend
 LOAN_DISBURSEMENT_TEST_URL='postgresql://USER:PASSWORD@127.0.0.1:PORT/d4_loan_test_NAME' node --test tests/loan-disbursement.test.cjs
 ```
 
+### Cập nhật trạng thái giải ngân và email biến động tiền
+
+Bản sửa giao diện này đọc trạng thái lệnh giải ngân và bút toán hiện có trong DB;
+không thêm bảng/cột và không cần chạy lại SQL nếu đã cập nhật phần giải ngân ở trên.
+Sau khi đưa code lên Git, trên EC2 chạy tại thư mục dự án:
+
+```bash
+git pull
+docker compose --profile web build banking-api web
+docker compose --profile web up -d --no-deps banking-api web notification-sender
+```
+
+Hồ sơ đã gửi giải ngân nhưng được Risk trả `REVIEW` hiển thị **Chờ thẩm định giải ngân**.
+Nút **Thẩm định** mở đúng hồ sơ tại Fraud & Review; khoản vay chỉ chuyển sang đang
+trả nợ sau khi hạch toán thành công. Danh sách tự kiểm tra lại mỗi 15 giây.
+Email thành công ghi số tài khoản và số tiền **+ Ghi có / − Ghi nợ** theo bút toán
+của khách hàng. Email giao dịch chờ xử lý/thất bại chỉ ghi số tiền yêu cầu, không
+báo đã cộng/trừ. Không tự gửi lại các email đã đánh dấu gửi thành công.
+
 ### Cập nhật chức năng đăng ký khách hàng
 
 Trang `/register` dùng Brevo (`BREVO_API_KEY`, `OTP_SENDER_EMAIL`, `OTP_SENDER_NAME`)

@@ -40,9 +40,17 @@ export function LoanDecisionButtons({id,code,customer,amount,autoOpen=false,acti
     <Modal open={!!decision} onOpenChange={value=>{if(!value)close();}} title="Xử lý hồ sơ vay" description="Kiểm tra hồ sơ và chọn tài khoản nhận tiền của khách hàng trước khi xác nhận." className="product-application-dialog loan-decision-dialog">
       {result?.disbursement?<div className="loan-decision-result"><TransactionResult operation="Giải ngân khoản vay" status={result.disbursement.status} decision={result.disbursement.decision} amount={amount} reference={result.disbursement.transactioncode}
         details={[["Mã khoản vay",code],["Khách hàng",customer],["Tài khoản nhận",options.data?.accounts.find(a=>Number(a.accountId)===draft?.destinationAccountId)?.accountNumber??"Xem chứng từ giao dịch"]]}
-        actions={<>{result.disbursement.status==="Pending"&&<Link className="btn-secondary" href={reviewHref}>Xem hồ sơ review</Link>}{["Failed","Cancelled"].includes(result.disbursement.status)&&<button className="btn-secondary" onClick={reset}>Kiểm tra lại hồ sơ</button>}<button className="btn-primary" onClick={close}>Đóng</button></>}/>
+        actions={<>{result.disbursement.status==="Pending"&&review&&<Link className="btn-secondary" href={reviewHref}>Xem hồ sơ review</Link>}{["Failed","Cancelled"].includes(result.disbursement.status)&&<button className="btn-secondary" onClick={reset}>Kiểm tra lại hồ sơ</button>}<button className="btn-primary" onClick={close}>Đóng</button></>}/>
         <p className="product-application-note">{result.disbursement.status==="Success"?"Tiền đã được ghi có vào tài khoản nhận. Lịch trả nợ được tính từ ngày giải ngân.":"Khoản vay chưa được kích hoạt và chưa phát sinh lịch trả nợ."}</p></div>
       :result?<div className="product-application-result"><h3>Đã từ chối hồ sơ vay</h3><p>{code} · {customer}</p><button className="btn-primary" onClick={close}>Đóng</button></div>
+      :pending?<div className="product-application-result">
+        <h3>{options.data?.disbursement?.decision==="REVIEW"?"Giải ngân đang chờ thẩm định":"Lệnh giải ngân đang xử lý"}</h3>
+        <p>{code} · {customer} · {amount}</p>
+        <p>Yêu cầu phê duyệt đã được ghi nhận. Tiền chưa được cộng vào tài khoản và khoản vay chưa được kích hoạt. Hồ sơ cần hoàn tất kiểm soát rủi ro trước khi hạch toán.</p>
+        {review&&<Link className="btn-primary" href={reviewHref}>Mở hồ sơ thẩm định</Link>}
+        <button className="btn-secondary" onClick={()=>void refresh()}>Kiểm tra trạng thái</button>
+        <button className="btn-secondary" onClick={close}>Đóng</button>
+      </div>
       :<form className="resource-create-form product-application-form" onSubmit={event=>{
         event.preventDefault();if(!decision||busy||draft)return;
         try {
@@ -51,7 +59,7 @@ export function LoanDecisionButtons({id,code,customer,amount,autoOpen=false,acti
       }}>
         <div className="resource-create-fields"><p className="product-application-note">{code} · {customer} · {amount}</p>
           {options.isPending?<p role="status">Đang tải tài khoản nhận tiền…</p>:options.isError?<p role="alert" className="product-application-error">Không tải được thông tin giải ngân. <button type="button" onClick={()=>void options.refetch()}>Thử lại</button></p>
-          :pending?<p className="product-application-note">Đã có lệnh giải ngân đang chờ kiểm tra. <Link href={reviewHref}>Mở hồ sơ tại Fraud & Review</Link>.</p>:options.data?.status!=="Pending"?<p className="product-application-note">Hồ sơ đã được xử lý. Vui lòng tải lại danh sách.</p>:null}
+          :options.data?.status!=="Pending"?<p className="product-application-note">Hồ sơ đã được xử lý. Vui lòng tải lại danh sách.</p>:null}
           <fieldset disabled={busy||!!draft||pending||!options.isSuccess||options.data?.status!=="Pending"} className="loan-decision-fields">
             <label>Quyết định *<select aria-label="Quyết định *" className="field" value={decision??"APPROVE"} onChange={e=>setDecision(e.target.value as "APPROVE"|"REJECT")}><option value="APPROVE">Phê duyệt và giải ngân</option><option value="REJECT">Từ chối</option></select></label>
             {decision==="APPROVE"&&<><label>Tài khoản nhận giải ngân *<select aria-label="Tài khoản nhận giải ngân *" className="field" required value={accountId} onChange={e=>setAccountId(e.target.value)}><option value="">Chọn tài khoản của khách hàng vay</option>{options.data?.accounts.map(a=><option key={a.accountId} value={a.accountId}>{a.accountNumber}</option>)}</select></label>

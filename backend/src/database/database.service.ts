@@ -2,6 +2,7 @@ import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Pool, PoolClient } from 'pg';
 import { JoblibFraudModel } from './joblib-model';
+import { attachLoanDisbursements } from './loan-disbursements';
 import type { AuthUser } from '../security/auth.guard';
 
 export interface RequestContext { userId?: number; ipAddress?: string; risk?: boolean }
@@ -390,6 +391,7 @@ export class DatabaseService implements OnModuleDestroy {
       const placeholders = args.map((_, i) => `$${i + 1}`).join(', ');
       const result = await client.query<{ result: T }>(`SELECT ${name}(${placeholders}) AS result`, args);
       const created = result.rows[0]?.result;
+      if (name === 'banking_api.list_loans') await attachLoanDisbursements(client, created);
       if (name === 'banking_api.create_customer' && context.userId != null) {
         const customerId = created != null && typeof created === 'object' && 'customerid' in created
           ? created.customerid : null;
