@@ -1,4 +1,4 @@
-import { RegistrationController } from './http/registration.controller';
+import { ActivationController, RegistrationController } from './http/registration.controller';
 import { RegistrationService } from './http/registration.service';
 import { CounterTransferController, CounterTransferService } from './http/counter-transfer';
 import { CustomerProductsController, LoanDecisionController } from './http/customer-products.controller';
@@ -36,7 +36,7 @@ import { SecurityThrottle } from './security/throttle.service';
     }),
     DatabaseModule, AnalyticsModule,
   ],
-  controllers: [RegistrationController, AuthController, CustomerController, CustomerProductsController, LoanDecisionController, LoanPaymentOptionsController, CardNumberRevealController, TransactionController, AdminController, ManagementController, HealthController, OtpController, CounterTransferController],
+  controllers: [RegistrationController, ActivationController, AuthController, CustomerController, CustomerProductsController, LoanDecisionController, LoanPaymentOptionsController, CardNumberRevealController, TransactionController, AdminController, ManagementController, HealthController, OtpController, CounterTransferController],
   providers: [
     RegistrationService,
     CounterTransferService,

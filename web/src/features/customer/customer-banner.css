@@ -42,7 +42,7 @@
   line-height: 1.5;
 }
 
-.dashboard-shell.customer-shell main .customer-welcome-copy {
+.dashboard-shell.customer-shell main .customer-overview .customer-welcome-copy {
   padding: 0;
   background: transparent;
 }
@@ -52,7 +52,7 @@
   pointer-events: none;
 }
 @media (min-width: 1100px) {
-  .dashboard-shell.customer-shell main .customer-welcome-copy {
+  .dashboard-shell.customer-shell main .customer-overview .customer-welcome-copy {
     max-width: 50%;
   }
 }
@@ -61,11 +61,20 @@
     opacity: 0.22;
   }
 }
-.dashboard-shell.customer-shell main .customer-welcome-copy > p {
-  font-size: 18px;
+.dashboard-shell.customer-shell main .customer-overview .customer-welcome-copy > p {
+  margin: 0;
+  font-size: clamp(18px, 1.4vw, 24px);
+  line-height: 1.2;
 }
-.dashboard-shell.customer-shell main .customer-welcome-copy > span {
-  font-size: 16px;
+.dashboard-shell.customer-shell main .customer-overview .customer-welcome-copy h1 {
+  margin: 6px 0;
+  font-size: clamp(30px, 2.7vw, 44px);
+  line-height: 1.12;
+}
+.dashboard-shell.customer-shell main .customer-overview .customer-welcome-copy > span {
+  display: block;
+  font-size: clamp(14px, 1.1vw, 18px);
+  line-height: 1.45;
 }
 
 @media (min-width: 1100px) and (max-height: 799px) {
@@ -94,4 +103,29 @@
     .customer-accounts-hero-copy, .transfer-hero-copy, .history-hero-copy,
     .loans-hero-copy, .cards-hero-copy, .notice-hero
   ) > p { font-size: 13px; }
+}
+
+/* Keep the enlarged greeting inside the compact desktop banner. */
+@media (min-width: 1100px) and (max-height: 799px) {
+  .dashboard-shell.customer-shell main .customer-overview .customer-welcome-copy > p {
+    font-size: 18px;
+  }
+  .dashboard-shell.customer-shell main .customer-overview .customer-welcome-copy h1 {
+    margin-block: 4px;
+    font-size: 34px;
+  }
+  .dashboard-shell.customer-shell main .customer-overview .customer-welcome-copy > span {
+    font-size: 14px;
+  }
+}
+@media (max-width: 1099px) {
+  .dashboard-shell.customer-shell main .customer-overview .customer-welcome-copy > p {
+    font-size: 18px;
+  }
+  .dashboard-shell.customer-shell main .customer-overview .customer-welcome-copy h1 {
+    font-size: clamp(28px, 4.5vw, 38px);
+  }
+  .dashboard-shell.customer-shell main .customer-overview .customer-welcome-copy > span {
+    font-size: 14px;
+  }
 }

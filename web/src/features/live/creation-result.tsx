@@ -20,6 +20,7 @@ export function CreationResult({ resource, record, onClose, onAnother }: {
     <h2 role="status">{view.title}</h2>
     {resource === "loans" && <p>Hồ sơ đang chờ phê duyệt. Việc tạo hồ sơ chưa giải ngân tiền.</p>}
     <dl>{view.fields.map(([label, key]) => <div key={key}><dt>{label}</dt><dd>{key === "principalamount" && record[key] != null ? formatCurrency(String(record[key]),"VND") : key === "expirydate" && record[key] ? formatDate(String(record[key])) : String(record[key] ?? "Chưa cập nhật")}</dd></div>)}</dl>
+    {resource === "customers" && <p className="text-sm leading-6 text-slate-500">Cung cấp mã khách hàng này cho chính chủ. Khách hàng chọn “Kích hoạt ngân hàng trực tuyến” tại trang đăng nhập để nhận OTP qua email đã lưu và tự đặt mật khẩu. Nếu hồ sơ chưa có email, cần bổ sung trước khi kích hoạt.</p>}
     <footer><button type="button" className="btn-secondary" onClick={onAnother}>Tạo tiếp</button><button type="button" className="btn-primary" onClick={onClose}>Đóng</button></footer>
   </section>;
 }

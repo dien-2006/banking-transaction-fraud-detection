@@ -448,7 +448,7 @@
     gap: 8px;
   }
   .customer-accounts-aside {
-    grid-template-rows: minmax(180px, 1.35fr) minmax(150px, 1fr) minmax(
+    grid-template-rows: minmax(180px, 1.35fr) minmax(160px, 1fr) minmax(
         142px,
         0.85fr
       );
@@ -772,9 +772,8 @@
   flex-shrink: 0;
   margin-left: 0;
 }
-.customer-shell .customer-accounts-aside .customer-box:has(.d4-distribution) {
-  overflow: auto;
-  scrollbar-width: thin;
+.customer-shell .customer-accounts-composition {
+  min-height: 160px;
 }
 .customer-accounts-aside .d4-distribution {
   padding: 4px 12px 10px;
@@ -787,4 +786,35 @@
 }
 .customer-accounts-aside .d4-distribution-legend {
   gap: 6px;
+}
+
+/* Short desktop windows need page scrolling instead of compressed panels. */
+@media (min-width: 1100px) and (min-height: 640px) and (max-height: 899px) {
+  .dashboard-shell.customer-shell:has(.customer-accounts-screen)
+    > main#main-content {
+    overflow-y: auto !important;
+  }
+  .dashboard-shell.customer-shell:has(.customer-accounts-screen)
+    .dashboard-page-fit {
+    height: auto !important;
+    min-height: 100%;
+    overflow: visible;
+  }
+  .dashboard-shell.customer-shell
+    .customer-screen.customer-accounts-screen:has(> .customer-metrics) {
+    height: auto;
+    min-height: 100%;
+    overflow: visible;
+    grid-template-rows: var(--customer-banner-height) clamp(64px, 9vh, 104px) auto;
+  }
+  .customer-accounts-workspace {
+    height: auto;
+    align-items: start;
+  }
+  .customer-accounts-main {
+    grid-template-rows: 38px minmax(212px, auto) minmax(230px, auto);
+  }
+  .customer-accounts-aside {
+    grid-template-rows: auto auto auto;
+  }
 }

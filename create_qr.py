@@ -6,7 +6,7 @@ qr = qrcode.QRCode(version=1,
                    border=4
 )
 
-qr.add_data('https://github.com/dien-2006')
+qr.add_data('http://ngocdien2312006.id.vn')
 qr.make(fit=True)
 img = qr.make_image(fill_color="black", back_color="white")
 img.save('D4bank.png')

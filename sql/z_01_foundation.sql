@@ -3,7 +3,8 @@
 -- Extensions, request context helpers, authentication, and reference data.
 -- ============================================================================
 
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
+-- Keep crypto helpers in public even when create_table.sql left search_path=banking.
+CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
 
 CREATE SCHEMA IF NOT EXISTS banking_api;
 

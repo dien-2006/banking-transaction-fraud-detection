@@ -91,6 +91,15 @@ test('provider failure removes the unissued OTP and its resend lock', async () =
   } finally { global.fetch = previous; }
 });
 
+test('a malformed successful provider response cannot advance registration to OTP entry', async () => {
+  const h = harness(), previous = global.fetch;
+  global.fetch = async () => new Response('{}', { status: 201 });
+  try {
+    await assert.rejects(() => h.service.requestEmail('new@example.invalid', '127.0.0.1'), e => e.getStatus() === 503);
+    assert.equal(h.entries.size, 0);
+  } finally { global.fetch = previous; }
+});
+
 test('invalid, expired or locked registration OTP cannot open a DB transaction', async () => {
   for (const status of ['invalid', 'expired', 'locked']) {
     const h = harness(); h.invalid(status);

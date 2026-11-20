@@ -297,9 +297,42 @@ Compose đặt `TRUST_PROXY_HOPS=1` cho API sau Caddy, để giới hạn đăng
 người truy cập. Khi chạy API trực tiếp ngoài Docker, mặc định không tin header proxy.
 Nếu thay số lớp proxy cần xem lại cấu hình tin cậy trước khi triển khai.
 
+Log API của bản mới có sự kiện `registration_otp_accepted`, kèm `challengeId` và
+`messageId` để đối chiếu trong Brevo Transactional Logs. Không ghi OTP, địa chỉ
+người nhận hoặc API key. Nếu provider từ chối, log chỉ ghi HTTP status và mã lỗi
+đã lọc, không ghi nguyên nội dung lỗi có thể chứa thông tin nhạy cảm.
+
 Kiểm thử đăng ký bằng email thử nghiệm: gửi mã, thử OTP sai/hết hạn, gửi lại mã,
 tạo thành công rồi đăng nhập bằng tài khoản vừa tạo. Email accepted từ provider
 chưa bảo đảm delivery; xem Spam và trạng thái provider khi không nhận được mã.
+
+### Kích hoạt đăng nhập cho khách hàng đã có hồ sơ
+
+Nhân viên thêm khách hàng và mở tài khoản ngân hàng không tự cấp mật khẩu đăng nhập.
+Cung cấp mã khách hàng cho chính chủ và bảo đảm email trong hồ sơ là đúng email của khách hàng.
+Tại trang đăng nhập, khách hàng chọn **Kích hoạt ngân hàng trực tuyến** (`/activate`),
+nhập mã khách hàng (không phải số tài khoản), email đã đăng ký, tên đăng nhập và mật khẩu,
+rồi xác nhận OTP email. Hồ sơ cần đang hoạt động, chưa có đăng nhập và email không dùng chung
+với hồ sơ khác. Nếu thiếu/sai/trùng email, liên hệ chi nhánh đối soát trước; chức năng này
+không đặt lại mật khẩu của đăng nhập đã tồn tại và không tạo hồ sơ khách hàng thứ hai.
+
+API: `POST /api/v1/auth/activation/otp` và `POST /api/v1/auth/activation`.
+Dùng cùng Redis/Brevo/`OTP_HASH_SECRET` đã cấu hình, không thêm biến môi trường hoặc bảng DB.
+OTP kích hoạt tách biệt OTP đăng ký/chuyển tiền, có hiệu lực 5 phút, khóa sau 5 lần nhập sai,
+gửi lại sau 60 giây. Vì bảo vệ thông tin hồ sơ, phản hồi gửi mã không xác nhận hồ sơ có tồn tại;
+chỉ email đủ điều kiện mới được gửi mã. Log gửi được provider tiếp nhận có sự kiện
+`activation_otp_accepted` với `challengeId`/`messageId`, không chứa OTP hoặc địa chỉ email.
+
+Để triển khai phần kích hoạt lên EC2, push/pull bản code mới rồi chạy tại thư mục dự án:
+
+```bash
+docker compose --profile web build banking-api web
+docker compose --profile web up -d --no-deps banking-api web
+```
+
+Không cần chạy lại SQL cho phần kích hoạt nếu DB đã có các function của bản đăng ký trước đó.
+Kiểm thử browser tự động: `cd web && npm run test:activation` với `WEB_AUDIT_URL` trỏ tới web thử nghiệm;
+script dùng API mô phỏng, không gửi email thật hoặc sửa DB.
 
 ## 7. Các nhóm tùy chọn
 
@@ -360,7 +393,7 @@ báo thiếu Spark/Airflow/Kafka ngay cả khi nhóm web hoạt động bình th
 | Web không tải danh sách | Kiểm tra view `z_02`, query `z_06` và quyền runtime; không tạo lại bảng |
 | Tạo khách hàng xong nhân viên không thấy | Kiểm tra `trg_audit_customer` ở bước 3; thiếu thì khôi phục từ `z_03` khi đã dừng ghi. Hồ sơ cũ thiếu audit cần xác minh người tạo, không tự gán quyền |
 | Trùng khóa chính sau nhập seed | Trong DBeaver chỉ chạy khối `DO $sync_seed_identities$` cuối `examble_data.sql` khi dừng ghi; không chạy lại INSERT |
-| Không nhận OTP | Kiểm tra cấu hình Brevo/sender và trạng thái delivery của provider; accepted không đồng nghĩa đã vào hộp thư |
+| Không nhận OTP | Nếu đã hiện ô nhập mã, xem Brevo Transactional Logs: accepted chưa phải delivered. `sending platform ... disabled` cần xử lý trạng thái tài khoản với Brevo; `sender ... not valid` cần xác minh sender/domain khớp `OTP_SENDER_EMAIL`. Đổi `.env` phải recreate API |
 | Chưa trả được khoản vay | Đặt `LOAN_SETTLEMENT_ACCOUNT_ID` là tài khoản INTERNAL VND đang hoạt động dùng để thu nợ, rồi recreate API |
 | DB mới chưa đăng nhập được | Tạo bảng thôi chưa có người dùng; khôi phục backup hoặc chuẩn bị dữ liệu hợp lệ |
 | Hive báo không tạo được `metastore_db` trên volume mới | Cập nhật Compose và `docker/hive/start-metastore.sh`: init cấp quyền volume, wrapper dùng thư mục con `catalog` cho DB mới. Catalog cũ ở root vẫn được giữ nguyên; không xóa volume |

@@ -387,6 +387,10 @@ export function AuthForm() {
               Đăng ký ngay <ArrowRight aria-hidden="true" />
             </Link>
           </p>
+          <p className="mt-3 text-center text-sm leading-6 text-slate-500">
+            Đã có hồ sơ tại chi nhánh?{" "}
+            <Link href="/activate" className="font-semibold text-coral underline">Kích hoạt ngân hàng trực tuyến</Link>
+          </p>
         </div>
         </div>
       </section>

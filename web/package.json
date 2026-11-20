@@ -16,6 +16,7 @@
     "test:branches": "node tests/browser/branches-loading.mjs",
     "test:otp": "node tests/browser/otp-resend.mjs",
     "test:registration": "node tests/browser/registration.mjs",
+    "test:activation": "node tests/browser/activation.mjs",
     "test:recipients": "node tests/browser/recent-recipients.mjs",
     "test:products": "node tests/browser/customer-products.mjs",
     "test:loan-payment": "node tests/browser/loan-repayment.mjs",
