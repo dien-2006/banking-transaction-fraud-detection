@@ -9,6 +9,7 @@ import { bankService, type CustomerProductKind } from "@/services/bank.service";
 import { useCustomerAccounts } from "./customer-queries";
 import { formatVnd } from "@/lib/customer-data";
 import "./product-application-dialog.css";
+import { newRequestKey as requestKey } from "@/lib/request-key";
 
 const titles = {accounts:"Mở tài khoản mới",cards:"Mở thẻ ghi nợ",loans:"Đăng ký khoản vay"};
 const descriptions = {
@@ -16,12 +17,6 @@ const descriptions = {
   cards:"Phát hành thẻ ghi nợ mô phỏng trên tài khoản do bạn đứng tên chính. Số thẻ được cấp tự động.",
   loans:"Gửi hồ sơ để nhân viên chi nhánh thẩm định và giải ngân vào tài khoản của bạn. Lịch trả nợ chỉ bắt đầu sau khi giải ngân thành công.",
 };
-function requestKey() {
-  const bytes=crypto.getRandomValues(new Uint8Array(16));
-  bytes[6]=(bytes[6]&15)|64; bytes[8]=(bytes[8]&63)|128;
-  const value=Array.from(bytes,byte=>byte.toString(16).padStart(2,"0")).join("");
-  return `${value.slice(0,8)}-${value.slice(8,12)}-${value.slice(12,16)}-${value.slice(16,20)}-${value.slice(20)}`;
-}
 export function ProductApplicationDialog({kind,open,onOpenChange,onCreated}:{kind:CustomerProductKind;open:boolean;onOpenChange:(open:boolean)=>void;onCreated?:()=>void}) {
   const user=useSessionUser(), client=useQueryClient();
   const catalog=useQuery({queryKey:["customer",user.id,"product-catalog"],queryFn:bankService.customerProductCatalog,enabled:open});

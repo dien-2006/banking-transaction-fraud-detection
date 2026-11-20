@@ -7,6 +7,7 @@ import { TransactionResult } from "@/components/transaction-result";
 import { useSessionUser } from "@/components/session-context";
 import { bankService, type LoanDecisionInput, type LoanDecisionResult } from "@/services/bank.service";
 import { ApiError } from "@/services/api.client";
+import { newRequestKey } from "@/lib/request-key";
 import "../customer/product-application-dialog.css";
 
 export function LoanDecisionButtons({id,code,customer,amount,autoOpen=false,actionable=true,onClosed}:{id:number;code:string;customer:string;amount:string;autoOpen?:boolean;actionable?:boolean;onClosed?:()=>void}) {
@@ -44,7 +45,9 @@ export function LoanDecisionButtons({id,code,customer,amount,autoOpen=false,acti
       :result?<div className="product-application-result"><h3>Đã từ chối hồ sơ vay</h3><p>{code} · {customer}</p><button className="btn-primary" onClick={close}>Đóng</button></div>
       :<form className="resource-create-form product-application-form" onSubmit={event=>{
         event.preventDefault();if(!decision||busy||draft)return;
-        void submit({decision,reason:reason.trim(),...(decision==="APPROVE"?{destinationAccountId:Number(accountId),requestKey:crypto.randomUUID()}: {})});
+        try {
+          void submit({decision,reason:reason.trim(),...(decision==="APPROVE"?{destinationAccountId:Number(accountId),requestKey:newRequestKey()}: {})});
+        } catch(caught) { setError(caught); }
       }}>
         <div className="resource-create-fields"><p className="product-application-note">{code} · {customer} · {amount}</p>
           {options.isPending?<p role="status">Đang tải tài khoản nhận tiền…</p>:options.isError?<p role="alert" className="product-application-error">Không tải được thông tin giải ngân. <button type="button" onClick={()=>void options.refetch()}>Thử lại</button></p>

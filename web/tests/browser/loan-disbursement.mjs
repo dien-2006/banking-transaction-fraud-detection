@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import {mkdir} from 'node:fs/promises';
 import {fixtureResponse,loanRows} from './fixtures.mjs';
 const {chromium}=await import(process.env.PLAYWRIGHT_MODULE||'playwright');
-const browser=await chromium.launch(),base=process.env.WEB_AUDIT_URL||'http://localhost:3000';
+const insecure=process.env.LOAN_INSECURE_HTTP==='1';
+const base=insecure?`http://d4-bank.test:${new URL(process.env.WEB_AUDIT_URL||'http://localhost:3000').port||3000}`:process.env.WEB_AUDIT_URL||'http://localhost:3000';
+const browser=await chromium.launch(insecure?{args:['--host-resolver-rules=MAP d4-bank.test 127.0.0.1','--no-proxy-server']}:{});
 await mkdir('/tmp/d4-loan-disbursement',{recursive:true});
 try{
  for(const [scenario,width] of [['filtered',390],['linked-network',390],['linked',390],['Success',1366],['Pending',390],['Cancelled',320],['Failed',390],['network',390],['malformed',390],['no-funding',390],['no-accounts',320]]){
@@ -29,6 +31,7 @@ try{
    return route.fulfill({json:fixtureResponse(url,'employee')});
   });
   await page.goto(base+'/employee/loans'+(scenario.startsWith('linked')?'?loanId=901':''));if(scenario==='filtered')await page.getByLabel('Trạng thái khoản vay',{exact:true}).selectOption('Pending');if(!scenario.startsWith('linked'))await page.getByRole('button',{name:'Xử lý',exact:true}).click();
+  if(insecure){assert.equal(await page.evaluate(()=>window.isSecureContext),false);assert.equal(await page.evaluate(()=>typeof crypto.randomUUID),'undefined');}
   const dialog=page.getByRole('dialog',{name:'Xử lý hồ sơ vay',exact:true});
   const confirm=dialog.getByRole('button',{name:'Xác nhận duyệt và giải ngân',exact:true});
   await dialog.getByLabel('Lý do xử lý *',{exact:true}).fill('Đã kiểm tra hồ sơ và tài khoản nhận');
