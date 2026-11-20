@@ -4,6 +4,10 @@
 
 D4 Bank kết nối toàn bộ hành trình của một giao dịch: khách hàng gửi yêu cầu chuyển tiền, hệ thống đánh giá rủi ro bằng Rule Engine và Machine Learning, ngân hàng xử lý tiền, sau đó dữ liệu được đưa vào nền tảng phân tích qua Batch và Realtime.
 
+Triển khai web/API trên EC2: xem [hướng dẫn Docker production trong running.md](running.md#triển-khai-webapi-trên-ec2-bằng-docker).
+Profile `web` đóng gói frontend và gateway HTTP/HTTPS, gọi API cùng origin;
+DB vẫn được khởi tạo thủ công, không tự tạo bảng hoặc nhập dữ liệu khi bật Docker.
+
 Dự án kết hợp ba lĩnh vực: **ứng dụng ngân hàng**, **phát hiện gian lận**, và **Data Engineering**. Giao diện phục vụ khách hàng, nhân viên và quản trị viên; dữ liệu nghiệp vụ được lưu trong PostgreSQL, còn dữ liệu phân tích được tổ chức trên MinIO theo mô hình Bronze → Silver → Gold.
 
 ## Mục lục

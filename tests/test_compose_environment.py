@@ -21,7 +21,7 @@ def services():
         env[f"{scope}_DB_PASSWORD"] = f"test_only_{scope.lower()}"
     env.update(POSTGRES_PASSWORD="test_only_admin", JWT_SECRET="test_only_jwt", OTP_HASH_SECRET="test_only_otp",
                MINIO_ROOT_PASSWORD="test_only_storage", BREVO_API_KEY="test_only_email")
-    result = subprocess.run(["docker", "compose", "--env-file", ".env.example", "--profile", "realtime", "--profile", "ml", "--profile", "demo",
+    result = subprocess.run(["docker", "compose", "--env-file", ".env.example", "--profile", "realtime", "--profile", "ml", "--profile", "demo", "--profile", "web",
                              "config", "--format", "json"], cwd=ROOT, env=env, capture_output=True, text=True, check=True)
     return json.loads(result.stdout)["services"]
 
@@ -69,3 +69,15 @@ def test_banking_schema_and_demo_data_require_manual_setup(services):
     )
     assert "demo" in services["demo-bootstrap"]["profiles"]
     assert "demo-bootstrap" not in services["banking-api"].get("depends_on", {})
+
+
+def test_public_gateway_and_web_do_not_receive_database_or_email_secrets(services):
+    for name in ("web", "gateway"):
+        service = services[name]
+        assert "web" in service["profiles"]
+        assert not any(key.endswith("PASSWORD") or key in ("JWT_SECRET", "OTP_HASH_SECRET", "BREVO_API_KEY")
+                       for key in service["environment"])
+    assert not services["web"].get("ports")
+    for name in ("postgres-bank", "banking-api"):
+        assert all(port["host_ip"] == "127.0.0.1" for port in services[name]["ports"])
+    assert services["gateway"]["depends_on"]["web"]["condition"] == "service_healthy"

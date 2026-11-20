@@ -1,117 +1,281 @@
-# Chạy D4 Bank
+# Hướng dẫn chạy D4 Bank
 
-Các lệnh Docker chạy tại thư mục gốc dự án (có `docker-compose.yaml`). Không dùng `down` để chuyển giữa web, batch và stream.
+Chạy lệnh tại thư mục gốc có `docker-compose.yaml`, trừ đoạn có lệnh `cd` chuyển thư mục.
+Dùng một file `.env` cho mỗi máy. Các bước khởi tạo DB do bạn chủ động thực hiện;
+Docker không tự tạo bảng, schema hoặc nạp dữ liệu mẫu.
 
-Máy local khoảng 6 GB RAM nên kiểm tra batch và cụm Kafka 3 broker theo từng lượt. Nếu chạy đồng thời toàn bộ stack, Spark/Airflow và Kafka có thể hết RAM hoặc swap. Có thể `docker compose stop` nhóm tạm không dùng; thao tác này giữ dữ liệu và volume.
+| Trường hợp | Bắt đầu ở đâu |
+| --- | --- |
+| Clone mới, DB trống | Bước 1 → 2 → 3 → 4 |
+| EC2 đã khôi phục DB từ backup | Bước 1 → nhánh backup ở bước 2 → 3 → 4 |
+| DB và cấu hình đã sẵn sàng, chỉ bật lại web | Bước 4, bỏ lệnh build nếu image chưa thay đổi |
+| Sửa code và muốn cập nhật bản đang chạy | Phần 6 |
+| Chạy frontend local để sửa giao diện | Phần 5 |
+| Cần D4 Insights, batch hoặc stream | Phần 7 |
 
-## Web và cơ sở dữ liệu
+## 1. Chuẩn bị sau khi clone
 
-Sau khi cập nhật code Tổng quan (API và web), build lại API bằng
-`docker compose up -d --no-deps --build banking-api`; frontend chạy development
-sẽ nhận code mới, frontend production cần build lại. Bản sửa Tổng quan chỉ
-thay truy vấn đọc và giao diện, không có SQL đổi schema hay nạp lại dữ liệu.
+Máy cần Git, Docker Engine kèm Docker Compose v2 và Python 3 có `venv`.
+Python 3.11 phù hợp với bộ thư viện inference hiện tại. Chạy npm trực tiếp trên
+local cần Node.js 22; EC2 chạy Docker không cần cài Node trên host.
 
-### EC2: các trang không tải được sau khi tạo lại schema
-
-`create_table.sql` và `examble_data.sql` không tạo các view đọc dữ liệu của web.
-Các trang khách hàng, tài khoản, giao dịch, khoản vay, thẻ, thông báo và tổng
-quan dùng các view trong `z_02_views.sql`. Sau khi tạo lại view, phải cấp lại
-quyền trên các đối tượng mới cho tài khoản DB của API.
-
-Đưa các file SQL mới nhất (gồm `sql/quyen.sql`) lên EC2, SSH vào thư mục dự án,
-rồi chạy thủ công bằng tài khoản quản trị đã cấu hình cho `postgres-bank`:
+Tạo `.env` nếu chưa có; không ghi đè file cấu hình đang dùng:
 
 ```bash
-docker compose exec -T postgres-bank sh -c \
-  'psql -X -v ON_ERROR_STOP=1 --single-transaction -U "$POSTGRES_USER" -d "$POSTGRES_DB" -f /banking-sql/z_02_views.sql -f /banking-sql/quyen.sql'
+cp -n .env.example .env
+chmod 600 .env
+python3 -m venv .venv
+.venv/bin/python -m pip install 'psycopg[binary]==3.2.13' python-dotenv
 ```
 
-Lệnh khôi phục view rồi cấp quyền, không nạp lại dữ liệu mẫu hoặc tạo lại bảng.
-Chỉ dùng khi bảng và schema API/function đã được nạp đầy đủ. Nếu API báo
-`function ... does not exist`, cần kiểm tra các file `z_01` đến `z_07` đã được
-nạp theo thứ tự; không chạy lại `create_table.sql` trên database đã có bảng.
-Các bước này vẫn do người quản trị chạy, không tự thực hiện lúc bật Docker.
+### Thư viện cần chuẩn bị
 
-### Tạo khách hàng thành công nhưng nhân viên không thấy hồ sơ
+Phân biệt thư viện trên host và thư viện trong container:
 
-Hồ sơ chưa có tài khoản/khoản vay được cấp quyền cho người tạo qua audit log.
-Phải có hàm `banking.fn_audit_change()` và trigger `trg_audit_customer` từ
-`sql/z_03_integrity.sql`. Chỉ nạp bảng và dữ liệu mẫu sẽ thiếu chúng.
-Trong DBeaver, chọn đúng database và chạy toàn bộ `sql/z_03_integrity.sql`
-sau khi đã nạp `z_01` và `z_02`; không chạy lại `create_table.sql` hoặc các INSERT.
-Kiểm tra cấu hình bằng truy vấn chỉ đọc:
+| Chạy ở đâu | Thư viện | Cách cài |
+| --- | --- | --- |
+| EC2 host, chạy script cấp quyền DB | `psycopg`, `python-dotenv` | Dùng `.venv` và lệnh pip ở trên |
+| Backend trong Docker | Node dependencies + Python inference/XGBoost | `Dockerfile.backend` tự cài bằng `npm ci` và `docker/requirements-inference.txt` |
+| Frontend trong Docker | Next.js, React và dependencies trong lockfile | `Dockerfile.web` tự cài bằng `npm ci` |
+| Airflow/Spark trong Docker | Thư viện ETL, PySpark, Java và JDBC JAR | Dockerfile tương ứng tự cài khi build nhóm batch |
+| Bronze consumer trong Docker | Kafka client, MinIO, PostgreSQL client | `Dockerfile.streaming` tự cài từ `docker/requirements-streaming.txt` |
+
+Nếu chỉ chạy web/API/model bằng Docker, không cần cài Node.js, Java, Spark hoặc
+XGBoost trực tiếp lên EC2 host. Máy cần truy cập được các registry/package repository
+trong lần pull/build đầu tiên.
+
+Nếu cần chạy script đăng ký model trên host, cài thêm **trong venv Python 3.11**:
+
+```bash
+.venv/bin/python -m pip install -r docker/requirements-inference.txt
+```
+
+`requirements.txt` ở gốc phục vụ môi trường Python data platform/kiểm thử; file này
+không chứa toàn bộ thư viện inference. Chỉ khi chạy công cụ data platform trực tiếp
+trên host mới cài thêm:
+
+```bash
+.venv/bin/python -m pip install -r requirements.txt
+```
+
+Cài PySpark bằng pip không thay thế việc chuẩn bị Java/JDBC cho job Spark trên host.
+Để chạy batch theo hướng dẫn này, dùng các container Airflow/Spark đã đóng gói sẵn.
+
+### Cấu hình môi trường
+
+Mở `.env`, điền các biến sau. Không commit file này hoặc gửi nội dung secret vào chat.
+
+| Biến | Cách cấu hình |
+| --- | --- |
+| `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | Database và tài khoản quản trị để khởi tạo/bảo trì |
+| `JWT_SECRET`, `OTP_HASH_SECRET` | Mỗi secret ít nhất 32 ký tự ngẫu nhiên, riêng cho từng môi trường |
+| `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD` | Cần khi bật nhóm dữ liệu/MinIO |
+| `POSTGRES_BIND_ADDRESS`, `BANKING_API_BIND_ADDRESS` | Giữ `127.0.0.1` |
+| `PUBLIC_HOST` | `:80` khi thử bằng IP; tên domain như `bank.example.com` khi dùng HTTPS |
+| `WEB_HTTP_PORT`, `WEB_HTTPS_PORT` | Mặc định `80`, `443` |
+| `CORS_ORIGINS` | `http://<IP-EC2>` hoặc `https://bank.example.com`; local npm dùng `http://localhost:3000` |
+| `BREVO_API_KEY`, `OTP_SENDER_EMAIL`, `OTP_SENDER_NAME` | Cấu hình Brevo và email gửi đã xác minh để nhận OTP |
+
+`BANKING_DB_*`, `OUTBOX_DB_*`, `NOTIFICATION_DB_*`, `ETL_DB_*` được cấp ở bước 3.
+Script chạy trên host dùng `POSTGRES_HOST` mặc định `localhost` và `POSTGRES_PORT`;
+không đặt host này thành tên container khi dùng script trên host.
+
+## 2. Khởi tạo hoặc khôi phục DB — chỉ làm khi cần
+
+Chỉ bật PostgreSQL và Redis trước, chưa bật API/worker:
+
+```bash
+docker compose up -d postgres-bank redis
+docker compose ps postgres-bank redis
+```
+
+### Nếu DB hoàn toàn mới
+
+Trong DBeaver, kết nối tới database theo `.env` bằng tài khoản quản trị.
+Local dùng `127.0.0.1:5432` nếu chưa đổi cổng. Khi truy cập DB EC2 từ máy cá nhân,
+dùng SSH tunnel trong DBeaver tới `127.0.0.1:5432` của EC2; không mở public cổng DB.
+
+Chạy **Execute SQL Script** cho từng file theo đúng thứ tự:
+
+| Thứ tự | File | Mục đích |
+| --- | --- | --- |
+| 1 | [sql/create_table.sql](sql/create_table.sql) | Tạo schema và bảng trên DB trống |
+| 2 | [sql/z_01_foundation.sql](sql/z_01_foundation.sql) | Extension, schema API và các hàm nền |
+| 3 — tùy chọn | [sql/examble_data.sql](sql/examble_data.sql) | Nạp bộ dữ liệu mô phỏng của dự án |
+| 4 | [sql/z_02_views.sql](sql/z_02_views.sql) | View đọc dữ liệu |
+| 5 | [sql/z_03_integrity.sql](sql/z_03_integrity.sql) | Audit và kiểm tra tính toàn vẹn |
+| 6 | [sql/z_04_financial_operations.sql](sql/z_04_financial_operations.sql) | Giao dịch, risk và xử lý tài chính |
+| 7 | [sql/z_05_management_operations.sql](sql/z_05_management_operations.sql) | Tạo/cập nhật hồ sơ, tài khoản, thẻ, khoản vay |
+| 8 | [sql/z_06_api_queries.sql](sql/z_06_api_queries.sql) | Truy vấn phục vụ API/web |
+| 9 | [sql/z_07_outbox_and_indexes.sql](sql/z_07_outbox_and_indexes.sql) | Outbox và index theo thiết kế có sẵn |
+
+Nếu dùng dữ liệu mẫu, nạp **trước** khi tạo trigger để không xử lý snapshot lịch sử
+như giao dịch mới. Chạy đến hết `examble_data.sql`, gồm khối `sync_seed_identities`
+ở cuối file. Nếu DBeaver tắt Auto-commit, Commit sau khi mỗi script chạy thành công;
+khi có lỗi, xử lý lỗi trước khi chuyển bước, không tiếp tục nạp phần còn lại.
+
+Bỏ qua dữ liệu mẫu thì DB chưa có tài khoản đăng nhập hoặc dữ liệu nghiệp vụ để sử dụng.
+Cần tự chuẩn bị dữ liệu hợp lệ và đăng ký model ở bước 3.
+
+### Nếu khôi phục DB từ backup
+
+Khôi phục backup đã có đủ schema, bảng, view, function, trigger và dữ liệu.
+Không chạy lại `create_table.sql` hoặc `examble_data.sql` trên DB vừa khôi phục.
+Đối chiếu phiên bản SQL trong backup với code đang deploy; chỉ áp dụng bản cập nhật
+cần thiết khi đã sao lưu. Chạy bước 3 để cấp quyền cho runtime roles của máy đích.
+
+## 3. Cấp quyền runtime và kiểm tra model
+
+Sau khi DB đã có đủ các đối tượng ở bước 2:
+
+```bash
+.venv/bin/python -m scripts.provision_runtime_roles --apply
+```
+
+Script cấp bốn role runtime không có superuser và lưu credential trong `.env`.
+Không truyền credential quản trị PostgreSQL vào API. Nếu tạo lại view sau bước này,
+chạy lại script để cấp quyền cho view mới. `sql/quyen.sql` chỉ dành cho role mặc định
+`d4_banking`; dùng script trên nếu đã đổi tên role trong `.env`.
+
+Trong DBeaver kiểm tra model và audit trigger:
 
 ```sql
+SELECT modelversionid, modelname, modeltype, status
+FROM banking.model_version
+ORDER BY modelversionid;
+
 SELECT tgname, tgenabled
 FROM pg_trigger
 WHERE tgrelid = 'banking.customer'::regclass
   AND NOT tgisinternal;
 ```
 
-`trg_audit_customer` phải hoạt động (`O` hoặc `A`). API kiểm tra audit của
-người tạo trước commit; thiếu audit thì rollback hồ sơ và báo lỗi cấu hình,
-không trả thành công. Không tạo audit thay thế trong backend.
-Khôi phục trigger chỉ áp dụng cho lần ghi sau, không tự sửa người tạo của hồ sơ
-cũ thiếu audit. Cần quản trị viên xác minh mã khách hàng và người tạo thật trước
-khi sửa quyền; không gán hồ sơ cho người đang đăng nhập chỉ để nó xuất hiện.
-Sau khi tạo, web xóa bộ lọc, về trang 1, hủy lượt đọc cũ và tải lại danh sách
-từ API; danh sách chọn khách hàng mở tài khoản cũng được làm mới.
+Dữ liệu mẫu đã đăng ký model XGBoost `ACTIVE` khớp file `.joblib` trong Git.
+`SIMULATED_RULE_V1` là bản dành cho lịch sử mô phỏng; không đổi các risk assessment
+cũ sang model mới chỉ bằng cách thay ID. `trg_audit_customer` cần hoạt động (`O` hoặc `A`).
 
-Để chủ động đặt cùng một mật khẩu mới cho tất cả tài khoản đăng nhập
-admin/nhân viên và khách hàng, chạy trong terminal ở thư mục gốc:
+Nếu không nạp mẫu hoặc thay file model, đăng ký đúng artifact hiện có, không train lại:
 
 ```bash
-conda run --no-capture-output -n bank-fraud python -m scripts.reset_login_passwords --apply
+.venv/bin/python -m pip install -r docker/requirements-inference.txt
+.venv/bin/python -m scripts.register_joblib_model --apply
 ```
 
-Nhập mật khẩu mới hai lần (không hiện khi gõ). Mỗi tài khoản được tạo salt
-bcrypt riêng; cả hai bảng đăng nhập được cập nhật trong cùng transaction.
-Lệnh chỉ sửa `passwordhash`, không đổi trạng thái tài khoản, số dư, PIN hoặc
-credential của PostgreSQL. Không tự chạy khi bật Docker hoặc nạp dữ liệu mẫu.
+Lệnh này đăng ký metadata vào `model_version`, không lưu binary model vào DB.
+Nếu cần lưu thêm bản artifact vào MinIO, bật `minio` và `minio-init`, cài thư viện
+`minio` vào venv rồi thêm `--publish-artifact` vào lệnh đăng ký.
 
-Với volume PostgreSQL mới, `postgres-bank` chỉ tạo database theo `POSTGRES_DB`,
-không tự tạo schema/bảng/function và không nạp dữ liệu mẫu. Bật PostgreSQL trước,
-rồi tự tạo các đối tượng nghiệp vụ bằng công cụ SQL trước khi bật các dịch vụ khác:
+<a id="triển-khai-webapi-trên-ec2-bằng-docker"></a>
+
+## 4. Triển khai web/API trên EC2 bằng Docker
+
+Các bước 1–3 phải xong trước khi bật nhóm này. Không dùng `npm run dev` trên EC2.
 
 ```bash
-docker compose up -d postgres-bank
+python3 -m scripts.check_web_deployment
+docker compose --profile web build banking-api web
+docker compose --profile web up -d postgres-bank redis banking-api web gateway notification-sender
+docker compose --profile web ps
 ```
 
-Script `docker/postgres-init.sh` chỉ còn dùng khi bạn chủ động chạy thủ công;
-không còn được mount vào thư mục tự khởi tạo của PostgreSQL. `demo-bootstrap`
-chỉ chạy khi được gọi rõ ràng qua profile `demo`, không phải dependency của API.
-Các database/volume đang có giữ nguyên schema và dữ liệu.
+Nhóm này chạy web, API, PostgreSQL, Redis, gateway và worker gửi thông báo;
+không tự bật Spark/Airflow/Kafka. Web đợi API healthy, gateway đợi web healthy.
+API health kiểm tra cả model XGBoost và bản đăng ký ACTIVE trong DB.
 
-Khi nạp `sql/examble_data.sql`, chạy đến hết file: phần cuối đồng bộ các
-identity sequence theo ID đã nhập, chỉ đẩy bộ đếm lên và không đổi schema.
-Nếu chỉ nhập các dòng INSERT mà bỏ phần cuối, giao dịch/posting/risk/outbox
-mới có thể lỗi trùng khóa chính dù dữ liệu mẫu đã hiển thị bình thường.
-Với DB đã nhập trước đó, chỉ chạy khối `DO $sync_seed_identities$` cuối file
-trong lúc không có thao tác ghi; không chạy lại toàn bộ INSERT vào DB đang có dữ liệu.
-File mẫu đăng ký model XGBoost hiện có bằng hash ở trạng thái ACTIVE;
-khi thay file model phải đăng ký identity mới bằng script đăng ký model.
+Khi `PUBLIC_HOST=:80`, mở `http://<IP-EC2>` rồi kiểm tra trên EC2:
+
+```bash
+python3 -m scripts.check_web_deployment --url http://127.0.0.1
+```
+
+Khi dùng domain, trỏ domain tới EC2 và đặt `PUBLIC_HOST=bank.example.com`.
+Mở cổng web 80/443, chạy lại `up` ở trên rồi kiểm tra:
+
+```bash
+python3 -m scripts.check_web_deployment --url https://bank.example.com
+```
+
+Caddy cấp/gia hạn TLS khi domain và cổng đã sẵn sàng. Camera QR trên điện thoại
+cần HTTPS; HTTP theo IP chỉ để thử những luồng không cần quyền camera.
+Không public cổng PostgreSQL/API hoặc dashboard dữ liệu; SSH chỉ cấp cho người quản trị.
+
+Trình duyệt gọi `/api/v1` cùng origin; Caddy chuyển request đến `banking-api:8000`.
+Image web chủ động build URL API rỗng, nên không cần build lại web khi đổi IP/domain.
+Biến `NEXT_PUBLIC_API_URL` ở `.env` không điều khiển URL của image web này.
+
+Sau khi chạy: kiểm tra đăng nhập từng quyền, dữ liệu danh sách, thông báo, OTP
+và thao tác nghiệp vụ bằng tài khoản thử nghiệm. Không dùng mật khẩu demo công khai
+cho website public. Kiểm tra HTTP/health đạt không thay thế kiểm thử chuyển tiền.
+
+## 5. Chạy local để phát triển giao diện
+
+DB/model/quyền vẫn phải được chuẩn bị theo bước 1–3. Chỉ bật backend core:
 
 ```bash
 docker compose up -d postgres-bank redis
-docker compose up -d --no-deps banking-api notification-sender
-docker compose up -d minio hive-metastore trino
-docker compose run --rm --no-deps trino-init
+docker compose up -d --build banking-api notification-sender
 ```
 
-Ở terminal riêng:
+Ở terminal khác:
 
 ```bash
 cd web
-npm run dev
+npm ci
+NEXT_PUBLIC_API_URL=http://localhost:8000 npm run dev
 ```
 
-Các trang nghiệp vụ của admin, nhân viên và khách hàng đọc PostgreSQL qua Banking API. D4 Insights của admin đọc MinIO Gold qua Trino. Chỉ bật MinIO/Trino sẽ đọc được Gold hiện có, **không tự tạo batch mới**.
+Mở `http://localhost:3000`; đặt `CORS_ORIGINS=http://localhost:3000` trong `.env`
+và recreate API nếu vừa đổi cấu hình. Lệnh npm trên truyền URL API rõ ràng vì Next
+không tự đọc `.env` ở thư mục gốc của repository khi chạy trong `web`.
 
-OTP chuyển tiền có hiệu lực 5 phút; nút gửi lại dùng bộ đếm riêng 60 giây, đồng bộ với giới hạn phía API. Lỗi gửi email/tra cứu hồ sơ phải giải phóng khóa gửi lại. API báo ACCEPTED chỉ có nghĩa Brevo đã nhận yêu cầu, không xác nhận email đã tới hộp thư; đối chiếu Transactional Logs của Brevo để kiểm tra sent/delivered/blocked. Kiểm tra giao diện bằng `cd web` rồi `npm run test:otp` (email và giao dịch được giả lập).
+Nếu muốn thử chính bản Docker production trên local, dùng bước 4 và mở
+`http://localhost` khi cổng 80 đang trống. Không cần chạy thêm npm dev.
+Tránh bật tất cả nhóm dữ liệu khi máy thiếu RAM; có thể `docker compose stop`
+những service không dùng, giữ nguyên volume.
 
-Thanh toán khoản vay ở cuối hộp thoại chi tiết khoản vay cần `LOAN_SETTLEMENT_ACCOUNT_ID` trong `.env` gốc. Giá trị phải là ID tài khoản ngân hàng `INTERNAL`, tiền VND và đang hoạt động, do người quản trị chọn để thu nợ. Khi chưa cấu hình, khách hàng vẫn xem được form/số tiền nhưng không thể xác nhận gửi lệnh. Sau khi đặt giá trị, chạy lại `docker compose up -d --no-deps banking-api` để API nhận cấu hình. Có thể kiểm tra giao diện bằng `cd web` rồi `npm run test:loan-payment`; các lệnh thanh toán trong browser test đều được giả lập.
+## 6. Cập nhật code hoặc bật lại sau khi tắt máy
 
-## Batch tự động hằng ngày
+### Chỉ bật lại bản đã cài
+
+DB và image giữ nguyên, không nạp SQL hay tạo lại secret:
+
+```bash
+docker compose --profile web up -d postgres-bank redis banking-api web gateway notification-sender
+```
+
+### Cập nhật code trên DB đã có dữ liệu
+
+Sao lưu DB trước khi cập nhật. Commit/push đầy đủ code, SQL và ảnh cần thiết lên
+nhánh làm việc; không đưa `.env` lên Git. Trên máy đích, pull đúng nhánh/commit rồi:
+
+```bash
+python3 -m scripts.check_web_deployment
+docker compose --profile web build banking-api web
+docker compose --profile web up -d postgres-bank redis banking-api web gateway notification-sender
+```
+
+Không chạy lại seed hoặc tạo bảng. Nếu bản cập nhật có đổi SQL function/view/trigger,
+dừng API và các worker đang ghi, áp dụng đúng phần SQL được hướng dẫn, cấp lại quyền
+nếu tạo lại view, rồi bật lại đúng các service trước đó. Script
+`scripts.apply_function_fixes --apply` chỉ cập nhật một tập function được chọn;
+không thay thế việc nạp đủ `z_01` đến `z_07` hoặc khôi phục trigger.
+
+Chỉ thay `.env` thì chạy lại `up -d` của service liên quan để recreate và nhận env mới;
+`docker compose restart` không nạp env mới. Không xóa volume để cập nhật code.
+
+## 7. Các nhóm tùy chọn
+
+### D4 Insights: đọc Gold đã có
+
+```bash
+docker compose up -d minio minio-init hive-metastore trino
+docker compose run --rm --no-deps trino-init
+```
+
+D4 Insights đọc MinIO Gold qua Trino; chỉ bật các service này không tự sinh dữ liệu
+Gold. Các trang nghiệp vụ còn lại đọc PostgreSQL qua Banking API.
+
+### Batch ETL
 
 ```bash
 docker compose up -d minio minio-init spark-master spark-worker postgres-airflow airflow-init trino trino-init
@@ -119,87 +283,75 @@ docker compose up -d airflow-webserver airflow-scheduler
 docker compose exec airflow-webserver airflow dags unpause banking_bronze_silver_gold
 ```
 
-DAG chạy lúc 01:00 giờ Việt Nam. Để chạy ngay một lượt mới (run id do Airflow tạo):
+DAG chạy lúc 01:00 giờ Việt Nam. Chạy ngay một lượt riêng:
 
 ```bash
 docker compose exec airflow-webserver airflow dags trigger banking_bronze_silver_gold
 ```
 
-Luồng: PostgreSQL → Bronze → kiểm tra Bronze → Silver/Quarantine → kiểm tra Silver → Gold → kiểm tra Gold → publish release Trino → D4 Insights. V1 đọc full snapshot của 20 bảng trên cùng snapshot PostgreSQL để tránh bỏ sót transaction commit muộn. Task `commit_watermarks` hiện là bước tương thích, không đẩy watermark incremental. Silver và Gold có đường dẫn riêng theo batch để retry không đọc nhầm dữ liệu batch khác. Dữ liệu Quarantine không được cộng vào Gold.
+Luồng: PostgreSQL → Bronze → Silver/Quarantine → kiểm tra DQ → Gold → publish Trino.
+Retry dùng đường dẫn theo batch; không đưa dữ liệu Quarantine lên Gold.
 
-## Stream liên tục
+### Stream liên tục
 
 ```bash
 docker compose --profile realtime up -d kafka1 kafka2 kafka3 kafka-init outbox-publisher bronze-consumer
 docker compose exec bronze-consumer python -m scripts.audit_stream
 ```
 
-Luồng: giao dịch commit → outbox → Kafka → Bronze. Consumer chỉ commit offset sau khi lưu và kiểm tra object thành công. Stream hiện **không đẩy trực tiếp lên biểu đồ web**; Kafka không thay thế nguồn PostgreSQL của trang giao dịch. `ENABLE_REALTIME_SILVER_MERGE=true` chỉ bổ sung dataset sự kiện `silver/domain_event` trong lần batch kế tiếp.
+Luồng: giao dịch commit → outbox → Kafka → Bronze. Consumer chỉ commit offset sau
+khi lưu bền vững. Stream không thay PostgreSQL làm nguồn cho các trang giao dịch.
+Nếu Kafka lỗi `cluster.id`, giữ ID của cụm và volume đang dùng; không format lại volume.
 
-Nếu Kafka báo `Invalid cluster.id`, đối chiếu `KAFKA_CLUSTER_ID` với `cluster.id` trong `meta.properties` của cả ba volume; giữ ID của cụm hiện hữu. Không format lại hay xóa volume để chữa lỗi cấu hình.
-
-## Kiểm tra
-
-Kiểm tra ba luồng đăng ký của khách hàng và xử lý hồ sơ vay của nhân viên/admin khi web đang chạy: trong thư mục `web`, chạy `npm run test:products` (cần Playwright). Browser test giả lập toàn bộ thao tác ghi. Backend có `tests/customer-products.test.cjs`; kiểm tra tích hợp chỉ chạy khi `CUSTOMER_SELF_SERVICE_TEST_DB` trỏ tới database kiểm thử riêng có tiền tố `d4_selfservice_`, không dùng database nghiệp vụ hiện tại.
-
-Giao diện dùng menu thu gọn khi chiều rộng dưới 1100 px. Trên điện thoại, bảng nhiều cột có thể vuốt ngang; biểu mẫu dài cuộn trong hộp thoại và giữ nút lưu ở cuối khung. Khi web đang chạy, dùng `cd web` rồi `npm run test:responsive` để kiểm tra điều hướng, bảng và hộp thoại tại 320, 390, 768 và 1024 px bằng Playwright. Các API trong bài kiểm tra được giả lập, không ghi dữ liệu ngân hàng.
+## 8. Kiểm tra và xử lý lỗi
 
 ```bash
-docker compose ps
-conda run -n bank-fraud python -m scripts.healthcheck
-docker compose exec bronze-consumer python -m scripts.audit_stream
+docker compose --profile web ps
+docker compose logs --tail 100 banking-api web gateway notification-sender
+curl -f http://127.0.0.1:8000/api/v1/health
 ```
 
-Healthcheck tổng thể báo lỗi khi Spark/Airflow/Kafka chưa được bật, kể cả web vẫn hoạt động. Backend health: `http://localhost:8000/api/v1/health`. Airflow: `http://localhost:8081`; Trino: `http://localhost:8084`; MinIO: `http://localhost:9001`.
+URL dịch vụ mặc định trên host: API `8000`, web gateway `80/443`, MinIO Console
+`9001`, Trino `8084`, Airflow `8081`. Các dashboard nội bộ trên EC2 nên truy cập qua
+SSH tunnel. `python -m scripts.healthcheck` kiểm tra cả hệ thống dữ liệu và có thể
+báo thiếu Spark/Airflow/Kafka ngay cả khi nhóm web hoạt động bình thường.
 
-Kiểm tra batch trong bucket riêng, không ghi đè Gold phục vụ web:
+| Lỗi | Kiểm tra/cách xử lý |
+| --- | --- |
+| API/model unhealthy | Kiểm tra bảng `model_version` có ACTIVE khớp hash artifact; chạy đăng ký ở bước 3 khi cần |
+| Web không tải danh sách | Kiểm tra view `z_02`, query `z_06` và quyền runtime; không tạo lại bảng |
+| Tạo khách hàng xong nhân viên không thấy | Kiểm tra `trg_audit_customer` ở bước 3; thiếu thì khôi phục từ `z_03` khi đã dừng ghi. Hồ sơ cũ thiếu audit cần xác minh người tạo, không tự gán quyền |
+| Trùng khóa chính sau nhập seed | Trong DBeaver chỉ chạy khối `DO $sync_seed_identities$` cuối `examble_data.sql` khi dừng ghi; không chạy lại INSERT |
+| Không nhận OTP | Kiểm tra cấu hình Brevo/sender và trạng thái delivery của provider; accepted không đồng nghĩa đã vào hộp thư |
+| Chưa trả được khoản vay | Đặt `LOAN_SETTLEMENT_ACCOUNT_ID` là tài khoản INTERNAL VND đang hoạt động dùng để thu nợ, rồi recreate API |
+| DB mới chưa đăng nhập được | Tạo bảng thôi chưa có người dùng; khôi phục backup hoặc chuẩn bị dữ liệu hợp lệ |
+| Máy treo/chậm khi bật toàn bộ | Kiểm tra RAM/swap và dừng nhóm dữ liệu không dùng; không reset DB/volume |
+
+Các lệnh kiểm thử code, không thay thế kiểm tra triển khai thực tế:
 
 ```bash
-docker compose run --rm --no-deps -e MINIO_ENDPOINT=http://minio:9000 -e POSTGRES_HOST=postgres-bank -e POSTGRES_INTERNAL_PORT=5432 --entrypoint /opt/spark/bin/spark-submit spark-master --master 'local[2]' --conf spark.sql.shuffle.partitions=2 /workspace/scripts/audit_pipeline.py
+.venv/bin/python -m pip install pytest
+.venv/bin/python -m pytest -q tests/test_compose_environment.py tests/test_web_deployment.py
+cd backend
+npm ci
+npm run test:web
+cd ../web
+npm ci
+npm run typecheck
+npm run test:web
+cd ..
 ```
 
-Script tự tạo bucket `d4-audit-*`, giữ lại bằng chứng kiểm tra; không sửa số dư hay tạo giao dịch PostgreSQL. Cần truyền `MINIO_ENDPOINT=http://minio:9000`, `POSTGRES_HOST=postgres-bank`, `POSTGRES_INTERNAL_PORT=5432` cho lệnh kiểm tra trong container nếu `.env` đang cấu hình địa chỉ localhost cho máy host.
+Trong thư mục `web`, browser tests cần Playwright và web đang chạy: `npm run test:products`,
+`npm run test:responsive`, `npm run test:otp`. Các bài này giả lập API để không
+thực hiện nghiệp vụ trên DB thật. Test tích hợp DB chỉ dùng database kiểm thử riêng.
 
-Để dùng lại bộ bucket audit đã có mà không tạo bucket mới, thêm `--prefix <tên-bộ-bucket>` và `--batch-id <mã-lượt-mới>` cùng `--existing-buckets` vào cuối lệnh. Mỗi lượt giữ dữ liệu trong đường dẫn riêng; không xóa các lượt cũ.
-
-## Cập nhật bản vá Banking/Risk
-
-Các thay đổi cần cập nhật đồng bộ function SQL và image API. Các lệnh sau chạy trên môi trường local đã có `.env` và PostgreSQL; không chạy lại `create_table.sql` trên database hiện hữu:
+Muốn đổi mật khẩu đăng nhập hàng loạt, chạy riêng trong terminal:
 
 ```bash
-docker compose build banking-api spark-master airflow-webserver
-conda run -n bank-fraud python -m scripts.provision_runtime_roles --apply
-conda run -n bank-fraud python -m pip install -r docker/requirements-inference.txt
-conda run -n bank-fraud python -m scripts.register_joblib_model --apply --publish-artifact
-docker compose stop banking-api
-conda run -n bank-fraud python -m scripts.apply_function_fixes --apply
-docker compose up -d --no-deps banking-api notification-sender
-docker compose --profile realtime up -d outbox-publisher bronze-consumer
+.venv/bin/python -m scripts.reset_login_passwords --apply
 ```
 
-`apply_function_fixes` cập nhật nguyên tử 29 function; không sửa bảng, cột, constraint, trigger hoặc index. `provision_runtime_roles` tạo các role runtime không có superuser và lưu bốn cặp credential vào duy nhất `.env` local với quyền 0600; `.env.example` là bản mẫu. Compose chỉ truyền các biến cần thiết cho từng service. API có quyền nghiệp vụ cần thiết; ETL chỉ đọc, publisher chỉ đọc/cập nhật outbox. Credential admin vẫn dùng riêng cho bootstrap/bảo trì và không truyền vào các service runtime. Worker chỉ mount các thư mục code cần thiết, không mount repo root chứa secret.
-
-API dùng đúng `models/fraud_detection_model.joblib` và `models/model_metadata.json`. Một worker Python nội bộ cache pipeline XGBoost, nhận 19 feature lấy tại cùng mốc thời gian từ PostgreSQL và trả xác suất trước khi financial processing bắt đầu. Khoảng cách giao dịch tính bằng phút, tỷ lệ failed login là `failed / (failed + success + 1)`. Request cùng khách hàng được tuần tự hóa để kiểm tra velocity thấy các commit trước. SQL đối chiếu context dự đoán với giao dịch, ghi SHA-256/model version/feature snapshot vào `risk_assessment.reasonjson` hiện có. Không fallback sang logistic nếu joblib chưa sẵn sàng. Threshold `0.408` chỉ thuộc đánh giá offline; policy online vẫn REVIEW `0.60`, BLOCK `0.90` và RuleScore như AGENTS.md.
-
-Trước khi cập nhật API lần đầu hoặc thay artifact, đăng ký identity theo hash và lưu bản chính xác vào MinIO (thực hiện ngoài luồng commit):
-
-```bash
-conda run -n bank-fraud python -m pip install -r docker/requirements-inference.txt
-conda run -n bank-fraud python -m scripts.register_joblib_model --apply --publish-artifact
-conda run -n bank-fraud python -m scripts.apply_function_fixes --apply
-docker compose build banking-api
-docker compose up -d --no-deps banking-api
-```
-
-Không ghi đè model gốc để loại cảnh báo pickle. Runtime CPU đã pin phiên bản và kiểm tra lại 4.500 mẫu test với metadata; khi chuyển môi trường cần chạy lại kiểm tra. Model mới phải có identity ACTIVE tương ứng trước khi reload/deploy. Profile `model-sync` và trainer logistic cũ phục vụ artifact JSON nghiên cứu, không điều khiển model joblib đang chạy trên API.
-
-Hive metastore persist tại `/opt/hive/metastore_db`. Nếu nâng từ cấu hình mount cũ `/opt/hive/data`, dừng Hive và sao lưu/copy thư mục Derby hiện có vào volume trước khi recreate; giữ dữ liệu `warehouse`, không xóa volume. Gold publish dùng advisory lock và từ chối snapshot cũ hơn release đang phục vụ. DQ đưa giao dịch Success thiếu completed outbox và loan payment không đối soát được vào Quarantine.
-
-Worker retry với backoff, tối đa 8 lần trong mỗi vòng đời process. Event hết budget vẫn nằm `FAILED` trong outbox và bị tạm ngưng; sửa nguyên nhân rồi restart worker để mở lượt retry mới. Không xóa event/offset để xử lý lỗi.
-
-`.env` đã được bỏ theo dõi Git. Secret từng có trong lịch sử cần được đổi và xử lý theo quy trình riêng; không tự force-push lịch sử. Mã OTP chỉ ở email; trạng thái provider tiếp nhận yêu cầu không đồng nghĩa email đã được phát thành công.
-
-Để chủ động đổi bốn secret local (PostgreSQL admin, MinIO root, JWT và OTP hash), dùng `conda run -n bank-fraud python -m scripts.rotate_local_secrets --apply`, chạy lại `provision_runtime_roles --apply`, rồi recreate các service liên quan để nạp env mới. Web cần đăng nhập lại. Brevo API key phải đổi ở tài khoản Brevo; script không thay key bên ngoài.
-
-
-docker compose up -d postgres-bank redis banking-api
+Nhập mật khẩu mới hai lần; script chỉ cập nhật hash đăng nhập, không thay số dư
+hoặc PIN. Không cần đổi mật khẩu mỗi lần bật container. Không dùng
+`docker compose down -v`, xóa schema hoặc reset volume để chữa lỗi web.
