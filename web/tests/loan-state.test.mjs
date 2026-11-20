@@ -5,7 +5,7 @@ const {loanState}=await import(await moduleUrl('loan-state'));
 test('loan display distinguishes an application from a disbursement awaiting exact risk review',()=>{
  assert.equal(loanState({status:'Pending'}).label,'Chờ phê duyệt');
  const row={status:'Pending',disbursement:{status:'Pending',decision:'REVIEW',reviewcaseid:81}};
- assert.equal(loanState(row).label,'Chờ thẩm định giải ngân');assert.equal(loanState(row).reviewId,'81');assert.equal(row.status,'Pending');
+ assert.equal(loanState(row).label,'Chờ xác nhận giải ngân');assert.equal(loanState(row).reviewId,'81');assert.equal(row.status,'Pending');
  assert.equal(loanState({...row,disbursement:{...row.disbursement,reviewcaseid:undefined}}).reviewId,'');
  assert.equal(loanState({...row,status:'Active'}).label,'Đang trả nợ');assert.equal(loanState({...row,status:'Active'}).reviewId,'');
 });

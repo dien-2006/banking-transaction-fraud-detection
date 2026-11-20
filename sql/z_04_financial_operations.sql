@@ -236,6 +236,20 @@ BEGIN
 END;
 $$;
 
+-- A staff operation is authorized explicitly and audited, never assigned a fake
+-- model probability. Only Banking Core can create this evidence after checking
+-- the request actor, channel and employee identity.
+CREATE OR REPLACE FUNCTION banking_api.staff_authorized_transaction(p_transaction bigint)
+RETURNS boolean LANGUAGE sql STABLE SET search_path=banking,pg_temp AS $$
+    SELECT EXISTS(SELECT 1 FROM bank_transaction t JOIN audit_log a
+      ON a.entitytype='STAFF_TRANSACTION_AUTHORIZATION' AND a.entityid=t.transactionid::text
+      AND a.action='INSERT' AND a.userid IS NOT NULL
+      JOIN "system_user" u ON u.userid=a.userid AND u.employeeid=t.employeeid
+      WHERE t.transactionid=p_transaction AND t.channel='Counter'
+        AND a.newvalue->>'employeeId'=t.employeeid::text
+        AND a.newvalue->>'amount'=t.amount::text);
+$$;
+
 CREATE OR REPLACE FUNCTION banking_api.assess_transaction (p_transaction_id bigint, p_customer_id bigint, p_device_id bigint, p_amount numeric)
     RETURNS jsonb
     LANGUAGE plpgsql
@@ -246,8 +260,37 @@ DECLARE
     v_model bigint;
     v_artifact jsonb;
     v_at timestamp;
+    v_staff integer;
 BEGIN
     SELECT transactiondate INTO STRICT v_at FROM bank_transaction WHERE transactionid=p_transaction_id;
+    IF NULLIF(current_setting('app.user_id',true),'') IS NOT NULL THEN
+        SELECT e.employeeid INTO v_staff FROM "system_user" u
+          JOIN employee e USING(employeeid) JOIN role r USING(roleid)
+          JOIN bank_transaction t ON t.transactionid=p_transaction_id
+          JOIN transaction_type tt USING(transactiontypeid)
+          WHERE u.userid=NULLIF(current_setting('app.user_id',true),'')::integer
+            AND u.isactive AND e.status='Active' AND r.status='Active'
+            AND t.channel='Counter' AND (t.employeeid IS NULL OR t.employeeid=e.employeeid)
+            AND tt.typecode IN ('TRANSFER','DEPOSIT','WITHDRAWAL','OPENING_BALANCE')
+            AND (lower(r.rolename) LIKE '%admin%' OR r.rolename='Quản trị hệ thống'
+              OR EXISTS(SELECT 1 FROM loan l JOIN audit_log al ON al.entitytype='LOAN_DISBURSEMENT'
+                AND al.entityid=l.loanid::text AND al.action='INSERT'
+                WHERE al.newvalue->>'transactionCode'=t.transactioncode AND l.branchid=e.branchid)
+              OR EXISTS(SELECT 1 FROM transfer_request tr JOIN bank_account a
+                ON a.accountid=CASE WHEN tt.typecode='WITHDRAWAL' OR tt.typecode='TRANSFER'
+                  THEN tr.sourceaccountid ELSE tr.destinationaccountid END
+                WHERE tr.transactionid=t.transactionid AND a.branchid=e.branchid));
+        IF v_staff IS NULL THEN
+            PERFORM banking_api.raise_error('FORBIDDEN','Invalid staff transaction authorization');
+        END IF;
+        UPDATE bank_transaction SET employeeid=v_staff WHERE transactionid=p_transaction_id;
+        INSERT INTO audit_log(userid,entitytype,entityid,action,newvalue)
+          SELECT NULLIF(current_setting('app.user_id',true),'')::integer,
+            'STAFF_TRANSACTION_AUTHORIZATION',p_transaction_id::text,'INSERT',
+            jsonb_build_object('employeeId',v_staff,'amount',t.amount::text,'mode','STAFF_AUTHORIZED')
+          FROM bank_transaction t WHERE t.transactionid=p_transaction_id;
+        RETURN jsonb_build_object('decision','ALLOW','authorizationMode','STAFF_AUTHORIZED');
+    END IF;
     v_artifact := NULLIF(current_setting('app.fraud_model',true),'')::jsonb;
     IF v_artifact->>'engine'='joblib' AND NOT EXISTS (
         SELECT 1 FROM bank_transaction t JOIN transfer_request tr USING(transactionid)
@@ -402,7 +445,8 @@ BEGIN
     ELSE
         SELECT decision INTO v_decision FROM risk_assessment
         WHERE transactionid=p_transaction_id ORDER BY assessedat DESC,riskassessmentid DESC LIMIT 1;
-        IF v_decision IS DISTINCT FROM 'ALLOW' AND NOT (
+        IF v_decision IS DISTINCT FROM 'ALLOW'
+           AND NOT (v_decision IS NULL AND banking_api.staff_authorized_transaction(p_transaction_id)) AND NOT (
             COALESCE(v_decision='REVIEW',FALSE) AND EXISTS (SELECT 1 FROM review_case WHERE transactionid=p_transaction_id AND status='APPROVED')
         ) THEN
             PERFORM banking_api.raise_error('FORBIDDEN','financial posting requires ALLOW or approved REVIEW');
@@ -527,7 +571,7 @@ BEGIN
     WHERE
         transactionid = p_transaction_id;
     PERFORM
-        banking_api.emit_event (p_transaction_id, 'TransactionCompleted', jsonb_build_object('transaction_id', p_transaction_id, 'transaction_code', vt.transactioncode, 'status', 'Success', 'amount', vt.amount, 'currency', vt.currency, 'channel', vt.channel, 'customer_id', vt.initiatedbycustomerid));
+        banking_api.emit_event (p_transaction_id, 'TransactionCompleted', jsonb_build_object('transaction_id', p_transaction_id, 'transaction_code', vt.transactioncode, 'status', 'Success', 'amount', vt.amount, 'currency', vt.currency, 'channel', vt.channel, 'customer_id', vt.initiatedbycustomerid, 'authorization_mode', CASE WHEN banking_api.staff_authorized_transaction(p_transaction_id) THEN 'STAFF_AUTHORIZED' ELSE 'RISK' END, 'employee_id', vt.employeeid));
     UPDATE
         bank_transaction
     SET
@@ -1034,6 +1078,12 @@ BEGIN
              ON ba.accountid IN (tr.sourceaccountid, tr.destinationaccountid)
            WHERE tr.transactionid = vc.transactionid
              AND ba.branchid = vu.branchid
+       ) AND NOT EXISTS (
+           SELECT 1 FROM loan l JOIN audit_log a
+             ON a.entitytype='LOAN_DISBURSEMENT' AND a.entityid=l.loanid::text AND a.action='INSERT'
+           JOIN bank_transaction t ON a.newvalue->>'transactionCode'=t.transactioncode
+           WHERE t.transactionid=vc.transactionid AND l.branchid=vu.branchid
+             AND t.description=concat('LOAN_DISBURSEMENT|',l.loanid)
        ) THEN
         PERFORM banking_api.raise_error(
             'FORBIDDEN',

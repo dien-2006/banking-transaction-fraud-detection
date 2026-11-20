@@ -125,7 +125,19 @@ export class CustomerProductsService {
       const row=await client.query('SELECT * FROM banking.loan WHERE loanid=$1 FOR UPDATE',[id]), loan=row.rows[0];
       if(!loan)throw new NotFoundException('Không tìm thấy khoản vay.');
       if(user.role==='employee'&&Number(loan.branchid)!==Number(user.branchId))throw new ForbiddenException('Khoản vay thuộc chi nhánh khác.');
-      const existing=await client.query(`SELECT t.transactionid,tr.sourceaccountid FROM banking.bank_transaction t
+      if(dto.requestKey) {
+        const replay=await client.query(`SELECT newvalue FROM banking.audit_log WHERE entitytype='LOAN'
+          AND entityid=$1 AND newvalue->>'requestKey'=$2 ORDER BY auditid DESC LIMIT 1`,[String(id),dto.requestKey]);
+        const saved=replay.rows[0]?.newvalue;
+        if(saved) {
+          const receipt=saved.disbursement;
+          if(saved.decision!==dto.decision || saved.reason!==dto.reason.trim()
+            || Number(receipt?.destinationaccountid)!==dto.destinationAccountId)
+            throw new ConflictException('Mã yêu cầu đã được dùng với thông tin khác.');
+          return {...loan,disbursement:receipt,resolvedExistingDisbursement:saved.resolvedExistingDisbursement};
+        }
+      }
+      const existing=await client.query(`SELECT t.transactionid,t.transactioncode,t.status,t.description,t.amount,t.initiatedbycustomerid,tr.sourceaccountid,tr.destinationaccountid FROM banking.bank_transaction t
         JOIN banking.transfer_request tr USING(transactionid)
         WHERE t.transactioncode=$2 OR (t.description=concat('LOAN_DISBURSEMENT|',$1::bigint) AND t.status IN ('Pending','Success'))
         ORDER BY CASE WHEN t.transactioncode=$2 THEN 0 ELSE 1 END,t.transactionid DESC`,
@@ -141,13 +153,26 @@ export class CustomerProductsService {
           WHERE c.customerid=$1 AND c.status='Active' AND b.status='Active' AND t.status='Active' FOR SHARE OF c,b,t`,
           [loan.customerid,loan.branchid,loan.loantypeid]);
         if(!existing.rows.length&&!eligible.rows.length)throw new ConflictException('Khách hàng, chi nhánh hoặc sản phẩm vay đã ngừng hoạt động.');
-        if(!existing.rows.length) {
-          // Same model and immutable DEPOSIT type as the Banking Core movement.
-          await this.db.prepareRisk(client,'banking_api.create_account_movement',
-            ['DEPOSIT',loan.customerid,fundingId,dto.destinationAccountId,loan.principalamount,`LD-${dto.requestKey}`,'Counter']);
+        const prior=existing.rows[0];
+        if(prior?.status==='Pending') {
+          if(prior.description!==`LOAN_DISBURSEMENT|${id}`
+            || String(prior.initiatedbycustomerid)!==String(loan.customerid)
+            || String(prior.amount)!==String(loan.principalamount))
+            throw new ConflictException('Mã yêu cầu thuộc một lệnh giải ngân khác.');
+          if(Number(prior.destinationaccountid)!==dto.destinationAccountId)
+            throw new ConflictException('Lệnh giải ngân đang chờ có tài khoản nhận khác.');
+          const review=await client.query(`SELECT reviewcaseid FROM banking.review_case
+            WHERE transactionid=$1 AND status IN ('OPEN','IN_REVIEW') ORDER BY reviewcaseid LIMIT 1`,[prior.transactionid]);
+          if(!review.rows.length)throw new ConflictException('Lệnh giải ngân đang xử lý. Vui lòng kiểm tra lại trạng thái.');
+          // Explicit officer approval completes an older REVIEW without another prediction.
+          const posted=await client.query("SELECT banking_api.resolve_review($1,$2,'APPROVE',$3) AS result",
+            [review.rows[0].reviewcaseid,user.userId,dto.reason.trim()]);
+          const updated=await client.query('SELECT * FROM banking.loan WHERE loanid=$1',[id]);
+          result={...updated.rows[0],disbursement:posted.rows[0].result,resolvedExistingDisbursement:true};
+        } else {
+          result=(await client.query('SELECT banking_api.disburse_loan($1::bigint,$2::bigint,$3::bigint,$4::varchar,$5::integer) AS result',
+            [id,dto.destinationAccountId,fundingId,`LD-${dto.requestKey}`,user.employeeId])).rows[0].result;
         }
-        result=(await client.query('SELECT banking_api.disburse_loan($1::bigint,$2::bigint,$3::bigint,$4::varchar,$5::integer) AS result',
-          [id,dto.destinationAccountId,fundingId,`LD-${dto.requestKey}`,user.employeeId])).rows[0].result;
       } else {
         if(loan.status!=='Pending'||existing.rows.length)throw new ConflictException('Khoản vay đã có lệnh giải ngân. Vui lòng xử lý lệnh tại Fraud & Review.');
         result=(await client.query("UPDATE banking.loan SET status='Cancelled' WHERE loanid=$1 RETURNING *",[id])).rows[0];

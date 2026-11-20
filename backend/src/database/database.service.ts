@@ -387,7 +387,7 @@ export class DatabaseService implements OnModuleDestroy {
     if (!/^banking_api\.[a-z0-9_]+$/.test(name)) throw new Error('Unsafe database function name');
     if (['banking_api.create_transfer', 'banking_api.create_account_movement', 'banking_api.pay_loan'].includes(name)) context = { ...context, risk: true };
     return this.transaction(context, async (client) => {
-      if (context.risk) await this.prepareRisk(client, name, args);
+      if (context.risk && !context.userId) await this.prepareRisk(client, name, args);
       const placeholders = args.map((_, i) => `$${i + 1}`).join(', ');
       const result = await client.query<{ result: T }>(`SELECT ${name}(${placeholders}) AS result`, args);
       const created = result.rows[0]?.result;

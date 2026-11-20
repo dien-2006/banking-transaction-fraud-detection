@@ -134,7 +134,7 @@ export class TransactionController {
         dto.creditAccountId,
         dto.amount,
         dto.transactionCode,
-        dto.channel,
+        "Counter",
         user.employeeId ?? null,
         dto.description ?? null,
       ],

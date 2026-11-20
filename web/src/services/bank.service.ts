@@ -159,7 +159,7 @@ export interface LoanDisbursementOptions {
 export interface LoanDecisionInput {
   decision:"APPROVE"|"REJECT";reason:string;destinationAccountId?:number;requestKey?:string;
 }
-export interface LoanDecisionResult {loanid:number;status:string;disbursement?:ApiTransaction}
+export interface LoanDecisionResult {resolvedExistingDisbursement?:boolean;loanid:number;status:string;disbursement?:ApiTransaction}
 export interface LoanPaymentInput {
   loanId:number;scheduleId:number;sourceAccountId:number;amount:string;transactionCode:string;
 }
@@ -292,7 +292,7 @@ export const bankService = {
     if(Number(result.loanid)!==id)throw new ApiError("Kết quả khoản vay không khớp. Vui lòng kiểm tra lại hồ sơ.",502);
     if(data.decision==="APPROVE") {
       const transaction=requireTransactionResult(result.disbursement);
-      if(transaction.transactioncode!==`LD-${data.requestKey}`||transaction.typecode!=="DEPOSIT"||Number(transaction.destinationaccountid)!==data.destinationAccountId)
+      if((transaction.transactioncode!==`LD-${data.requestKey}`&&result.resolvedExistingDisbursement!==true)||transaction.typecode!=="DEPOSIT"||Number(transaction.destinationaccountid)!==data.destinationAccountId)
         throw new ApiError("Chưa nhận được kết quả giải ngân khớp với lệnh đã gửi. Vui lòng kiểm tra hồ sơ hoặc thử lại đúng lệnh.",502);
     }
     return result;

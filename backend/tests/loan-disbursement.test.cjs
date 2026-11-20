@@ -35,7 +35,7 @@ test('PostgreSQL disbursement preserves risk, atomic posting, retries, ownership
  const query=async(client,sql,args=[])=>(await client.query(sql,args)).rows[0];
  const risk=async(client,probability,type='DEPOSIT',source=ids.fund,channel='Counter',amount='1000')=>{
   await client.query("SELECT set_config('app.fraud_model',$1,true),set_config('app.user_id',$2,true)",[JSON.stringify({engine:'joblib',version:'isolated-test',modelVersionId:ids.model,databaseName:'fraud_detection_v1',probability,
-   request:{customerId:ids.customer,sourceAccountId:source,amount,typeCode:type,channel,assessedAt:'2035-01-01 12:00:00'}}),String(ids.user)]);
+   request:{customerId:ids.customer,sourceAccountId:source,amount,typeCode:type,channel,assessedAt:'2035-01-01 12:00:00'}}),type==='LOAN_PAYMENT'?'':String(ids.user)]);
  };
  const loan=async(client)=>(await query(client,'SELECT banking_api.create_loan(NULL,$1,$2,$3,$4,1000,0,2,CURRENT_DATE) AS r',[ids.customer,ids.branch,ids.employee,ids.loanType])).r;
  const fund=async(client,l,key=randomUUID(),destination=ids.account)=>(await query(client,'SELECT banking_api.disburse_loan($1,$2,$3,$4,$5) AS r',[l.loanid,destination,ids.fund,'LD-'+key,ids.employee])).r;
@@ -79,20 +79,18 @@ test('PostgreSQL disbursement preserves risk, atomic posting, retries, ownership
    const payment=(await query(c,"SELECT banking_api.pay_loan($1,$2,$3,$4,$5,500,$6,'Online') AS r",[customer,l.loanid,schedule.scheduleid,account,internal,'LP-'+randomUUID()])).r;
    assert.equal(payment.status,'Success');assert.equal((await query(c,'SELECT amountpaid FROM loan_payment WHERE transactionid=$1',[payment.transactionid])).amountpaid,'500.00');
   }));
-  await t.test('REVIEW leaves balances/schedule untouched; approval funds once and rejection never funds',()=>isolated(async c=>{
-   await risk(c,0.65);const l=await loan(c),r=await fund(c,l),s=await snapshot(c);assert.equal(r.status,'Pending');assert.equal(r.disbursement.status,'Pending');assert.equal(s.postings,0);assert.equal(s.schedules,0);
-   const page={items:[{loanid:l.loanid,status:'Pending'}]};await attachLoanDisbursements(c,page);assert.equal(page.items[0].disbursement.status,'Pending');assert.equal(page.items[0].disbursement.reviewcaseid,r.disbursement.reviewcaseid);
-   const email=await loadTransactionEmailDetails(c,r.disbursement.transactionid,customer);assert.match(email,/Số tiền yêu cầu: 1\.000 VND/);assert.ok(!/[+−]/.test(email.replace(/Mã giao dịch:.*\n/,'')));
-   const approved=(await query(c,"SELECT banking_api.resolve_review($1,$2,'APPROVE','Verified test') AS r",[r.disbursement.reviewcaseid,user])).r;assert.equal(approved.status,'Success');
-   assert.equal((await query(c,'SELECT status FROM loan WHERE loanid=$1',[l.loanid])).status,'Active');
-   const done=await snapshot(c);await query(c,"SELECT banking_api.resolve_review($1,$2,'APPROVE','Verified test') AS r",[r.disbursement.reviewcaseid,user]);assert.deepEqual(await snapshot(c),done);
-   const rejectedLoan=await loan(c),reject=await fund(c,rejectedLoan);await query(c,"SELECT banking_api.resolve_review($1,$2,'REJECT','Rejected test') AS r",[reject.disbursement.reviewcaseid,user]);
-   assert.equal((await query(c,'SELECT status FROM loan WHERE loanid=$1',[rejectedLoan.loanid])).status,'Pending');assert.equal((await snapshot(c)).postings,2);
-  }));
-  await t.test('BLOCK and insufficient bank funds never activate the loan or create debt',()=>isolated(async c=>{
-   await risk(c,0.95);const blocked=await fund(c,await loan(c));assert.equal(blocked.disbursement.status,'Cancelled');assert.equal(blocked.disbursement.decision,'BLOCK');assert.equal(blocked.status,'Pending');
-   await risk(c,0.01);await c.query('UPDATE bank_account SET balance=0 WHERE accountid=$1',[internal]);const failed=await fund(c,await loan(c));assert.equal(failed.disbursement.status,'Failed');assert.equal(failed.status,'Pending');
-   const s=await snapshot(c);assert.equal(s.postings,0);assert.equal(s.schedules,0);assert.equal((await query(c,'SELECT balance FROM bank_account WHERE accountid=$1',[account])).balance,'0.00');
+  await t.test('staff approval never invokes ML or creates a risk assessment; insufficient bank funds still fail',()=>isolated(async c=>{
+   await risk(c,0.95);await c.query("SELECT set_config('app.fraud_model','',true)");
+   const l=await loan(c),funded=await fund(c,l);
+   assert.equal(funded.status,'Active');assert.equal(funded.disbursement.status,'Success');
+   assert.equal((await query(c,'SELECT count(*)::int AS n FROM risk_assessment WHERE transactionid=$1',[funded.disbursement.transactionid])).n,0);
+   assert.equal((await query(c,'SELECT banking_api.staff_authorized_transaction($1) AS authorized',[funded.disbursement.transactionid])).authorized,true);
+   const visible=(await query(c,"SELECT banking_api.list_transactions($1,NULL,NULL,NULL,NULL,NULL,1,100,NULL) AS r",[customer])).r;
+   assert.ok(!visible.items.some(t=>String(t.transactionid)===String(funded.disbursement.transactionid)));
+   await c.query('UPDATE bank_account SET balance=0 WHERE accountid=$1',[internal]);
+   const failedLoan=await loan(c),failed=await fund(c,failedLoan);
+   assert.equal(failed.disbursement.status,'Failed');assert.equal(failed.status,'Pending');
+   assert.equal((await query(c,'SELECT count(*)::int AS n FROM repayment_schedule WHERE loanid=$1',[failedLoan.loanid])).n,0);
   }));
   await t.test('the HTTP service uses the exact core result, scoped account options and one audit on replay',()=>isolated(async c=>{
    let predictions=0;
@@ -105,7 +103,7 @@ test('PostgreSQL disbursement preserves risk, atomic posting, retries, ownership
    const options=await service.loanDisbursementOptions(Number(l.loanid),actor);
    assert.equal(options.ready,true);assert.deepEqual(options.accounts.map(a=>Number(a.accountId)),[Number(account)]);
    const first=await service.decideLoan(Number(l.loanid),input,actor);assert.equal(first.status,'Active');
-   assert.equal((await service.decideLoan(Number(l.loanid),input,actor)).disbursement.transactionid,first.disbursement.transactionid);assert.equal(predictions,1);
+   assert.equal((await service.decideLoan(Number(l.loanid),input,actor)).disbursement.transactionid,first.disbursement.transactionid);assert.equal(predictions,0);
    assert.equal((await query(c,"SELECT count(*)::int AS n FROM audit_log WHERE entitytype='LOAN' AND entityid=$1 AND newvalue->>'requestKey'=$2",[String(l.loanid),input.requestKey])).n,1);
    const updated=await service.loanDisbursementOptions(Number(l.loanid),actor);assert.equal(updated.ready,false);assert.equal(updated.disbursement.status,'Success');
   }));
@@ -183,4 +181,25 @@ test('PostgreSQL disbursement preserves risk, atomic posting, retries, ownership
   });
   assert.deepEqual(await columns(),before);
  }finally{await pool.end();}
+});
+
+test('officer completes a legacy pending review without inference and replays the recorded approval',async()=>{
+ const actor={role:'employee',userId:1,employeeId:2,branchId:3};
+ const input={decision:'APPROVE',reason:'Verified application',destinationAccountId:10,requestKey:randomUUID()};
+ let saved,approvals=0;
+ const client={query:async(sql,args)=>{
+   if(sql.includes('SELECT * FROM banking.loan WHERE loanid=$1 FOR UPDATE'))return {rows:[{loanid:1,branchid:3,customerid:7,loantypeid:1,principalamount:'1000.00',status:saved?'Active':'Pending'}]};
+   if(sql.includes("SELECT newvalue FROM banking.audit_log"))return {rows:saved?[{newvalue:saved}]:[]};
+   if(sql.includes('SELECT t.transactionid,t.transactioncode'))return {rows:[{transactionid:50,transactioncode:'LD-legacy',status:'Pending',description:'LOAN_DISBURSEMENT|1',amount:'1000.00',initiatedbycustomerid:7,sourceaccountid:20,destinationaccountid:10}]};
+   if(sql.includes('SELECT reviewcaseid'))return {rows:[{reviewcaseid:81}]};
+   if(sql.includes('banking_api.resolve_review')){approvals++;return {rows:[{result:{transactionid:50,transactioncode:'LD-legacy',status:'Success',typecode:'DEPOSIT',destinationaccountid:10}}]};}
+   if(sql==='SELECT * FROM banking.loan WHERE loanid=$1')return {rows:[{loanid:1,status:'Active'}]};
+   if(sql.includes('INSERT INTO banking.audit_log'))saved=JSON.parse(args[3]);
+   return {rows:[]};
+ }};
+ const service=new CustomerProductsService({transaction:async(_context,work)=>work(client),prepareRisk:()=>assert.fail('Staff must never predict')},new ConfigService({}));
+ const first=await service.decideLoan(1,input,actor);
+ assert.equal(first.status,'Active');assert.equal(first.disbursement.status,'Success');assert.equal(first.resolvedExistingDisbursement,true);
+ assert.equal((await service.decideLoan(1,input,actor)).disbursement.transactionid,50);assert.equal(approvals,1);
+ await assert.rejects(()=>service.decideLoan(1,{...input,destinationAccountId:11},actor),/thông tin khác/);
 });

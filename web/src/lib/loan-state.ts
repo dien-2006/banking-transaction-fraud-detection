@@ -9,7 +9,7 @@ export function loanState(row: Record<string, unknown>) {
     disbursement?.decision === "REVIEW";
   let label = recordStatus(status, "loan").label;
   if (status === "Pending" && disbursement) {
-    if (review) label = "Chờ thẩm định giải ngân";
+    if (review) label = "Chờ xác nhận giải ngân";
     else if (disbursement.status === "Pending") label = "Đang giải ngân";
     else if (disbursement.status === "Failed") label = "Giải ngân thất bại";
     else if (disbursement.status === "Cancelled") label = "Giải ngân bị từ chối";

@@ -89,11 +89,12 @@ test("counter transfers reject customer role, unverified request and invalid sou
     fixture().service.create(user, { ...input, destinationAccountId: 10 }),
   );
 });
-test("counter transfers preserve core status/risk flow, use Counter and record employee audit atomically", async () => {
+test("counter transfers preserve core status, skip ML, use Counter and record employee audit atomically", async () => {
   for (const status of ["Success", "Pending", "Cancelled", "Failed"]) {
     const { service, calls } = fixture({ status });
     const result = await service.create(user, input, "127.0.0.1");
     assert.equal(result.status, status);
+    assert.equal(calls.some(c=>c.inference),false);
     assert.deepEqual(calls[0].context, { userId: 1, ipAddress: "127.0.0.1", risk: true });
     assert.ok(calls.findIndex(c=>c.sql?.includes('risk-customer:')) < calls.findIndex(c=>c.sql?.includes('hashtextextended($1, 0)')));
     const core = calls.find((c) =>

@@ -16,7 +16,7 @@ def function_statements():
         source = (ROOT / 'sql' / filename).read_text()
         for match in re.finditer(r'CREATE OR REPLACE FUNCTION\s+([^\s(]+).*?\$\$;', source, re.DOTALL):
             name = match.group(1)
-            if filename == 'z_06_api_queries.sql' and name != 'banking_api.list_audit_logs':
+            if filename == 'z_06_api_queries.sql' and name not in {'banking_api.list_audit_logs', 'banking_api.list_transactions'}:
                 continue
             yield name, match.group(0)
 

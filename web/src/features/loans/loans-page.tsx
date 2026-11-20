@@ -354,7 +354,7 @@ export function LoansPage() {
                           <span className={`d4-record-status ${recordStatus(x[5], "loan").tone}`}>{x[8]}</span>
                         </td>
                         <td className="p-2">
-                          {x[9] ? <Link className="d4-view-button" href={`/${user.role === "admin" ? "admin" : "employee"}/fraud?reviewId=${x[9]}`}>Thẩm định</Link> : x[5] === "Pending" && <button className="d4-view-button" onClick={()=>{
+                          {x[5] === "Pending" && <button className="d4-view-button" onClick={()=>{
                             setNotificationHandled(true);
                             setProcessingLoan({id:Number(x[6]),code:x[0],customer:x[1],amount:x[3]});
                           }}>Xử lý</button>}

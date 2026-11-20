@@ -152,11 +152,7 @@ export class CounterTransferService {
           throw new UnprocessableEntityException(
             "Tài khoản nhận không hợp lệ hoặc không hoạt động",
           );
-        await this.db.prepareRisk(client, 'banking_api.create_transfer', [
-          dto.customerId, dto.sourceAccountId, dto.destinationAccountId, dto.amount,
-          key, 'Counter', null, ip ?? null, description,
-        ]);
-        // Preserve the existing risk decision, locking, postings, status and outbox implementation.
+        // Staff authorization is checked and audited by Banking Core; no ML inference.
         const result = await client.query(
           `SELECT banking_api.create_transfer($1,$2,$3,$4,$5,'Counter',NULL,$6,$7) AS result`,
           [

@@ -88,10 +88,23 @@ def _transaction_violations(frames: dict[str, DataFrame]) -> DataFrame:
         .join(transactions.filter(F.col("status") == "Success").select(F.col("transaction_id").alias("original_transaction_id")), "original_transaction_id")
         .select("transaction_id").distinct()
     )
+    # Staff operations carry committed authorization evidence in their completed
+    # event rather than a fabricated model probability/risk assessment.
+    staff_authorized = transactions.filter(
+        (F.col('channel') == 'Counter') & F.col('employee_id').isNotNull()
+    ).join(frames['event_outbox'].filter(
+        (F.col('event_type') == 'TransactionCompleted') & (F.col('aggregate_type') == 'BANK_TRANSACTION')
+        & (F.get_json_object('payload_json', '$.authorization_mode') == 'STAFF_AUTHORIZED')
+    ).select(F.col('aggregate_id').alias('_staff_transaction'),
+             F.get_json_object('payload_json', '$.employee_id').alias('_staff_employee')),
+        (F.col('transaction_id').cast('string') == F.col('_staff_transaction'))
+        & (F.col('employee_id').cast('string') == F.col('_staff_employee'))
+    ).select('transaction_id').distinct()
     invalid_gate = (
         transactions.filter(F.col("status") == "Success")
         .select("transaction_id")
         .join(valid_reversals, "transaction_id", "left_anti")
+        .join(staff_authorized, "transaction_id", "left_anti")
         .join(
             latest_risk.select("transaction_id", "decision"),
             "transaction_id",

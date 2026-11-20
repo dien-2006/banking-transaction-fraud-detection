@@ -564,3 +564,15 @@ Muốn đổi mật khẩu đăng nhập hàng loạt, chạy riêng trong termi
 Nhập mật khẩu mới hai lần; script chỉ cập nhật hash đăng nhập, không thay số dư
 hoặc PIN. Không cần đổi mật khẩu mỗi lần bật container. Không dùng
 `docker compose down -v`, xóa schema hoặc reset volume để chữa lỗi web.
+
+### Cập nhật policy phê duyệt khoản vay và nghiệp vụ nhân viên
+
+Triển khai backend và web cùng các function tài chính mới. Từ môi trường Python đã cài requirements và cấu hình kết nối DB của dự án, chạy:
+
+```bash
+python -m scripts.apply_function_fixes --apply
+```
+
+Script cập nhật function atomically, gồm `staff_authorized_transaction`, admission gate tài chính, commit validator và `list_transactions`; không thay bảng/cột/constraint. Sau đó build/triển khai lại API và web. Không chỉ cập nhật giao diện: backend cũ vẫn có thể đưa giải ngân vào REVIEW. Các khoản giải ngân đang chờ cần được người có quyền mở lại ở trang Khoản vay, chọn đúng tài khoản nhận cũ và xác nhận; không tự động phê duyệt hoặc cộng tiền cho dữ liệu cũ.
+
+Nhân viên/admin không gọi model khi thực hiện nghiệp vụ tại quầy hoặc phê duyệt giải ngân; người xử lý, quyền chi nhánh và bằng chứng ủy quyền được kiểm tra/lưu trong cùng transaction. Giao dịch khách hàng online vẫn dùng model và policy V1. Chứng từ giải ngân được giữ trong DB, chỉ ẩn khỏi danh sách lịch sử giao dịch thông thường.
