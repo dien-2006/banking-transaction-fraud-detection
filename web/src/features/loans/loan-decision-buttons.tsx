@@ -7,6 +7,7 @@ import { TransactionResult } from "@/components/transaction-result";
 import { useSessionUser } from "@/components/session-context";
 import { bankService, type LoanDecisionInput, type LoanDecisionResult } from "@/services/bank.service";
 import { ApiError } from "@/services/api.client";
+import { recoverLoanDecision } from "@/lib/loan-state";
 import { newRequestKey } from "@/lib/request-key";
 import "../customer/product-application-dialog.css";
 
@@ -20,11 +21,12 @@ export function LoanDecisionButtons({id,code,customer,amount,autoOpen=false,acti
   useEffect(()=>{if(autoOpen)setDecision("APPROVE");},[autoOpen]);
   const options=useQuery({queryKey:["loan-disbursement-options",user.id,id],queryFn:()=>bankService.loanDisbursementOptions(id),enabled:!!decision,refetchInterval:15_000});
   useEffect(()=>{
-    const receipt=options.data?.disbursement;
-    if(!receipt||!draft||draft.decision!=="APPROVE")return;
-    if(receipt.transactioncode===`LD-${draft.requestKey}`&&Number(receipt.destinationaccountid)===draft.destinationAccountId
-      && options.data?.status==="Active"&&receipt.status==="Success") {
-      setResult({loanid:id,status:"Active",disbursement:receipt});setError(null);
+    const confirmed=recoverLoanDecision(id,options.data,draft);
+    if(confirmed){
+      const receipt=confirmed.disbursement!;
+      setResult(receipt.failureCode==='INSUFFICIENT_BALANCE'?{...confirmed,disbursement:{...receipt,failureReason:
+        'Tài khoản nguồn ngân hàng không đủ số dư khả dụng để giải ngân. Khoản vay chưa được kích hoạt và tiền chưa được cộng vào tài khoản người vay.'}}:confirmed);
+      setError(null);
     }
   },[options.data,draft,id]);
   const review=options.data?.disbursement?.reviewcaseid??result?.disbursement?.reviewcaseid;
@@ -45,7 +47,7 @@ export function LoanDecisionButtons({id,code,customer,amount,autoOpen=false,acti
   return <>
     {actionable&&<button className="d4-view-button" onClick={open}>Xử lý</button>}
     <Modal open={!!decision} onOpenChange={value=>{if(!value)close();}} title="Xử lý hồ sơ vay" description="Kiểm tra hồ sơ và chọn tài khoản nhận tiền của khách hàng trước khi xác nhận." className="product-application-dialog loan-decision-dialog">
-      {result?.disbursement?<div className="loan-decision-result"><TransactionResult operation="Giải ngân khoản vay" status={result.disbursement.status} decision={result.disbursement.decision} amount={amount} reference={result.disbursement.transactioncode}
+      {result?.disbursement?<div className="loan-decision-result"><TransactionResult operation="Giải ngân khoản vay" status={result.disbursement.status} error={result.disbursement.failureReason?new Error(result.disbursement.failureReason):undefined} decision={result.disbursement.decision} amount={amount} reference={result.disbursement.transactioncode}
         details={[["Mã khoản vay",code],["Khách hàng",customer],["Tài khoản nhận",options.data?.accounts.find(a=>Number(a.accountId)===draft?.destinationAccountId)?.accountNumber??"Xem chứng từ giao dịch"]]}
         actions={<>{result.disbursement.status==="Pending"&&review&&<Link className="btn-secondary" href={reviewHref}>Xem hồ sơ review</Link>}{["Failed","Cancelled"].includes(result.disbursement.status)&&<button className="btn-secondary" onClick={reset}>Kiểm tra lại hồ sơ</button>}<button className="btn-primary" onClick={close}>Đóng</button></>}/>
         <p className="product-application-note">{result.disbursement.status==="Success"?"Tiền đã được ghi có vào tài khoản nhận. Lịch trả nợ được tính từ ngày giải ngân.":"Khoản vay chưa được kích hoạt và chưa phát sinh lịch trả nợ."}</p></div>

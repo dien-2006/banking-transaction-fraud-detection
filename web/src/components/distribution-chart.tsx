@@ -19,6 +19,7 @@ export function DistributionChart({
   hidden = false,
   centerValue,
   formatValue = (value: number) => value.toLocaleString("vi-VN"),
+  formatPercentage = (value: number) => `${Math.round(value)}%`,
   emptyText = "Chưa có dữ liệu.",
 }: {
   items: { label: string; value: number; color?: string }[];
@@ -28,6 +29,7 @@ export function DistributionChart({
   hidden?: boolean;
   centerValue?: string;
   formatValue?: (value: number) => string;
+  formatPercentage?: (value: number) => string;
   emptyText?: string;
 }) {
   const invalid = items.some(
@@ -99,7 +101,7 @@ export function DistributionChart({
             {values.map((item, index) => {
               const statistic = hidden
                 ? "••••••"
-                : `${Math.round((item.value / total) * 100)}% · ${formatValue(item.value)}`;
+                : `${formatPercentage((item.value / total) * 100)} · ${formatValue(item.value)}`;
               return (
                 <li key={item.label} title={`${item.label}: ${statistic}`}>
                   <i

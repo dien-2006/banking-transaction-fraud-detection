@@ -214,6 +214,7 @@ test('officer completes a legacy pending review without inference and replays th
    if(sql.includes("SELECT newvalue FROM banking.audit_log"))return {rows:saved?[{newvalue:saved}]:[]};
    if(sql.includes('SELECT t.transactionid,t.transactioncode'))return {rows:[{transactionid:50,transactioncode:'LD-legacy',status:'Pending',description:'LOAN_DISBURSEMENT|1',amount:'1000.00',initiatedbycustomerid:7,sourceaccountid:20,destinationaccountid:10}]};
    if(sql.includes('SELECT reviewcaseid'))return {rows:[{reviewcaseid:81}]};
+   if(sql.includes('banking_api.transaction_result'))return {rows:[{result:saved?.disbursement}]};
    if(sql.includes('banking_api.resolve_review')){approvals++;return {rows:[{result:{transactionid:50,transactioncode:'LD-legacy',status:'Success',typecode:'DEPOSIT',destinationaccountid:10}}]};}
    if(sql==='SELECT * FROM banking.loan WHERE loanid=$1')return {rows:[{loanid:1,status:'Active'}]};
    if(sql.includes('INSERT INTO banking.audit_log'))saved=JSON.parse(args[3]);
@@ -224,4 +225,19 @@ test('officer completes a legacy pending review without inference and replays th
  assert.equal(first.status,'Active');assert.equal(first.disbursement.status,'Success');assert.equal(first.resolvedExistingDisbursement,true);
  assert.equal((await service.decideLoan(1,input,actor)).disbursement.transactionid,50);assert.equal(approvals,1);
  await assert.rejects(()=>service.decideLoan(1,{...input,destinationAccountId:11},actor),/thông tin khác/);
+});
+
+test('loan options disable approval when the bank source cannot cover principal, and expose the stored failure reason',async()=>{
+ const {movementResult}=require('../dist/database/business-authorization');
+ const client={query:async(sql)=>{
+  if(sql.includes('FROM banking.loan l WHERE'))return {rows:[{loanid:28,status:'Pending',fundingReady:true,fundingSufficient:false,accounts:[],disbursement:{transactionid:88}}]};
+  if(sql.includes('banking_api.transaction_result'))return {rows:[{result:{transactionid:88,status:'Failed'},failure_code:'INSUFFICIENT_BALANCE'}]};
+  return {rows:[]};
+ }};
+ const service=new CustomerProductsService({pool:client},new ConfigService({}));
+ const result=await service.loanDisbursementOptions(28,{role:'admin',userId:1,employeeId:2});
+ assert.equal(result.ready,false);assert.equal(result.unavailableCode,'INSUFFICIENT_BANK_FUNDS');
+ assert.match(result.unavailableReason,/nguồn ngân hàng.*đủ số dư/);
+ assert.equal(result.disbursement.status,'Failed');assert.equal(result.disbursement.failureCode,'INSUFFICIENT_BALANCE');
+ assert.match((await movementResult(client,88)).failureReason,/không đủ số dư/);
 });

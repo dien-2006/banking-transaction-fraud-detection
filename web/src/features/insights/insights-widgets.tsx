@@ -14,18 +14,21 @@ export function InsightPanel({
   title,
   children,
   className = "",
+  description,
 }: {
   title: string;
   children: ReactNode;
   className?: string;
+  description?: string;
 }) {
   return (
     <article
       className={`card insight-panel flex min-h-0 min-w-0 flex-col p-3 ${className}`}
     >
-      <h2 className="shrink-0 text-sm font-black" title={title}>
-        {title}
-      </h2>
+      <header className="insight-panel-heading">
+        <h2>{title}</h2>
+        {description && <p>{description}</p>}
+      </header>
       <div className="insight-panel-body min-h-0 min-w-0 flex-1">
         {children}
       </div>
@@ -68,6 +71,15 @@ export function AnalyticsBoundary({
 }
 
 export const insightColors = distributionColors;
+const statusColors: Record<string, string> = {
+  LOW: "#18a777", MEDIUM: "#e9a521", HIGH: "#f07835", CRITICAL: "#ed3758",
+  ALLOW: "#18a777", REVIEW: "#e9a521", BLOCK: "#ed3758",
+  Success: "#18a777", Failed: "#ed3758", Pending: "#438dec", Cancelled: "#94a3b8",
+  APPROVED: "#18a777", REJECTED: "#ed3758", OPEN: "#e9a521", IN_REVIEW: "#438dec", CLOSED: "#94a3b8",
+};
+const insightLabel = (name: string) => recordStatusLabels[name] ?? riskLabels[name] ?? reviewLabels[name] ?? name;
+const insightPercent = (percent: number) => percent > 0 && percent < 0.01
+  ? "<0,01%" : percent.toLocaleString("vi-VN", {maximumFractionDigits: 2}) + "%";
 
 export function InsightDonut({
   items,
@@ -89,20 +101,13 @@ export function InsightDonut({
   return (
     <DistributionChart
       items={shown.map((item) => ({
-        label:
-          recordStatusLabels[item.name] ??
-          riskLabels[item.name] ??
-          reviewLabels[item.name] ??
-          item.name,
+        label: insightLabel(item.name),
+        color: statusColors[item.name],
         value: item.value,
       }))}
       label={label}
-      centerValue={items
-        .reduce((sum, item) => sum + item.value, 0)
-        .toLocaleString("vi-VN", {
-          notation: "compact",
-          maximumFractionDigits: 1,
-        })}
+      formatPercentage={insightPercent}
+
     />
   );
 }
@@ -114,25 +119,17 @@ export function InsightBars({
 }) {
   const maximum = Math.max(1, ...items.map((item) => item.value));
   return (
-    <div className="insight-bars space-y-2 pt-3 text-[10px]">
+    <div className="insight-bars">
       {items.slice(0, 5).map((item, index) => (
-        <div
-          className="grid grid-cols-[minmax(0,1fr)_minmax(32px,1fr)_auto] items-center gap-2"
-          key={item.name}
-        >
-          <span className="truncate" title={item.name}>
-            {item.name}
-          </span>
-          <span className="h-2 rounded bg-slate-100">
-            <i
-              className="block h-full rounded"
-              style={{
-                width: `${(item.value / maximum) * 100}%`,
-                background: insightColors[index % insightColors.length],
-              }}
-            />
-          </span>
-          <b>{item.value.toLocaleString("vi-VN")}</b>
+        <div className="insight-bar-row" key={item.name}>
+          <div className="insight-bar-label">
+            <span>{insightLabel(item.name)}</span>
+            <b>{item.value.toLocaleString("vi-VN")}</b>
+          </div>
+          <div className="insight-bar-track" aria-hidden="true">
+            <i style={{width: `${(item.value / maximum) * 100}%`,
+              background: statusColors[item.name] ?? insightColors[index % insightColors.length]}} />
+          </div>
         </div>
       ))}
     </div>
@@ -187,13 +184,13 @@ export function InsightTable({
   const pages = Math.max(1, Math.ceil(rows.length / capacity));
   const current = Math.min(page, pages);
   return (
-    <div ref={hostRef} className="flex h-full min-h-0 flex-col pt-2">
-      <div className="min-h-0 flex-1 overflow-auto">
-        <table className="w-full table-fixed text-left text-[10px]">
+    <div ref={hostRef} className="insight-table-host flex h-full min-h-0 flex-col">
+      <div className="insight-table-scroll min-h-0 flex-1 overflow-auto">
+        <table className="insight-table w-full text-left">
           <thead>
             <tr>
               {columns.map((column) => (
-                <th key={column.key} title={column.label}>
+                <th key={column.key} title={column.label} className={column.format ? "insight-number" : undefined}>
                   {column.label}
                 </th>
               ))}
@@ -212,7 +209,7 @@ export function InsightTable({
                           ? column.format(row[column.key])
                           : String(row[column.key]);
                     return (
-                      <td key={column.key} title={text}>
+                      <td key={column.key} title={text} className={column.format ? "insight-number" : undefined}>
                         {text}
                       </td>
                     );

@@ -17,8 +17,10 @@ try {
  assert.equal(requests.length,1);
  await page.getByLabel('Từ ngày',{exact:true}).fill('2026-11-01');
  await page.getByLabel('Đến ngày',{exact:true}).fill('2026-11-02');
- await page.getByRole('button',{name:'Lọc',exact:true}).click();
- await page.waitForResponse(r=>r.url().includes('/analytics/snapshot')&&r.url().includes('from=2026-11-01'));
+ await Promise.all([
+  page.waitForResponse(r=>r.url().includes('/analytics/snapshot')&&r.url().includes('from=2026-11-01')),
+  page.getByRole('button',{name:'Lọc',exact:true}).click(),
+ ]);
  assert.equal(requests.length,2);
  assert.equal(requests[1].searchParams.get('to'),'2026-11-02');
  assert.deepEqual(errors,[]);

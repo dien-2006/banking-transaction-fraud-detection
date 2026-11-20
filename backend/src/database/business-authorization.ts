@@ -89,8 +89,20 @@ export function presentBusinessAuthorization<T>(value: T): T {
   return result as T;
 }
 
-export async function movementResult(client: PoolClient, transactionId: string | number) {
-  return presentBusinessAuthorization((await client.query('SELECT banking_api.transaction_result($1) AS result', [transactionId])).rows[0].result);
+export async function movementResult(client: Pick<PoolClient, 'query'>, transactionId: string | number) {
+  const row = (await client.query(`SELECT banking_api.transaction_result($1) AS result,
+    (SELECT e.payloadjson->>'reason' FROM banking.event_outbox e
+      WHERE e.aggregateid=$1::text AND e.aggregatetype='BANK_TRANSACTION' AND e.eventtype='TransactionFailed'
+      ORDER BY e.createdat DESC,e.eventoutboxid DESC LIMIT 1) AS failure_code`, [transactionId])).rows[0];
+  if(!row?.result)throw new NotFoundException('Không tìm thấy chứng từ giao dịch.');
+  const result = presentBusinessAuthorization(row.result);
+  if (result?.status === 'Failed') return {...result,
+    failureCode:row.failure_code ?? null,
+    failureReason:row.failure_code === 'INSUFFICIENT_BALANCE'
+      ? 'Tài khoản nguồn không đủ số dư khả dụng để hạch toán. Giao dịch chưa được ghi nợ/ghi có.'
+      : 'Giao dịch đã thất bại và chưa được hạch toán. Cần kiểm tra nguyên nhân trước khi tạo lệnh khác.',
+  };
+  return result;
 }
 
 export async function createAuthorizedMovement(client: PoolClient, input: AuthorizedMovement) {

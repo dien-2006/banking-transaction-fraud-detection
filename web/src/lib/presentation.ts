@@ -1,5 +1,5 @@
 export const BANK_TIME_ZONE = "Asia/Ho_Chi_Minh";
-function bankDate(value: string | number | Date): Date {
+export function bankDate(value: string | number | Date): Date {
   if (value instanceof Date) return value;
   const text =
     typeof value === "string" &&

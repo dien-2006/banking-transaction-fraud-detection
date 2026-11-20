@@ -9,6 +9,7 @@ import {
   Filter,
   LockKeyhole,
   Search,
+  RefreshCw,
   ShieldCheck,
   UserRoundCheck,
   UsersRound,
@@ -23,7 +24,7 @@ import {
 } from "@/components/list-pagination";
 import { RecordViewButton } from "@/components/record-view-button";
 import { bankService } from "@/services/bank.service";
-import { loadAuditLogs } from "@/lib/audit-data";
+import { loadAuditLogs, summarizeAuditLogs } from "@/lib/audit-data";
 
 const typeTone: Record<string, string> = {
   "Tạo mới": "bg-rose-50 text-red-500",
@@ -51,7 +52,7 @@ export function AuditLogsPage({
 }) {
   const session = useSessionUser();
   const auditQuery = useQuery({
-    queryKey: ["admin-audit-old-ui", role, session.id, session.branchId],
+    queryKey: ["admin-audit", role, session.id, session.branchId],
     queryFn: () => loadAuditLogs(bankService.auditLogs),
     staleTime: 60_000,
   });
@@ -67,7 +68,7 @@ export function AuditLogsPage({
       logs.filter(
         (x) =>
           (!q ||
-            Object.values(x)
+            [x.id,x.time,x.user,x.actorKnown?x.userKey:"",x.actorCode,x.ip,x.type,x.action,x.target,x.entity,x.entityId,x.changes]
               .join(" ")
               .toLowerCase()
               .includes(q.toLowerCase())) &&
@@ -87,61 +88,26 @@ export function AuditLogsPage({
   const entities = Array.from(
     new Map(logs.map((x) => [x.entity, x.target])).entries(),
   );
+  const summary=useMemo(()=>summarizeAuditLogs(data),[data]);
   const kpis: Array<[typeof FileClock, string, string]> = [
-    [FileClock, "Tổng số hoạt động", String(logs.length)],
-    [
-      UsersRound,
-      "Người thực hiện",
-      String(users.filter(([id]) => id !== "__system").length),
-    ],
-    [
-      LockKeyhole,
-      "Thao tác cập nhật",
-      String(logs.filter((x) => x.action === "UPDATE").length),
-    ],
-    [
-      ShieldCheck,
-      "Thay đổi trạng thái",
-      String(logs.filter((x) => x.action === "STATUS_CHANGE").length),
-    ],
+    [FileClock,"Tổng bản ghi nhật ký",summary.total.toLocaleString('vi-VN')],
+    [UsersRound,"Người thực hiện",summary.actors.toLocaleString('vi-VN')],
+    [LockKeyhole,"Bản ghi cập nhật",summary.updates.toLocaleString('vi-VN')],
+    [ShieldCheck,"Thay đổi trạng thái",summary.statusChanges.toLocaleString('vi-VN')],
   ];
-  const percent = (count: number) =>
-    logs.length ? Math.round((count / logs.length) * 100) : 0;
-  const actionCounts = actions.map((label) => ({
-    label,
-    count: logs.filter((x) => x.type === label).length,
-  }));
-  const entityCounts = entities
-    .map(([id, label]) => ({
-      label,
-      count: logs.filter((x) => x.entity === id).length,
-    }))
-    .sort((a, b) => b.count - a.count);
-  const entityPreview =
-    entityCounts.length > 4
-      ? [
-          ...entityCounts.slice(0, 3),
-          {
-            label: "Khác",
-            count: entityCounts
-              .slice(3)
-              .reduce((sum, item) => sum + item.count, 0),
-          },
-        ]
-      : entityCounts;
-  const topUsers = users
-    .map(([id, name]) => ({
-      id,
-      name,
-      count: logs.filter((x) => x.userKey === id).length,
-    }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 3);
+  const percent=(count:number)=>summary.total ? count/summary.total*100 : 0;
+  const formatPercent=(value:number)=>value.toLocaleString('vi-VN',{maximumFractionDigits:2})+'%';
+  const actionCounts=summary.actionCounts;
+  const entityCounts=summary.entityCounts;
+  const entityPreview=entityCounts.length>4
+    ? [...entityCounts.slice(0,3),{label:'Khác',count:entityCounts.slice(3).reduce((sum,item)=>sum+item.count,0)}]
+    : entityCounts;
+  const topUsers=summary.topActors.slice(0,3);
   const colors = distributionColors;
   return (
     <div className="staff-data-page customers-page-content flex flex-col gap-2.5 text-navy">
       <AuditHero />
-      <section className="grid grid-cols-4 gap-3">
+      <section className="audit-kpis grid grid-cols-4 gap-3" aria-label="Thống kê nhật ký theo bộ lọc">
         {kpis.map(([Icon, label, value], i) => (
           <article className="card flex items-center gap-3 p-3" key={label}>
             <span className="grid size-11 place-items-center rounded-full bg-[#ffe9ec] text-coral">
@@ -157,13 +123,13 @@ export function AuditLogsPage({
                   ? "Không tải được dữ liệu"
                   : auditQuery.isPending
                     ? "Đang tải…"
-                    : "Theo nhật ký trong hệ thống"}
+                    : "Theo bộ lọc hiện tại · Giờ Việt Nam"}
               </small>
             </div>
           </article>
         ))}
       </section>
-      <section className="d4-page-toolbar card flex h-12 px-3">
+      <section className="d4-page-toolbar card flex h-12 items-center justify-between gap-3 px-3">
         <div className="flex h-full gap-4">
           {(role === "employee"
             ? [
@@ -200,13 +166,17 @@ export function AuditLogsPage({
             </button>
           ))}
         </div>
+        <button type="button" className="btn-secondary shrink-0" aria-label="Làm mới nhật ký"
+          disabled={auditQuery.isFetching} onClick={()=>void auditQuery.refetch()}>
+          <RefreshCw size={14} /> Làm mới
+        </button>
       </section>
       {tab !== "Danh sách hoạt động" ? (
         <section className="grid min-h-0 flex-1 grid-cols-3 gap-3">
           <article className="card p-5 lg:col-span-2">
             <h2 className="text-lg font-black">{tab}</h2>
             <p className="mt-2 text-sm text-slate-500">
-              Tổng hợp audit theo khoảng thời gian và phạm vi truy cập đã chọn.
+              Tổng hợp nhật ký theo bộ lọc hiện tại. Một thao tác có thể tạo nhiều bản ghi ở các đối tượng liên quan.
             </p>
             <div className="mt-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
               {["Tạo mới", "Cập nhật", "Xóa", "Đổi trạng thái"].map((x) => (
@@ -214,7 +184,7 @@ export function AuditLogsPage({
                   <p className="text-xs text-slate-500">{x}</p>
                   <b className="mt-2 block text-2xl">
                     {auditQuery.data
-                      ? logs.filter((row) => row.type === x).length
+                      ? data.filter((row) => row.type === x).length
                       : "—"}
                   </b>
                 </div>
@@ -247,7 +217,7 @@ export function AuditLogsPage({
                   className="h-9 w-full rounded-lg border pl-9 text-[10px]"
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
-                  placeholder="Tìm kiếm theo người dùng, hành động, mô tả, địa chỉ IP..."
+                  placeholder="Tìm người thực hiện, hành động, đối tượng, mã hoặc IP…"
                 />
               </label>
               <select
@@ -360,8 +330,8 @@ export function AuditLogsPage({
                   {pagination.visibleItems.map((x) => (
                     <tr className="border-t" key={x.id}>
                       <td className="p-1.5">{x.id}</td>
-                      <td className="p-1.5">{x.time}</td>
-                      <td className="p-1.5">{x.user}</td>
+                      <td className="p-1.5" title={`${x.time} (giờ Việt Nam)`}>{x.time}</td>
+                      <td className="p-1.5" title={x.user}>{x.user}</td>
                       <td className="p-1.5">{x.ip}</td>
                       <td className="p-1.5">
                         <span
@@ -370,21 +340,28 @@ export function AuditLogsPage({
                           {x.type}
                         </span>
                       </td>
-                      <td className="p-1.5">{x.target}</td>
+                      <td className="p-1.5" title={x.target}>{x.target}</td>
                       <td className="p-1.5">{x.entityId}</td>
-                      <td className="p-1.5">{x.changes}</td>
+                      <td className="p-1.5" title={x.changes}>{x.changes}</td>
                       <td className="p-1.5 text-center">
                         <RecordViewButton
                           record={{
                             "Mã nhật ký": x.id,
                             "Thời gian": x.time,
                             "Người thực hiện": x.user,
+                            "Mã người dùng": x.actorKnown ? x.userKey : "Không được ghi nhận trong nhật ký",
+                            "Mã nhân viên": x.actorCode,
+                            "Nguồn thông tin người thực hiện": x.actorKnown
+                              ? "Đối chiếu userid với hồ sơ nhân viên hiện tại; không thay đổi nhật ký gốc"
+                              : "Nhật ký gốc không ghi nhận userid",
+                            "Múi giờ": "Việt Nam (UTC+07:00)",
                             "Địa chỉ IP": x.ip,
                             "Hành động": x.type,
                             "Mã hành động": x.action,
                             "Đối tượng": x.target,
                             "Mã đối tượng": x.entityId,
                             "Trường thay đổi": x.changes,
+                            "Mã trường thay đổi": x.changedFields.join(", ") || "—",
                           }}
                           title={`Chi tiết nhật ký #${x.id}`}
                         />
@@ -394,27 +371,25 @@ export function AuditLogsPage({
                 </tbody>
               </table>
             </div>
-            <ListPagination {...pagination} noun="hoạt động" />
+            <ListPagination {...pagination} noun="bản ghi" />
           </article>
           <aside className="staff-secondary-panels grid min-h-0 grid-rows-[1.15fr_1fr_1.1fr] gap-3">
             <article className="card p-3">
-              <h2 className="text-sm font-black">Cơ cấu hoạt động theo loại</h2>
+              <h2 className="text-sm font-black">Cơ cấu bản ghi theo hành động</h2>
               <DistributionChart
                 items={actionCounts.map((item) => ({
                   label: item.label,
                   value: item.count,
                 }))}
-                label="hoạt động"
+                label="bản ghi"
                 ready={auditQuery.isSuccess}
                 error={auditQuery.isError}
-                centerValue={logs.length.toLocaleString("vi-VN", {
-                  notation: "compact",
-                  maximumFractionDigits: 1,
-                })}
+                centerValue={summary.total.toLocaleString("vi-VN")}
+                formatPercentage={formatPercent}
               />
             </article>
             <article className="card p-3">
-              <h2 className="text-sm font-black">Hoạt động theo đối tượng</h2>
+              <h2 className="text-sm font-black">Bản ghi theo đối tượng</h2>
               <div className="mt-3 space-y-2 text-[10px]">
                 {entityPreview.map((item, index) => (
                   <div
@@ -434,7 +409,7 @@ export function AuditLogsPage({
                       />
                     </span>
                     <b>
-                      {percent(item.count)}% ({item.count})
+                      {formatPercent(percent(item.count))} ({item.count.toLocaleString("vi-VN")})
                     </b>
                   </div>
                 ))}
@@ -443,7 +418,7 @@ export function AuditLogsPage({
             <article className="card p-3">
               <div className="flex justify-between">
                 <h2 className="text-sm font-black">
-                  Người thực hiện nhiều nhất
+                  Bản ghi theo người thực hiện
                 </h2>
                 <button
                   onClick={() => {
@@ -460,8 +435,11 @@ export function AuditLogsPage({
                 </button>
               </div>
               <div className="mt-2 space-y-2">
+                {summary.unattributed>0 && <p className="text-[10px] leading-4 text-slate-500">
+                  {summary.unattributed.toLocaleString('vi-VN')} bản ghi chưa ghi nhận người thực hiện, không tính vào xếp hạng.
+                </p>}
                 {auditQuery.isSuccess && !topUsers.length && (
-                  <p className="text-xs text-slate-500">Chưa có hoạt động.</p>
+                  <p className="text-xs text-slate-500">Chưa có bản ghi xác định được người thực hiện.</p>
                 )}
                 {topUsers.map((item, i) => (
                   <button

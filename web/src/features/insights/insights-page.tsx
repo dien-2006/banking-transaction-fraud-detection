@@ -2,6 +2,7 @@
 
 import {
   ArrowLeftRight,
+  BarChart3,
   Coins,
   Filter,
   HandCoins,
@@ -13,7 +14,6 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState, type FormEvent } from "react";
 import { apiRequest, toQuery } from "@/services/api.client";
 import { formatDateTime } from "@/lib/presentation";
-import { reviewLabels } from "@/lib/fraud-data";
 import {
   analyticsDatasets,
   validateAnalyticsSnapshot,
@@ -59,8 +59,12 @@ const money = (value: unknown) => number(value) + " ₫";
 function InsightHero() {
   return (
     <header className="insights-heading">
-      <h1>D4 <span>Insights</span></h1>
-      <p>Phân tích giao dịch, sản phẩm và kiểm soát rủi ro toàn hệ thống.</p>
+      <div className="insights-brand" aria-hidden="true"><BarChart3 size={26} /></div>
+      <div>
+        <p className="insights-eyebrow">PHÂN TÍCH & BÁO CÁO</p>
+        <h1>D4 <span>Insights</span></h1>
+        <p>Theo dõi giao dịch, dòng tiền và kiểm soát rủi ro toàn hệ thống.</p>
+      </div>
     </header>
   );
 }
@@ -160,14 +164,9 @@ export function InsightsPage({
   ];
   const limited = datasets.some((dataset) => data[dataset].truncated);
   return (
-    <div className="d4-insights-page insights-page-content flex flex-col gap-2.5 text-navy">
+    <div className="d4-insights-page insights-dashboard text-navy">
       <InsightHero />
-      <p className="px-1 text-xs text-slate-500" role="note">
-        Dữ liệu Gold được cập nhật sau mỗi lần batch hoàn tất. Sự kiện stream
-        được lưu vào Bronze để đối soát; biểu đồ này không cập nhật trực tiếp từ
-        Kafka.
-      </p>
-      <section className="grid grid-cols-4 gap-3">
+      <section className="insights-kpis" aria-label="Chỉ số tổng quan">
         {kpis.map(({ Icon, label, value }) => (
           <article
             className="card flex min-w-0 items-center gap-3 p-3"
@@ -227,7 +226,7 @@ export function InsightsPage({
           className="insights-dates flex flex-wrap items-center gap-2"
           onSubmit={applyRange}
         >
-          <input
+          <label><span>Từ ngày</span><input
             type="date"
             aria-label="Từ ngày"
             title="Từ ngày"
@@ -235,8 +234,8 @@ export function InsightsPage({
             onChange={(event) => setFrom(event.target.value)}
             className="h-8 rounded-lg border px-2 text-[10px]"
           />
-          <span aria-hidden="true">–</span>
-          <input
+          </label>
+          <label><span>Đến ngày</span><input
             type="date"
             aria-label="Đến ngày"
             title="Đến ngày"
@@ -244,6 +243,7 @@ export function InsightsPage({
             onChange={(event) => setTo(event.target.value)}
             className="h-8 rounded-lg border px-2 text-[10px]"
           />
+          </label>
           <button type="submit" className="btn-secondary h-8 px-2 text-[10px]">
             <Filter size={13} />
             Lọc
@@ -257,6 +257,7 @@ export function InsightsPage({
             className="btn-secondary h-8 px-2 disabled:opacity-40"
           >
             <RefreshCw size={13} />
+            Làm mới
           </button>
         </form>
         <p
@@ -269,7 +270,7 @@ export function InsightsPage({
           {dateError ||
             (limited
               ? "Đã chạm giới hạn 1.000 bản ghi của ít nhất một tập Gold; thống kê có thể chưa đầy đủ."
-              : "Nguồn: MinIO Gold qua Trino · Thống kê trên dữ liệu đã tải, theo ngày đã chọn; model không lọc ngày.")}
+              : "Thống kê trên dữ liệu đã cập nhật, theo khoảng ngày đã chọn · Dữ liệu model không lọc ngày.")}
         </p>
       </section>
       {tab === "Phân tích khách hàng" ? (
@@ -283,29 +284,10 @@ export function InsightsPage({
       ) : tab === "Báo cáo tùy chỉnh" ? (
         <CustomReports data={data} />
       ) : (
-        <div className="insights-overview-grid grid min-h-0 grid-cols-3 grid-rows-[minmax(0,18fr)_minmax(0,11fr)_minmax(0,11fr)] gap-2">
-          <Panel title="Xu hướng giao dịch theo thời gian">
+        <div className="insights-overview-grid">
+          <Panel title="Xu hướng giao dịch" description="Số lượng và giá trị giao dịch theo ngày" className="insight-panel-lead">
             <AnalyticsBoundary state={data.transactions}>
               <TransactionTrend rows={data.transactions.rows} />
-            </AnalyticsBoundary>
-          </Panel>
-          <Panel title="Thanh toán khoản vay theo ngày">
-            <AnalyticsBoundary state={data.loans}>
-              <ProductGrowth rows={data.loans.rows} />
-            </AnalyticsBoundary>
-          </Panel>
-          <Panel title="Lượt đăng nhập theo ngày">
-            <AnalyticsBoundary state={data.logins}>
-              <MetricChart
-                rows={data.logins.rows}
-                metrics={[
-                  {
-                    key: "login_count",
-                    name: "Lượt đăng nhập",
-                    color: "#45a7ee",
-                  },
-                ]}
-              />
             </AnalyticsBoundary>
           </Panel>
           <Panel title="Trạng thái giao dịch">
@@ -350,14 +332,30 @@ export function InsightsPage({
                   data.reviews.rows,
                   "status",
                   "review_count",
-                ).map((item) => ({
-                  ...item,
-                  name: reviewLabels[item.name] ?? item.name,
-                }))}
+                )}
               />
             </AnalyticsBoundary>
           </Panel>
-          <Panel title="Giao dịch theo ngày">
+          <Panel title="Thanh toán khoản vay theo ngày">
+            <AnalyticsBoundary state={data.loans}>
+              <ProductGrowth rows={data.loans.rows} />
+            </AnalyticsBoundary>
+          </Panel>
+          <Panel title="Lượt đăng nhập theo ngày">
+            <AnalyticsBoundary state={data.logins}>
+              <MetricChart
+                rows={data.logins.rows}
+                metrics={[
+                  {
+                    key: "login_count",
+                    name: "Lượt đăng nhập",
+                    color: "#45a7ee",
+                  },
+                ]}
+              />
+            </AnalyticsBoundary>
+          </Panel>
+          <Panel title="Giao dịch theo ngày" className="insight-panel-daily">
             <AnalyticsBoundary state={data.transactions}>
               <InsightTable
                 rows={dailyMetrics(data.transactions.rows, [
@@ -369,20 +367,6 @@ export function InsightsPage({
                   { key: "transaction_count", label: "Số GD", format: number },
                   { key: "total_amount", label: "Giá trị", format: money },
                 ]}
-              />
-            </AnalyticsBoundary>
-          </Panel>
-          <Panel title="Phí giao dịch theo loại">
-            <AnalyticsBoundary state={data.transactions}>
-              <InsightBars
-                items={groupMetric(
-                  data.transactions.rows,
-                  "transaction_type_key",
-                  "total_fee",
-                ).map((item) => ({
-                  ...item,
-                  name: "Loại #" + item.name + " (₫)",
-                }))}
               />
             </AnalyticsBoundary>
           </Panel>

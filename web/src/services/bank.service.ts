@@ -11,6 +11,8 @@ export interface PageResult<T> {
 }
 
 export interface ApiTransaction {
+  failureCode?:string|null;
+  failureReason?:string;
   transactionid: number;
   transactioncode: string;
   typecode: string;
@@ -153,6 +155,7 @@ export interface LoanPaymentOptions {
   schedules:Array<{scheduleId:number;installmentNo:number;dueDate:string;status:string;principal:string;interest:string;penalty:string;total:string;pendingPayment:boolean}>;
 }
 export interface LoanDisbursementOptions {
+  unavailableCode?:string|null;
   loanId:number;status:string;ready:boolean;unavailableReason:string|null;
   accounts:Array<{accountId:number;accountNumber:string}>;disbursement:ApiTransaction|null;
 }

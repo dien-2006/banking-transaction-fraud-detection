@@ -2,6 +2,7 @@ import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Pool, PoolClient } from 'pg';
 import { JoblibFraudModel } from './joblib-model';
+import { attachAuditActors } from './audit-actors';
 import { attachLoanDisbursements } from './loan-disbursements';
 import { createAuthorizedMovement, presentBusinessAuthorization } from './business-authorization';
 import { repayLoanWithoutRisk } from './loan-repayment';
@@ -404,6 +405,7 @@ export class DatabaseService implements OnModuleDestroy {
       const placeholders = args.map((_, i) => `$${i + 1}`).join(', ');
       const result = await client.query<{ result: T }>(`SELECT ${name}(${placeholders}) AS result`, args);
       const created = result.rows[0]?.result;
+      if (name === 'banking_api.list_audit_logs') await attachAuditActors(client,created,this.sourceTimezone);
       if (name === 'banking_api.list_loans') await attachLoanDisbursements(client, created);
       if (name === 'banking_api.customer_dashboard' && created && typeof created === 'object') {
         const page = await listVisibleTransactions(client,[args[0],null,null,null,null,null,1,5,null]) as {items: unknown[]};
@@ -419,7 +421,9 @@ export class DatabaseService implements OnModuleDestroy {
           throw new Error('CONFIGURATION:Chưa thể tạo khách hàng vì hệ thống thiếu nhật ký người tạo. Quản trị viên cần khôi phục audit trigger trong sql/z_03_integrity.sql. Hồ sơ chưa được lưu.');
         }
       }
-      return presentBusinessAuthorization(created);
+      // Audit snapshots describe what was actually recorded. Do not apply
+      // transaction presentation masks or add synthetic fields to their values.
+      return name === 'banking_api.list_audit_logs' ? created : presentBusinessAuthorization(created);
     });
   }
 

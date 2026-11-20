@@ -29,7 +29,7 @@ export function MetricChart({
       maximumFractionDigits: 1,
     });
   return (
-    <ReactECharts
+    <div className="insight-chart"><ReactECharts
       notMerge
       style={{ height: "100%", width: "100%" }}
       option={{
@@ -82,7 +82,7 @@ export function MetricChart({
         })),
         aria: { enabled: true },
       }}
-    />
+    /></div>
   );
 }
 

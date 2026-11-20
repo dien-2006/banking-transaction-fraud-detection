@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHmac } from 'node:crypto';
-import { createAuthorizedMovement, presentBusinessAuthorization } from '../database/business-authorization';
+import { createAuthorizedMovement, presentBusinessAuthorization, movementResult } from '../database/business-authorization';
 import { DatabaseService } from '../database/database.service';
 import { AuthUser } from '../security/auth.guard';
 import { CustomerAccountDto, CustomerCardDto, CustomerLoanDto, LoanDecisionDto } from './customer-products.dto';
@@ -101,6 +101,9 @@ export class CustomerProductsService {
     this.loanOfficer(user);
     const result=await this.db.pool.query(`SELECT l.loanid,l.status,
       banking_api.loan_counterparty_account(l.loanid,TRUE) IS NOT NULL AS "fundingReady",
+      EXISTS(SELECT 1 FROM banking.bank_account a JOIN banking.account_type at USING(accounttypeid)
+        WHERE a.accountid=banking_api.loan_counterparty_account(l.loanid,TRUE)
+          AND a.balance-l.principalamount>=at.minbalance) AS "fundingSufficient",
       (SELECT banking_api.transaction_result(t.transactionid) FROM banking.bank_transaction t
         WHERE t.description=concat('LOAN_DISBURSEMENT|',l.loanid) ORDER BY t.transactionid DESC LIMIT 1) AS disbursement,
       COALESCE((SELECT jsonb_agg(jsonb_build_object('accountId',a.accountid,'accountNumber',a.accountnumber) ORDER BY a.accountid)
@@ -113,9 +116,14 @@ export class CustomerProductsService {
       [id,user.role==='employee'?user.branchId:null,this.config.get('SOURCE_TIMEZONE','Asia/Ho_Chi_Minh')]);
     if(!result.rows[0])throw new NotFoundException('Không tìm thấy khoản vay trong phạm vi được cấp quyền.');
     const row=result.rows[0];
-    return {loanId:Number(row.loanid),status:row.status,ready:row.status==='Pending'&&row.fundingReady,
-      unavailableReason:!row.fundingReady?'Ngân hàng tạm thời chưa thể giải ngân. Vui lòng liên hệ bộ phận vận hành.':null,
-      accounts:row.accounts,disbursement:presentBusinessAuthorization(row.disbursement)};
+    const insufficient = row.fundingReady && row.fundingSufficient === false;
+    const disbursement = row.disbursement?.transactionid
+      ? await movementResult(this.db.pool,row.disbursement.transactionid) : presentBusinessAuthorization(row.disbursement);
+    return {loanId:Number(row.loanid),status:row.status,ready:row.status==='Pending'&&row.fundingReady&&!insufficient,
+      unavailableCode:!row.fundingReady?'BANK_FUNDING_UNAVAILABLE':insufficient?'INSUFFICIENT_BANK_FUNDS':null,
+      unavailableReason:!row.fundingReady?'Ngân hàng tạm thời chưa thể giải ngân. Vui lòng liên hệ bộ phận vận hành.':insufficient
+        ?'Tài khoản nguồn ngân hàng chưa đủ số dư khả dụng để giải ngân khoản vay này. Khoản vay chưa được kích hoạt; cần bộ phận vận hành kiểm tra nguồn tiền.':null,
+      accounts:row.accounts,disbursement};
   }
   async decideLoan(id:number,dto:LoanDecisionDto,user:AuthUser,ip?:string) {
     this.loanOfficer(user);
@@ -135,7 +143,8 @@ export class CustomerProductsService {
           if(saved.decision!==dto.decision || saved.reason!==dto.reason.trim()
             || Number(receipt?.destinationaccountid)!==dto.destinationAccountId)
             throw new ConflictException('Mã yêu cầu đã được dùng với thông tin khác.');
-          return {...loan,disbursement:receipt,resolvedExistingDisbursement:saved.resolvedExistingDisbursement};
+          return {...loan,disbursement:receipt?.transactionid ? await movementResult(client,receipt.transactionid) : receipt,
+            resolvedExistingDisbursement:saved.resolvedExistingDisbursement};
         }
       }
       const existing=await client.query(`SELECT t.transactionid,t.transactioncode,t.status,t.description,t.amount,t.initiatedbycustomerid,tr.sourceaccountid,tr.destinationaccountid FROM banking.bank_transaction t
@@ -192,6 +201,11 @@ export class CustomerProductsService {
       } else {
         if(loan.status!=='Pending'||existing.rows.length)throw new ConflictException('Khoản vay đã có lệnh giải ngân. Vui lòng xử lý lệnh tại Fraud & Review.');
         result=(await client.query("UPDATE banking.loan SET status='Cancelled' WHERE loanid=$1 RETURNING *",[id])).rows[0];
+      }
+      const receipt = result.disbursement as Record<string,unknown> | undefined;
+      if(receipt?.status==='Failed' && receipt.failureCode==='INSUFFICIENT_BALANCE') {
+        result={...result,disbursement:{...receipt,failureReason:
+          'Tài khoản nguồn ngân hàng không đủ số dư khả dụng để giải ngân. Khoản vay chưa được kích hoạt và tiền chưa được cộng vào tài khoản người vay.'}};
       }
       await client.query(`INSERT INTO banking.audit_log(userid,entitytype,entityid,action,oldvalue,newvalue,ipaddress)
         SELECT $1::integer,'LOAN',$2::varchar,'STATUS_CHANGE',$3::jsonb,$4::jsonb,$5::varchar
