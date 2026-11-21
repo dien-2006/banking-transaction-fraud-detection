@@ -1,579 +1,351 @@
-# D4 Bank — Banking Transaction Fraud Detection & Data Platform
+# D4 Bank — Banking, Fraud Detection & Data Platform
 
-**Nền tảng mô phỏng ngân hàng tích hợp phát hiện gian lận và phân tích dữ liệu.**
+D4 Bank là dự án mô phỏng ngân hàng, kết hợp **giao dịch tài chính**, **phát hiện gian lận bằng Rule Engine và Machine Learning**, và **nền tảng dữ liệu phục vụ phân tích**.
 
-D4 Bank kết nối toàn bộ hành trình của một giao dịch: khách hàng gửi yêu cầu chuyển tiền, hệ thống đánh giá rủi ro bằng Rule Engine và Machine Learning, ngân hàng xử lý tiền, sau đó dữ liệu được đưa vào nền tảng phân tích qua Batch và Realtime.
+Dự án theo dõi một giao dịch từ lúc khách hàng chuyển tiền, qua kiểm soát rủi ro và hạch toán, đến khi dữ liệu xuất hiện trong báo cáo. PostgreSQL lưu dữ liệu nghiệp vụ; Kafka, Spark, MinIO, Airflow và Trino đảm nhiệm việc thu thập, xử lý và phân tích dữ liệu.
 
-Triển khai web/API trên EC2: xem [hướng dẫn Docker production trong running.md](running.md#triển-khai-webapi-trên-ec2-bằng-docker).
-Profile `web` đóng gói frontend và gateway HTTP/HTTPS, gọi API cùng origin;
-DB vẫn được khởi tạo thủ công, không tự tạo bảng hoặc nhập dữ liệu khi bật Docker.
+Ứng dụng có ba vai trò: **khách hàng**, **nhân viên ngân hàng** và **quản trị viên**. Các chức năng thẻ, QR và chuyển khoản mô phỏng hoạt động trong D4 Bank; chưa tích hợp mạng thanh toán liên ngân hàng thực tế.
 
-Dự án kết hợp ba lĩnh vực: **ứng dụng ngân hàng**, **phát hiện gian lận**, và **Data Engineering**. Giao diện phục vụ khách hàng, nhân viên và quản trị viên; dữ liệu nghiệp vụ được lưu trong PostgreSQL, còn dữ liệu phân tích được tổ chức trên MinIO theo mô hình Bronze → Silver → Gold.
+## Bắt đầu từ đâu?
 
-## Mục lục
-
-- [Chức năng chính](#chức-năng-chính)
-- [Kiến trúc hệ thống](#kiến-trúc-hệ-thống)
-- [Công nghệ sử dụng](#công-nghệ-sử-dụng)
-- [Luồng giao dịch ngân hàng](#luồng-giao-dịch-ngân-hàng)
-- [Phát hiện gian lận](#phát-hiện-gian-lận)
-- [Nền tảng dữ liệu](#nền-tảng-dữ-liệu)
-- [Mô hình dữ liệu phân tích](#mô-hình-dữ-liệu-phân-tích)
-- [Cấu trúc mã nguồn](#cấu-trúc-mã-nguồn)
-- [Cài đặt và chạy](#cài-đặt-và-chạy)
-- [API và các dịch vụ](#api-và-các-dịch-vụ)
-- [Kiểm thử](#kiểm-thử)
-- [Nguyên tắc thiết kế](#nguyên-tắc-thiết-kế)
+| Bạn muốn làm gì? | Tài liệu / phần cần đọc |
+| --- | --- |
+| Hiểu dự án và luồng giao dịch | [Chức năng](#chức-năng-chính), [Kiến trúc](#kiến-trúc-hệ-thống), [Luồng lưu trữ](#một-giao-dịch-được-xử-lý-và-lưu-như-thế-nào) |
+| Clone và cài lần đầu | [Cài đặt và chạy](#cài-đặt-và-chạy), hướng dẫn chi tiết tại [running.md](running.md) |
+| Cập nhật code trên EC2 đã có DB | [Cập nhật trên EC2](#cập-nhật-code-trên-ec2) |
+| Tìm hiểu ETL, Kafka và dữ liệu phân tích | [Data Platform](#data-platform), [mô hình Gold](#mô-hình-dữ-liệu-gold) |
+| Tra cứu API hoặc sửa từng module | [Công nghệ và cấu trúc repository](#công-nghệ-và-cấu-trúc-repository), [backend](backend/README.md), [frontend](web/README.md) |
+| Kiểm tra lỗi vận hành | [running.md — Kiểm tra và xử lý lỗi](running.md#8-kiểm-tra-và-xử-lý-lỗi) |
 
 ## Chức năng chính
 
-### Khách hàng
+| Vai trò | Chức năng |
+| --- | --- |
+| **Khách hàng** | Đăng ký/kích hoạt đăng nhập qua OTP email; xem số dư và lịch sử; chuyển tiền; tạo/đọc QR nhận tiền; mở tài khoản, đăng ký thẻ và khoản vay; trả nợ; quản lý hồ sơ, thiết bị và thông báo. |
+| **Nhân viên** | Quản lý khách hàng, tài khoản, thẻ và khoản vay trong phạm vi chi nhánh; chuyển tiền, nạp/rút tại quầy; xử lý review; phê duyệt và giải ngân khoản vay. |
+| **Quản trị viên** | Xem dữ liệu toàn hệ thống; quản lý chi nhánh, nhân viên và tài khoản hệ thống; giám sát Fraud & Review, nhật ký hoạt động và báo cáo D4 Insights. |
 
-- Đăng nhập và quản lý hồ sơ cá nhân.
-- Đăng ký tài khoản đăng nhập tại `/register`: họ tên, điện thoại, email, tên đăng nhập và mật khẩu; xác minh email bằng OTP trước khi lưu. Mã khách hàng tự cấp; hồ sơ và tài khoản đăng nhập được tạo trong cùng một transaction DB, chưa có tài khoản ngân hàng và chưa xác minh KYC. Email đã có hồ sơ không được đăng ký thêm hồ sơ từ form này; dùng luồng kích hoạt cho hồ sơ hiện có hoặc liên hệ chi nhánh hỗ trợ. OTP đăng ký tách biệt với OTP chuyển tiền, hết hạn sau 5 phút, tối đa 5 lần thử; gửi lại sau 60 giây. Gửi lại cùng yêu cầu sau lỗi mạng không tạo thêm khách hàng nhờ dấu yêu cầu trong audit log hiện có. Cần cấu hình Brevo hợp lệ.
-- Khách hàng đã được chi nhánh tạo hồ sơ dùng `/activate` (liên kết **Kích hoạt ngân hàng trực tuyến** tại trang đăng nhập): nhập mã khách hàng, email đã lưu, tên đăng nhập và mật khẩu; xác nhận OTP để tạo đăng nhập cho đúng hồ sơ hiện có. Chỉ hỗ trợ hồ sơ Active, có email không dùng chung với hồ sơ khác và chưa có đăng nhập; hồ sơ đã có đăng nhập, kể cả bị vô hiệu hóa, phải được chi nhánh hỗ trợ khôi phục. Không tạo thêm khách hàng, tài khoản ngân hàng hay tự cập nhật KYC. OTP kích hoạt có namespace/HMAC riêng, hết hạn 5 phút, tối đa 5 lần thử, gửi lại sau 60 giây; API không tiết lộ hồ sơ có tồn tại qua phản hồi yêu cầu OTP. Khi lưu, khóa hồ sơ và kiểm tra lại trạng thái/email; đăng nhập và dấu yêu cầu trong audit log được commit cùng nhau để thử lại an toàn. Không thay đổi schema.
-- Xem tài khoản, số dư, thẻ và lịch sử giao dịch.
-- Tự mở thêm tài khoản khách hàng tại chi nhánh và sản phẩm đang hoạt động; số tài khoản được tự cấp, số dư ban đầu bằng 0. Tự phát hành thẻ ghi nợ mô phỏng trên tài khoản VND mà mình đứng tên chính, với PIN được băm và số thẻ chỉ trả về dạng đã che. Hạn mức thẻ do server cấu hình qua `CUSTOMER_CARD_DAILY_LIMIT` (mặc định 50.000.000 VND/ngày), hiệu lực 3 năm; không tự phát hành thẻ tín dụng.
-- Gửi hồ sơ vay theo lãi suất và giới hạn của sản phẩm trong DB. Hồ sơ lưu ở trạng thái `Pending`; hệ thống chọn nhân viên đang hoạt động của chi nhánh để tiếp nhận. Nhân viên/admin nhấn **Xử lý**, chọn tài khoản VND do khách hàng vay đứng tên chính, nhập lý do rồi **Phê duyệt và giải ngân**. Banking Core dùng nghiệp vụ `DEPOSIT` hiện có để ghi nợ tài khoản nguồn ngân hàng và ghi có đúng số tiền vay vào tài khoản nhận, theo quyền nhân viên/admin mà không chạy Risk/ML. Chỉ `Success` mới kích hoạt khoản vay và tạo lịch trả nợ từ ngày giải ngân, trong cùng transaction. Hồ sơ REVIEW cũ có thể được xác nhận tại trang Khoản vay; thiếu số dư không tạo dư nợ. Từ chối hồ sơ chưa có lệnh chờ chuyển sang `Cancelled`.
-- Khách hàng chỉ chọn tài khoản ngân hàng của mình để nhận tiền vay và trích tiền trả nợ; không cần cấu hình ID tài khoản giải ngân/thu nợ trong `.env`. Backend tự xử lý đối ứng từ tài khoản ngân hàng có sẵn trong DB: giải ngân ưu tiên tài khoản đủ số dư rồi cùng chi nhánh; trả nợ ưu tiên tài khoản đã giải ngân, sau đó tài khoản từng nhận trả nợ của hồ sơ, rồi tài khoản cùng chi nhánh. Không tự tạo tài khoản hoặc số dư. Mỗi lệnh giữ nguyên khóa khi thử lại; khóa khoản vay ngăn hai lệnh khác nhau giải ngân trùng. Liên kết khoản vay/chứng từ lưu trong `audit_log` hiện có, không thêm bảng/cột. Chứng từ giải ngân không dùng chức năng đảo giao dịch chung; cần quy trình bù trừ khoản vay riêng.
-- Chi tiết khoản vay khách hàng hiển thị chứng từ giải ngân và tài khoản nhận. Khoản vay cũ `Active/Overdue` vẫn trả nợ trực tuyến từ tài khoản khách hàng theo lịch hiện có; hệ thống không tự giải ngân lại hoặc sửa số dư dữ liệu cũ.
-- Ba thao tác đăng ký dùng mã yêu cầu để chống tạo trùng khi gửi lại. Kết quả và dấu kiểm tra yêu cầu được ghi vào audit log trong cùng transaction với sản phẩm; PIN không được lưu trong audit log. Không thêm bảng hoặc đổi schema.
-- Form tự mở thẻ có lựa chọn bắt buộc: ghi nợ tiêu chuẩn, ghi nợ nội địa (Napas), ghi nợ Visa hoặc ghi nợ Mastercard. Danh sách do API cung cấp; loại đã chọn được kiểm tra ở server, ghi vào `card.cardtype` và tham gia kiểm tra gửi lại yêu cầu. Đây là các biến thể mô phỏng của thẻ ghi nợ, chưa tích hợp các mạng thanh toán thực tế.
-- Chuyển tiền với xác minh người nhận và OTP qua email.
-- Người nhận gần đây được lấy từ toàn bộ lịch sử chuyển tiền thành công của khách hàng, dùng được khi đăng nhập lại hoặc đổi thiết bị. Danh sách gộp theo tài khoản nhận và sắp xếp lần chuyển mới nhất trước; chỉ gợi ý tài khoản khách hàng VND đang hoạt động và xác minh lại trước khi chuyển. Bốn người nhận đầu hiển thị trên trang, nút “Xem tất cả” mở danh sách đầy đủ.
-- Mỗi tài khoản khách hàng VND đang hoạt động có mã QR nhận tiền với biểu tượng D4 Bank ở giữa. Ảnh PNG tải xuống gồm logo ngân hàng, tên chủ tài khoản, số tài khoản và QR. Trang Chuyển tiền đọc QR qua camera hoặc ảnh, xác minh người nhận từ DB và tiếp tục qua xác nhận/OTP như chuyển khoản thông thường. QR này dùng trong D4 Bank, chưa tích hợp mạng thanh toán ngân hàng bên ngoài.
-- Camera quét QR ưu tiên độ nét cao, hỗ trợ chọn thiết bị và tự động lấy nét nếu camera cho phép. QR mới dùng dữ liệu ngắn để giảm mật độ ô; QR JSON đã tải ở phiên bản trước vẫn được đọc bình thường.
-- Theo dõi kết quả giao dịch, xem và tải ảnh PNG biên nhận theo đúng trạng thái giao dịch.
-- Nhấn thông báo có giao dịch liên kết để mở ngay chi tiết bằng `notification_outbox.transactionid`, kể cả giao dịch ngoài trang lịch sử đang xem. API kiểm tra quyền sở hữu trước khi trả thông tin chuyển/nhận; trạng thái lấy từ giao dịch hiện tại, không suy ra từ nội dung thông báo. Thông báo không liên kết giao dịch vẫn hiển thị nội dung thông thường.
-- Tra cứu khoản vay, lịch trả nợ và trạng thái từng kỳ.
-- Trong chi tiết khoản vay có phần thanh toán bên dưới lịch trả nợ: chọn kỳ và tài khoản nguồn, kiểm tra gốc/lãi/phí còn lại do DB đối chiếu, rồi xác nhận trả nợ. Dùng API `pay_loan` hiện có và giữ đúng kết quả Success/Pending/Cancelled/Failed. Khách hàng chọn tài khoản nguồn của mình; Banking Core tự xác định đối ứng ngân hàng từ dữ liệu DB, không yêu cầu nhập ID tài khoản thu nợ. Mã giao dịch được giữ nguyên khi thử lại sau lỗi mạng.
-- Quản lý thiết bị, đổi mật khẩu, đổi PIN thẻ và xem thông báo.
-- Trong chi tiết thẻ, chính chủ có thể nhấn **Hiện số thẻ** và xác thực bằng mật khẩu đăng nhập. Số đầy đủ chỉ hiện trong hộp thoại tối đa 30 giây; tự che khi chuyển cửa sổ, ẩn tab hoặc đóng hộp thoại. API chỉ cho khách hàng xem thẻ của mình, giới hạn 5 lần thử/15 phút theo khách hàng và trả `Cache-Control: no-store`. Nhật ký chỉ lưu việc truy cập, không lưu mật khẩu hoặc số thẻ đầy đủ; API danh sách vẫn trả số đã che.
+Khách hàng mới đăng ký chỉ có hồ sơ và tài khoản đăng nhập; tài khoản ngân hàng được mở riêng. Khách hàng đã có hồ sơ tại chi nhánh dùng trang `/activate` để kích hoạt đăng nhập cho đúng hồ sơ đó.
 
-### Nhân viên ngân hàng
+Nhân viên chỉ truy cập dữ liệu trong phạm vi được cấp quyền. Quản trị viên xem toàn bộ chi nhánh và có thể lọc theo chi nhánh. API kiểm tra quyền ở backend cho cả thao tác đọc và ghi.
 
-- Thêm khách hàng với mã tự cấp dạng `C0000001` theo ID tự tăng; không cần nhập mã thủ công. Dãy số có thể có khoảng trống khi thao tác tạo không hoàn tất.
-- Form tạo khách hàng chỉ bắt buộc họ tên (tối đa 150 ký tự). Các thông tin khác có thể bỏ trống và lưu NULL; nếu nhập thì kiểm tra định dạng, độ dài theo schema, ngày sinh hợp lệ và không ở tương lai. Giấy tờ định danh phải duy nhất khi được cung cấp.
-- Hai form tạo khách hàng/mở tài khoản hiển thị lỗi bằng tiếng Việt, chỉ rõ giấy tờ hoặc số tài khoản bị trùng và các lựa chọn không còn tồn tại. Lỗi kết nối yêu cầu kiểm tra danh sách trước khi gửi lại vì kết quả lưu có thể chưa xác định.
-- Hồ sơ chưa gắn tài khoản hoặc khoản vay hiển thị cho chính nhân viên đã tạo, dựa trên audit log. Khi hồ sơ đã gắn chi nhánh, quyền truy cập tuân theo chi nhánh.
-- Tạo hồ sơ khách hàng mới tại trang Khách hàng. Trang Tài khoản chỉ mở tài khoản cho khách hàng đã có hồ sơ bằng cách tìm tên hoặc mã; không tạo thêm hồ sơ khách hàng từ form mở tài khoản.
-- Form mở tài khoản chỉ phục vụ khách hàng, không có lựa chọn nhóm tài khoản nội bộ. API bắt buộc có khách hàng sở hữu và từ chối yêu cầu tạo tài khoản nội bộ cho cả admin lẫn nhân viên.
-- Số tài khoản được tự cấp khi mở, dựa trên identity sequence hiện có (thông thường 16 chữ số), không cần nhập thủ công. Cơ chế cấp số giữ constraint duy nhất và bỏ qua số đã tồn tại; không thay đổi schema.
-- Phát hành thẻ yêu cầu ID khách hàng đã có và tài khoản đang hoạt động thực sự thuộc khách hàng đó. Số thẻ mô phỏng được tự cấp, kết quả chỉ trả số đã che; PIN 4–6 chữ số được xác nhận trên form, băm khi lưu và không trả lại qua API.
-- Tạo khoản vay yêu cầu ID khách hàng đã có; mã `LN...` tự cấp. Lãi suất mặc định, số tiền và kỳ hạn tối đa lấy từ sản phẩm vay. Hồ sơ mới có trạng thái `Pending`, không tự duyệt hoặc giải ngân.
-- Cả bốn form hiển thị kết quả sau khi lưu, gồm mã/số thực tế do backend trả về. Không yêu cầu nhập ID bằng tay: tìm tên/mã/ID để chọn đúng hồ sơ, giữ nguyên phạm vi chi nhánh theo quyền.
-- Tra cứu khách hàng, tài khoản, thẻ, khoản vay và giao dịch trong phạm vi chi nhánh.
-- Thực hiện chuyển khoản tại quầy sau khi xác minh yêu cầu của khách hàng.
-- Xử lý các nghiệp vụ nạp/rút tiền và quản lý tài khoản.
-- Kiểm tra giao dịch cần duyệt, đưa ra quyết định chấp thuận hoặc từ chối.
-- Trang giám sát có tab Giao dịch nghi ngờ lọc quyết định REVIEW/BLOCK từ các hồ sơ review được cấp quyền. Tab Tài khoản cần review gom hồ sơ OPEN/IN_REVIEW theo tài khoản nguồn; nút Xem hồ sơ mở đúng danh sách chưa hoàn tất của tài khoản đã chọn.
-- Quản lý khoản vay và ghi nhận nhãn gian lận phục vụ phân tích, Machine Learning.
+### Khoản vay và phạm vi Risk/ML
 
-### Quản trị viên
-
-- Thêm hồ sơ nhân viên với mã `EMP...` tự cấp từ identity hiện có; tên, chi nhánh, vai trò, điện thoại, email, ngày vào làm và lương là bắt buộc. Giới tính/ngày sinh có thể để trống, lương có thể bằng 0. Danh mục chi nhánh và vai trò lấy từ DB và được kiểm tra còn hoạt động khi lưu; API kiểm tra định dạng, ngày sinh không ở tương lai, ngày vào làm không trước ngày sinh, lương không âm và nằm trong NUMERIC(19,2). Email chuẩn hóa chữ thường; điện thoại/email phải duy nhất. Sau khi lưu hiển thị mã và thông tin thực tế, làm mới danh sách; việc cấp tài khoản đăng nhập nhân viên là thao tác riêng của admin. Không thay đổi cấu trúc bảng.
-
-- Thêm chi nhánh với mã tự cấp `CN...` từ identity hiện có; không nhập mã trên web. Bắt buộc tên, tỉnh/thành phố, địa chỉ và ngày bắt đầu hoạt động (mặc định hôm nay); điện thoại có thể bỏ trống và lưu NULL. API kiểm tra khoảng trắng, độ dài theo schema, định dạng điện thoại và ngày hợp lệ. Sau khi tạo, hiển thị mã thực tế từ DB và làm mới danh sách/danh mục chi nhánh. Không thêm bảng hoặc cột.
-
-- Mặc định xem dữ liệu toàn bộ chi nhánh. Các API danh sách khách hàng, tài khoản, thẻ, khoản vay, giao dịch và hồ sơ review hỗ trợ lọc `branchId`; tham số này không thể thay đổi phạm vi chi nhánh của nhân viên.
-- Theo dõi hoạt động ngân hàng qua dashboard tổng quan.
-- Quản lý chi nhánh, nhân viên và tài khoản hệ thống.
-- Tra cứu giao dịch rủi ro và nhật ký thao tác.
-- Tạo cảnh báo thủ công bằng mã giao dịch và lý do tại trang Giám sát rủi ro. API chỉ tạo hồ sơ OPEN khi giao dịch còn Pending và quyết định Risk mới nhất là REVIEW; hồ sơ đã có được trả lại, không mở lại hoặc ghi đè lý do. Thao tác ghi audit bằng trigger hiện có, không đổi quyết định Risk, số dư hoặc posting.
-- Xem báo cáo trên dữ liệu Gold qua Trino tại khu vực D4 Insights.
-
-### Xử lý dữ liệu và Machine Learning
-
-- Kết hợp Rule Engine với mô hình XGBoost để đánh giá giao dịch.
-- Phát sự kiện đã commit bằng Transactional Outbox và Kafka.
-- Thu thập dữ liệu từ PostgreSQL và Kafka vào MinIO.
-- Chuẩn hóa, kiểm tra chất lượng và đưa dữ liệu không hợp lệ vào Quarantine.
-- Xây dựng 10 bảng chiều và 7 bảng sự kiện phục vụ phân tích.
-- Lập lịch pipeline bằng Airflow; lưu dữ liệu và kết quả kiểm tra theo từng batch.
-
-### Phạm vi Risk/ML và xử lý khoản vay
-
-Risk/ML chỉ áp dụng cho chuyển tiền thông thường do khách hàng thực hiện. Nghiệp vụ nhân viên/admin, giải ngân và trả nợ vay online không gọi Rule Engine hoặc model. Backend xử lý xác nhận nghiệp vụ, kiểm tra quyền/số tiền và tạo chứng từ; các function Banking Core có sẵn vẫn thực hiện posting, balance, outbox và hoàn tất khoản vay trong cùng transaction.
-
-Không cần thêm hoặc sửa function SQL cho bản backend này. DB hiện có bắt buộc bản ghi ALLOW trước khi hạch toán, nên backend lưu dấu cho phép nghiệp vụ theo danh tính riêng `business_authorization_v1` (`BUSINESS_POLICY`), với `reasonjson` ghi rõ `risk_evaluated=false`, `model_evaluated=false`. Các trường số bắt buộc lưu 0 để tương thích contract, không phải điểm rủi ro/xác suất dự đoán; API trả các trường này là NULL kèm trạng thái không đánh giá. Dấu nghiệp vụ thiếu feature snapshot được trainer hiện có loại khỏi mẫu ML. Không thay PostgreSQL schema.
-
-Giải ngân chỉ kích hoạt khoản vay sau khi ghi có thành công. Trả vay kiểm tra tài khoản sở hữu, dư nợ kỳ, số dư và khóa khoản vay; re-run không trừ tiền hay ghi nhận trả nợ hai lần. Chứng từ giải ngân vẫn giữ trong DB và được backend ẩn khỏi danh sách lịch sử giao dịch thông thường, trước khi tính phân trang/tổng số.
+- Chuyển tiền thông thường do khách hàng thực hiện được kiểm tra bằng Rule Engine và model.
+- Nghiệp vụ của nhân viên/admin, giải ngân và trả nợ vay không chạy Rule Engine hoặc model; vẫn kiểm tra quyền, tài khoản, số dư và điều kiện nghiệp vụ.
+- Phê duyệt khoản vay chỉ kích hoạt hợp đồng và tạo lịch trả nợ khi giải ngân **thành công**. Tiền được ghi có vào tài khoản khách hàng đã chọn.
+- Chứng từ giải ngân được giữ trong DB để truy vết và chống cộng tiền trùng, nhưng được ẩn khỏi lịch sử giao dịch thông thường trên web.
+- Khi kết quả chưa xác định do lỗi mạng, thử lại cùng mã yêu cầu để đối chiếu; không tạo lệnh mới cho cùng một thao tác.
 
 ## Kiến trúc hệ thống
 
 ```mermaid
 flowchart TB
-    Web[Web Next.js] --> API[Banking API NestJS]
+    Web[Web Next.js] --> API[API NestJS]
+    API --> PG[Banking Core / PostgreSQL]
     API --> Risk[Rule Engine + XGBoost]
-    API --> Core[Banking Core / PostgreSQL]
-    Risk --> Decision{ALLOW / REVIEW / BLOCK}
-    Decision -->|ALLOW hoặc REVIEW được duyệt| Core
-    Core --> Commit[Posting + Balance + Status + Outbox / COMMIT]
+    Risk --> PG
+    PG --> Commit[Posting + Balance + Status + Outbox / COMMIT]
 
     Commit --> Publisher[Outbox Publisher]
     Publisher --> Kafka[Kafka]
     Kafka --> Consumer[Bronze Consumer]
     Consumer --> Bronze[MinIO Bronze]
 
-    Core -->|Snapshot 20 bảng| Extract[Spark JDBC]
+    PG --> Extract[Spark JDBC / Batch snapshot]
     Extract --> Bronze
-    Bronze --> Silver[Spark / Silver]
-    Silver --> DQ[Data Quality]
-    Silver --> Quarantine[Quarantine]
-    DQ --> Gold[Gold / 10 Dimensions + 7 Facts]
+    Bronze --> Silver[Silver / chuẩn hóa và deduplicate]
+    Silver --> DQ{Data Quality}
+    DQ -->|Hợp lệ| Gold[Gold / Dimensions + Facts]
+    Silver -->|Record lỗi| Quarantine[Quarantine]
     Gold --> Trino[Trino]
-    Trino --> Insights[D4 Insights / BI]
-    DQ --> Features[Curated Data / Feature Mart]
-    Features --> Training[ML Training & Evaluation]
+    Trino --> Insights[D4 Insights]
 
     Airflow[Airflow] -. Điều phối Batch .-> Extract
     Airflow -. Điều phối Batch .-> Silver
     Airflow -. Điều phối Batch .-> Gold
 ```
 
-Hệ thống có ba vùng trách nhiệm:
+| Thành phần | Trách nhiệm |
+| --- | --- |
+| **Banking Core** | Validation, khóa tài khoản, hạch toán, cập nhật số dư, trạng thái và Outbox. |
+| **Risk/Fraud** | Tính điểm luật, lấy xác suất model và quyết định `ALLOW / REVIEW / BLOCK`. |
+| **Data Platform** | Thu thập dữ liệu đã commit, xử lý Batch/Realtime, kiểm tra chất lượng và phục vụ báo cáo. |
 
-| Vùng | Trách nhiệm |
-|---|---|
-| **Banking Core** | Kiểm tra nghiệp vụ, khóa tài khoản, debit/credit, cập nhật số dư, trạng thái và outbox |
-| **Risk/Fraud** | Tính điểm rule, dự đoán xác suất gian lận và quyết định ALLOW/REVIEW/BLOCK |
-| **Data Platform** | Kafka, thu thập dữ liệu, xử lý Spark, điều phối Airflow, lưu trữ MinIO và phân tích Trino |
+**COMMIT là ranh giới giữa nghiệp vụ ngân hàng và Data Platform.** Kafka, Spark, MinIO hoặc Airflow không phải điều kiện để một giao dịch ngân hàng commit thành công.
 
-**COMMIT là ranh giới giữa giao dịch ngân hàng và nền tảng dữ liệu.** Một giao dịch đã commit không bị đảo ngược vì Kafka, Spark, MinIO hoặc Airflow tạm ngừng hoạt động.
+## Một giao dịch được xử lý và lưu như thế nào?
 
-## Công nghệ sử dụng
+Với chuyển khoản online, khách hàng chọn tài khoản nguồn, xác minh người nhận, xác nhận thông tin và xác thực OTP. API sau đó kiểm tra rủi ro và xử lý yêu cầu trong DB transaction.
 
-| Thành phần | Công nghệ | Vai trò |
-|---|---|---|
-| Giao diện | Next.js, React, TypeScript, Tailwind CSS | Không gian làm việc cho ba nhóm người dùng |
-| Biểu đồ và dữ liệu giao diện | ECharts, TanStack Query | Trực quan hóa, tải và quản lý cache dữ liệu |
-| Backend | NestJS, TypeScript | API, xác thực, phân quyền và điều phối nghiệp vụ |
-| Cơ sở dữ liệu nghiệp vụ | PostgreSQL, PL/pgSQL | Lưu dữ liệu, thực thi nghiệp vụ và bảo đảm transaction |
-| Xác thực | JWT, Redis | Phiên đăng nhập, OTP và giới hạn tần suất yêu cầu |
-| Email | Brevo | Gửi OTP và thông báo giao dịch |
-| Phát hiện gian lận | Python, XGBoost, scikit-learn, joblib | Dự đoán xác suất gian lận |
-| Realtime | Apache Kafka | Truyền sự kiện sau commit |
-| Data Lake | MinIO, Parquet | Lưu dữ liệu Bronze, Silver, Gold và Quarantine |
-| Xử lý dữ liệu | Apache Spark / PySpark | Trích xuất, biến đổi, kiểm tra và xây dựng dữ liệu phân tích |
-| Điều phối | Apache Airflow | Lập lịch, retry và theo dõi từng bước Batch |
-| Truy vấn phân tích | Trino, Hive Metastore | Truy vấn các bảng và view Gold |
-| Triển khai | Docker Compose | Đóng gói và kết nối các dịch vụ |
+| Bước | Bảng chính | Dữ liệu / hành động |
+| --- | --- | --- |
+| Tạo yêu cầu | `bank_transaction`, `transfer_request` | Lưu giao dịch, tài khoản nguồn/nhận và khóa chống gửi trùng. |
+| Đánh giá rủi ro | `risk_assessment` | Lưu RuleScore, xác suất ML, mức rủi ro, quyết định và thông tin giải thích. |
+| Chờ kiểm tra nếu REVIEW | `review_case` | Lưu hồ sơ để nhân viên phê duyệt hoặc từ chối; chưa hạch toán. |
+| Xử lý tài chính khi được phép | `transaction_posting`, `bank_account` | Khóa tài khoản, kiểm tra lại số dư, ghi nợ/ghi có và cập nhật số dư. |
+| Ghi kết quả | `bank_transaction` | Cập nhật trạng thái thực tế của giao dịch. |
+| Ghi sự kiện và nhật ký | `event_outbox`, `audit_log` | Lưu sự kiện nghiệp vụ và dấu vết thay đổi theo các thao tác được cấu hình audit. |
+| Sau commit | Kafka → MinIO Bronze | Producer phát sự kiện; consumer lưu dữ liệu để xử lý tiếp. |
 
-## Luồng giao dịch ngân hàng
+Các bản ghi chỉ được lưu bền vững khi DB transaction commit. Lỗi trước commit phải rollback các thay đổi trong transaction đó.
 
-Ví dụ một khách hàng chuyển tiền từ tài khoản A sang tài khoản B:
+### Phân biệt các bảng và trạng thái
 
-1. Khách hàng chọn tài khoản nguồn, nhập số tài khoản nhận và số tiền.
-2. API xác minh thông tin người nhận; khách hàng xác nhận giao dịch bằng OTP.
-3. Hệ thống lấy dữ liệu hành vi trước giao dịch, chạy Rule Engine và model XGBoost.
-4. Decision Engine quyết định **ALLOW**, **REVIEW** hoặc **BLOCK**.
-5. Giao dịch ALLOW, hoặc REVIEW đã được nhân viên duyệt, đi vào xử lý tài chính.
-6. PostgreSQL khóa tài khoản và kiểm tra lại quyền giao dịch, trạng thái tài khoản, số dư.
-7. Posting debit/credit, thay đổi số dư, trạng thái thành công và sự kiện outbox được ghi trong cùng transaction.
-8. Sau commit, publisher chuyển sự kiện tới Kafka để hệ thống dữ liệu tiếp nhận.
+| Bảng | Ý nghĩa |
+| --- | --- |
+| `bank_transaction` | Lưu cả giao dịch thành công, thất bại, bị hủy và đang chờ. Phân biệt bằng `Success / Failed / Cancelled / Pending`. |
+| `transaction_posting` | Lưu bút toán `DEBIT / CREDIT`. Tổng ghi nợ phải bằng tổng ghi có; giao dịch chưa thành công không được có bút toán đã commit. |
+| `event_outbox` | Lưu sự kiện cần gửi sang Kafka. Trạng thái `PENDING / PUBLISHED / FAILED` mô tả việc gửi sự kiện. |
+| `notification_outbox` | Lưu thông báo cần gửi cho khách hàng. Trạng thái `PENDING / SENT / FAILED` mô tả việc gửi thông báo. |
 
-| Quyết định | Cách xử lý |
-|---|---|
-| **ALLOW** | Được phép bước vào xử lý tài chính |
-| **REVIEW** | Chờ nhân viên kiểm tra; chỉ xử lý tài chính sau APPROVE |
-| **BLOCK** | Dừng yêu cầu, không tạo posting tài chính |
+Ví dụ, giao dịch có thể là `Success` trong `bank_transaction` nhưng sự kiện có trạng thái `FAILED` trong `event_outbox` vì Kafka chưa nhận được. Producer sẽ retry gửi sự kiện; không thực hiện lại việc chuyển tiền.
 
-**ALLOW không đồng nghĩa với SUCCESS.** Ví dụ, giao dịch có rủi ro thấp vẫn có thể thất bại vì tài khoản không đủ số dư khi được khóa và kiểm tra lại.
-
-API dùng `idempotencyKey` để nhận diện các lần gửi lại cùng một yêu cầu. PostgreSQL kiểm tra nội dung yêu cầu và giữ việc retry không tạo thêm một lần chuyển tiền.
+**ALLOW không đồng nghĩa với SUCCESS.** Sau khi vượt kiểm soát rủi ro, giao dịch vẫn có thể thất bại vì không đủ số dư. Chỉ `ALLOW` hoặc `REVIEW` đã được phê duyệt mới được đi vào xử lý tài chính.
 
 ## Phát hiện gian lận
 
-### Rule Engine
-
-Sáu rule tạo điểm rủi ro theo chính sách V1:
+### Rule Engine V1
 
 | Rule | Điều kiện | Điểm |
-|---|---|---:|
+| --- | --- | ---: |
 | R01 — HIGH_AMOUNT | Số tiền từ 50.000.000 VND | +20 |
 | R02 — NEW_DEVICE | Thiết bị mới hoặc chưa được tin cậy | +20 |
-| R03 — UNUSUAL_TIME | Giao dịch từ 00:00 đến trước 05:00 | +10 |
-| R04 — HIGH_VELOCITY | Có ít nhất 5 giao dịch trong cửa sổ 10 phút | +25 |
-| R05 — FAILED_LOGIN | Có ít nhất 5 lần đăng nhập thất bại/bị chặn trong 30 phút | +15 |
-| R06 — AMOUNT_ANOMALY | Số tiền từ 5 lần mức trung bình 30 ngày | +20 |
+| R03 — UNUSUAL_TIME | Từ 00:00 đến trước 05:00 | +10 |
+| R04 — HIGH_VELOCITY | Ít nhất 5 giao dịch trong 10 phút trước giao dịch hiện tại | +25 |
+| R05 — FAILED_LOGIN | Ít nhất 5 lần đăng nhập thất bại/bị chặn trong 30 phút | +15 |
+| R06 — AMOUNT_ANOMALY | Số tiền từ 5 lần mức trung bình giao dịch thành công trong 30 ngày | +20 |
 
-`RuleScore` là tổng điểm các rule được kích hoạt, tối đa 100.
+Tổng điểm được giới hạn ở 100. Mức rủi ro theo RuleScore: `LOW` 0–39, `MEDIUM` 40–59, `HIGH` 60–79, `CRITICAL` 80–100.
 
-| RuleScore | RiskLevel |
-|---|---|
-| 0–39 | LOW |
-| 40–59 | MEDIUM |
-| 60–79 | HIGH |
-| 80–100 | CRITICAL |
+### Model và quyết định
 
-### Machine Learning
+Model online là **XGBoost**, gồm [artifact Joblib](models/fraud_detection_model.joblib) và [metadata](models/model_metadata.json). Model sử dụng **19 feature** về giao dịch, thời gian, tuổi tài khoản, lịch sử giao dịch và đăng nhập. Backend giữ worker Python để cache model trong bộ nhớ.
 
-Model online là pipeline **XGBoost** tại [`models/fraud_detection_model.joblib`](models/fraud_detection_model.joblib), đi kèm [`models/model_metadata.json`](models/model_metadata.json).
-
-Model sử dụng **19 feature** thuộc các nhóm:
-
-- Thông tin giao dịch: số tiền, kênh và loại giao dịch.
-- Thời gian: giờ, ngày trong tuần và giao dịch ban đêm.
-- Tài khoản: số ngày từ khi mở tài khoản.
-- Hành vi giao dịch: tần suất trong 1 giờ, 24 giờ, 7 ngày, 30 ngày; mức tiền trung bình, lớn nhất và khoảng cách giữa các giao dịch.
-- Đăng nhập: số lần thành công, thất bại và tỷ lệ thất bại.
-
-API giữ một worker Python để cache model trong bộ nhớ. Feature được lấy trước giao dịch; xác suất, danh tính artifact và feature snapshot được liên kết với kết quả đánh giá để truy vết.
-
-Notebook phục vụ chuẩn bị dữ liệu, huấn luyện và đánh giá nằm trong [`notebooks/`](notebooks/). Các module trong [`ml/`](ml/) phục vụ inference và vòng đời artifact; bộ trainer JSON/logistic được giữ riêng cho nghiên cứu, tách với model joblib online.
-
-### Decision Engine
+Decision Engine kết hợp hai tín hiệu và xét BLOCK trước REVIEW:
 
 ```text
-Nếu ModelProbability >= 0.90 hoặc RuleScore >= 80 → BLOCK
-Nếu ModelProbability >= 0.60 hoặc RuleScore >= 60 → REVIEW
-Các trường hợp còn lại                         → ALLOW
+ModelProbability >= 0.90 hoặc RuleScore >= 80 → BLOCK
+ModelProbability >= 0.60 hoặc RuleScore >= 60 → REVIEW
+Còn lại                                    → ALLOW
 ```
 
-BLOCK được xét trước REVIEW. Xác suất model và điểm rule được lưu riêng trong `risk_assessment`, cùng model version và thông tin giải thích.
+| Quyết định | Kết quả xử lý |
+| --- | --- |
+| `ALLOW` | Chuyển sang kiểm tra và xử lý tài chính. |
+| `REVIEW` | Tạo hồ sơ chờ nhân viên kiểm tra; chỉ hạch toán sau khi được phê duyệt. |
+| `BLOCK` | Hủy giao dịch, không hạch toán. Cảnh báo hiển thị tại Fraud & Review dù không có hồ sơ review. |
 
-## Nền tảng dữ liệu
+Các [notebook](notebooks/) phục vụ chuẩn bị dữ liệu, huấn luyện và đánh giá; [module ML](ml/) phục vụ inference và quản lý artifact. Model binary nằm ngoài PostgreSQL; DB lưu danh tính phiên bản và kết quả đánh giá.
 
-### Batch: từ PostgreSQL đến Gold
+Để tương thích điều kiện hạch toán của DB hiện có, nghiệp vụ không chạy Risk/ML lưu dấu cho phép `BUSINESS_POLICY` với `risk_evaluated=false`, `model_evaluated=false`. Các giá trị số 0 bắt buộc trong DB là giá trị tương thích, không phải dự đoán; API hiển thị các trường đó là chưa đánh giá.
+
+## Data Platform
+
+### Batch: PostgreSQL → Gold
 
 ```text
-PostgreSQL — cùng một snapshot cho 20 bảng
-    → Spark JDBC
-    → Bronze
-    → Bronze Data Quality
-    → Silver / Quarantine
-    → Silver Data Quality
-    → Gold
-    → Gold Data Quality
-    → Publish release trên Trino
+Snapshot PostgreSQL → Spark JDBC → Bronze → Bronze DQ
+→ Silver / Quarantine → Silver DQ → Gold → Gold DQ → Publish Trino
 ```
 
-V1 sử dụng **full snapshot nhất quán** cho 20 bảng nguồn. Các reader cùng nhìn một trạng thái PostgreSQL, giúp giữ quan hệ giữa giao dịch, posting, risk và các bảng tham chiếu.
+Phiên bản hiện tại lấy **full snapshot nhất quán của 20 bảng nguồn**, khai báo tại [config/sources.yaml](config/sources.yaml). DAG [banking_bronze_silver_gold](airflow/dags/banking_data_pipeline.py) chạy lúc **01:00 hằng ngày, giờ Việt Nam**. Airflow điều phối; các module Spark thực hiện transformation.
 
-DAG [`banking_bronze_silver_gold`](airflow/dags/banking_data_pipeline.py) chạy lúc **01:00 hằng ngày theo giờ Việt Nam**. Airflow điều phối; logic xử lý nằm trong các module Spark. Mỗi stage có thể retry độc lập.
-
-### Realtime: từ Outbox đến Bronze
+### Realtime: Outbox → Bronze
 
 ```text
-Giao dịch COMMIT → EVENT_OUTBOX → Publisher → Kafka → Consumer → Bronze
+Giao dịch COMMIT → EVENT_OUTBOX → Producer → Kafka → Consumer → MinIO Bronze
 ```
 
-Publisher chỉ đọc sự kiện đã commit. Consumer lưu và kiểm tra object trên MinIO trước khi commit Kafka offset.
+Consumer chỉ commit Kafka offset sau khi dữ liệu đã được ghi bền vững. Luồng sử dụng **at-least-once delivery**, nên cùng một sự kiện có thể đến nhiều lần. Bronze giữ dữ liệu raw để audit/replay; dữ liệu chuẩn hóa được deduplicate theo khóa xác định.
 
-Cơ chế truyền là **at-least-once**: sự kiện có thể được gửi lại khi retry. Bronze giữ dữ liệu để audit/replay; các bước xử lý sau sử dụng khóa sự kiện để deduplicate.
+Realtime hiện thu thập đến Bronze. Khi bật `ENABLE_REALTIME_SILVER_MERGE`, Batch tạo thêm dataset `domain_event` để phân tích/đối soát; các bảng Silver nghiệp vụ vẫn lấy PostgreSQL Batch làm nguồn chuẩn. Stream không tự cập nhật số dư hoặc thay nguồn dữ liệu của các trang nghiệp vụ.
 
-Các trang nghiệp vụ trên web đọc PostgreSQL qua API. Kafka cung cấp dữ liệu sự kiện cho Data Platform; khi bật `ENABLE_REALTIME_SILVER_MERGE`, Batch tạo thêm dataset `domain_event` để phân tích và đối soát. Các bảng Silver nghiệp vụ lấy PostgreSQL Batch làm nguồn chuẩn.
+| Lớp dữ liệu | Mục đích |
+| --- | --- |
+| **Bronze** | Giữ dữ liệu nguồn và metadata thu thập để audit/replay. |
+| **Silver** | Chuẩn hóa kiểu dữ liệu, kiểm tra và loại bản trùng theo quy tắc xác định. |
+| **Quarantine** | Giữ record lỗi cùng dữ liệu gốc và lý do để đối soát. |
+| **Gold** | Cung cấp dimensions và facts phục vụ phân tích. |
 
-### Vai trò của các lớp dữ liệu
+Silver/Gold được tổ chức theo batch/release. Gold chỉ được publish sau khi vượt kiểm tra chất lượng; chạy lại cùng input phải giữ tính idempotent.
 
-| Lớp | Nội dung và mục đích |
-|---|---|
-| **Bronze** | Dữ liệu nguồn và metadata thu thập, phục vụ audit và replay |
-| **Silver** | Dữ liệu đã chuẩn hóa, kiểm tra và deduplicate theo khóa nghiệp vụ |
-| **Quarantine** | Record không hợp lệ kèm dữ liệu gốc và lý do để đối soát |
-| **Gold** | Dimensions, facts và view phục vụ báo cáo, dashboard |
-| **Pipeline Control** | Metadata batch, kết quả các stage và thông tin release |
+### Mô hình dữ liệu Gold
 
-Silver và Gold được tổ chức theo **release của từng batch**. Gold đọc Silver đã qua DQ của đúng batch; sau khi Gold đạt kiểm tra, hệ thống publish release cho analytics. Chạy lại cùng batch giữ tính idempotent và không nhân bản dữ liệu phân tích.
+PostgreSQL có **29 bảng nghiệp vụ**. Gold gồm **10 dimensions và 7 facts**:
 
-## Mô hình dữ liệu phân tích
+| Nhóm dimensions | Bảng |
+| --- | --- |
+| Thời gian | `dim_date`, `dim_time` |
+| Khách hàng và tài khoản | `dim_customer`, `dim_account`, `dim_account_type` |
+| Tổ chức và giao dịch | `dim_branch`, `dim_transaction_type`, `dim_channel` |
+| Thiết bị và model | `dim_device`, `dim_model` |
 
-PostgreSQL có **29 bảng nghiệp vụ**. Data Platform chọn **20 bảng nguồn** theo [`config/sources.yaml`](config/sources.yaml) để xây dựng Gold gồm **10 dimensions và 7 facts**.
+| Fact | Một dòng đại diện cho |
+| --- | --- |
+| `fact_transaction` | Một giao dịch ngân hàng. |
+| `fact_transaction_posting` | Một bút toán ghi nợ hoặc ghi có. |
+| `fact_risk_assessment` | Một lần đánh giá rủi ro. |
+| `fact_fraud_review` | Một hồ sơ review. |
+| `fact_fraud_label_event` | Một sự kiện gán nhãn gian lận. |
+| `fact_login_event` | Một sự kiện đăng nhập. |
+| `fact_loan_payment` | Một lần thanh toán khoản vay. |
 
-**Dimension** mô tả đối tượng dùng để phân tích; **fact** lưu các sự kiện và số đo nghiệp vụ.
+[Trino views](sql/trino/gold_analytics.sql) tổng hợp giao dịch, risk, review, model, đăng nhập và trả nợ. D4 Insights đọc dữ liệu Gold qua Trino; dashboard nghiệp vụ đọc PostgreSQL qua API.
 
-| Dimensions | Mô tả |
-|---|---|
-| `dim_date`, `dim_time` | Ngày và thời gian |
-| `dim_customer`, `dim_account` | Khách hàng và tài khoản |
-| `dim_account_type`, `dim_branch` | Loại tài khoản và chi nhánh |
-| `dim_transaction_type`, `dim_channel` | Loại giao dịch và kênh |
-| `dim_device`, `dim_model` | Thiết bị và phiên bản model |
+## Công nghệ và cấu trúc repository
 
-| Facts | Một dòng đại diện cho |
-|---|---|
-| `fact_transaction` | Một giao dịch ngân hàng |
-| `fact_transaction_posting` | Một posting debit hoặc credit |
-| `fact_risk_assessment` | Một lần đánh giá rủi ro |
-| `fact_fraud_review` | Một hồ sơ kiểm tra giao dịch |
-| `fact_fraud_label_event` | Một sự kiện gán nhãn gian lận |
-| `fact_login_event` | Một sự kiện đăng nhập |
-| `fact_loan_payment` | Một lần thanh toán khoản vay |
-
-Trino cung cấp các view tổng hợp theo giao dịch, rủi ro, review, model, đăng nhập và trả nợ. D4 Insights sử dụng release Gold để hiển thị dữ liệu phân tích nhất quán trong cùng một lần tải dashboard.
-
-## Cấu trúc mã nguồn
+| Phần hệ thống | Công nghệ |
+| --- | --- |
+| Giao diện | Next.js, React, TypeScript, Tailwind CSS, ECharts |
+| API và xác thực | NestJS, JWT, Redis, OTP email qua Brevo |
+| Banking Core | PostgreSQL, SQL functions, views, triggers, Transactional Outbox |
+| Machine Learning | Python, XGBoost, Joblib |
+| Realtime | Kafka, KafkaJS, Python consumer |
+| Batch và lưu trữ | Spark, Airflow, MinIO, Parquet |
+| Truy vấn phân tích | Trino, Hive Metastore |
+| Đóng gói và web gateway | Docker Compose, Caddy |
 
 ```text
-.
-├── web/                    # Giao diện Next.js cho customer, employee, admin
-├── backend/                # NestJS API, OTP, phân quyền, publisher, email worker
-├── sql/                    # Schema, functions, views, triggers và Trino SQL
-├── streaming/              # Kafka consumer ghi dữ liệu Bronze
-├── data_engineering/
-│   ├── ingestion/batch/    # PostgreSQL snapshot → Bronze
-│   ├── bronze/             # Kiểm tra dữ liệu raw
-│   ├── silver/             # Chuẩn hóa, validate, deduplicate
-│   ├── quality/            # DQ và Quarantine
-│   ├── gold/               # Build dimensions, facts và release
-│   ├── common/             # Config, contracts, Spark, pipeline state
-│   └── jobs/               # Điểm chạy các stage
-├── airflow/dags/           # DAG điều phối Batch
-├── ml/                     # Inference và quản lý artifact
-├── models/                 # Model joblib và metadata
-├── notebooks/              # Chuẩn bị dữ liệu, huấn luyện và đánh giá
-├── config/                 # Source mapping và quy tắc Data Quality
-├── scripts/                # Bootstrap, kiểm tra và công cụ vận hành
-├── tests/                  # Python, SQL và integration tests
-├── docker/                 # Dockerfiles và cấu hình dịch vụ
-├── docs/                   # Tài liệu hướng dẫn chi tiết
-├── docker-compose.yaml     # Khai báo các dịch vụ
-└── .env.example            # Mẫu cấu hình local
+web/                    Giao diện cho khách hàng, nhân viên và admin
+backend/                API, phân quyền, OTP, producer và worker email
+sql/                    Schema, functions, views, triggers và Trino SQL
+streaming/              Kafka consumer ghi Bronze
+data_engineering/       Ingestion, Silver, DQ, Quarantine và Gold
+airflow/dags/           DAG điều phối Batch
+ml/                     Inference và quản lý artifact
+models/                 Model online và metadata
+notebooks/              Chuẩn bị dữ liệu, huấn luyện và đánh giá
+config/                 Source mapping và cấu hình Data Quality
+pipeline_control/       Quản lý trạng thái pipeline và release
+scripts/                Công cụ khởi tạo, kiểm tra và vận hành
+tests/                  Kiểm thử Python, SQL và integration
+docker/                 Dockerfiles và cấu hình container
+running.md              Hướng dẫn cài đặt và vận hành chi tiết
 ```
 
-Các file `sql/z_*.sql` là phần thực thi nghiệp vụ. NestJS gọi function `banking_api.*` đã cài trong PostgreSQL, ví dụ `create_transfer`, `resolve_review` và `pay_loan`. Backend quản lý transaction và context của request; PostgreSQL thực hiện các thao tác tài chính bên trong transaction đó.
+Backend kết hợp phân quyền và logic ứng dụng với các function `banking_api.*` đã cài trong PostgreSQL. Các thao tác tài chính cốt lõi vẫn tuân theo transaction, locking và kiểm tra tính toàn vẹn trong DB.
 
 ## Cài đặt và chạy
 
-### 1. Chuẩn bị
+### Cài mới
 
-- Git.
-- Docker Engine hoặc Docker Desktop, kèm Docker Compose V2.
-- Node.js 22 và npm để chạy giao diện trên máy.
-- Khuyến nghị ít nhất **8 GB RAM trống** cho toàn bộ stack.
-- Python 3.11 cho các script chạy trên máy và kiểm thử Python.
-
-Với Windows/WSL, bật WSL integration trong Docker Desktop trước khi chạy lệnh Docker.
+Cần **Git**, **Docker Engine + Docker Compose V2** và **Python 3** để chạy script vận hành. Dùng Python 3.11 cho inference; Node.js 22 khi chạy npm trực tiếp trên máy. Các dependency của ứng dụng được đóng gói trong Dockerfile.
 
 ```bash
 git clone https://github.com/dien-2006/banking-transaction-fraud-detection.git
 cd banking-transaction-fraud-detection
-```
-
-### 2. Cấu hình môi trường
-
-Tạo `.env` nếu máy chưa có file cấu hình:
-
-```bash
 test -f .env || cp .env.example .env
 ```
 
-Điền các nhóm thông tin phù hợp với môi trường:
+Sau khi clone:
 
-| Nhóm | Biến tiêu biểu |
-|---|---|
-| PostgreSQL | `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_PORT` |
-| API và phiên đăng nhập | `JWT_SECRET`, `CORS_ORIGINS`, `BANKING_API_PORT` |
-| OTP và email | `REDIS_URL`, `OTP_HASH_SECRET`, `BREVO_API_KEY`, `OTP_SENDER_EMAIL` |
-| MinIO | `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`, các biến `MINIO_BUCKET_*` |
-| Airflow | `AIRFLOW_DB_PASSWORD`, `AIRFLOW_ADMIN_USERNAME`, `AIRFLOW_ADMIN_PASSWORD`, `AIRFLOW_ADMIN_EMAIL` |
-| Kafka | `KAFKA_CLUSTER_ID`, `KAFKA_TRANSACTION_TOPIC` |
-| Khoản vay | Nhận tiền và trả nợ qua tài khoản khách hàng; đối ứng ngân hàng tự xác định từ DB |
-
-OTP sử dụng email khách hàng trong database và sender đã được xác minh trên Brevo. Các tài khoản PostgreSQL, MinIO và Airflow dùng giá trị do người triển khai cấu hình.
-
-Chỉ dùng `.env` để cấu hình local; `.env.example` là bản mẫu không chứa secret thật. Chạy `python -m scripts.provision_runtime_roles --apply` sau khi PostgreSQL sẵn sàng và bạn đã tự nạp schema/function để tạo tài khoản runtime và lưu bốn cặp `BANKING_DB_*`, `OUTBOX_DB_*`, `NOTIFICATION_DB_*`, `ETL_DB_*` vào cùng `.env`. Docker Compose chọn từng biến cần thiết và truyền đúng tài khoản DB cho mỗi dịch vụ; không truyền toàn bộ `.env` hay credential quản trị vào API/worker. Sau khi sửa cấu hình, tạo lại các container liên quan bằng `docker compose up -d --no-deps --force-recreate <service>`.
-
-### 3. Khởi động các dịch vụ
-
-Trên môi trường mới, bật PostgreSQL trước:
+1. Điền `.env` theo môi trường: PostgreSQL, JWT/OTP secrets, email; thêm MinIO/Airflow/Kafka nếu bật Data Platform. Không commit `.env`.
+2. Bật DB và Redis: `docker compose up -d postgres-bank redis`.
+3. Với **DB trống**, dùng DBeaver nạp schema, dữ liệu mẫu nếu cần, views/functions/triggers theo đúng thứ tự trong [running.md — Khởi tạo hoặc khôi phục DB](running.md#2-khởi-tạo-hoặc-khôi-phục-db--chỉ-làm-khi-cần). Với DB đã khôi phục đủ từ backup, giữ nguyên dữ liệu hiện có.
+4. Chuẩn bị runtime roles và model theo [running.md — Cấp quyền runtime và kiểm tra model](running.md#3-cấp-quyền-runtime-và-kiểm-tra-model). API cần model ACTIVE khớp artifact đang sử dụng.
+5. Khi DB, cấu hình và model đã sẵn sàng, bật web/API:
 
 ```bash
-docker compose up -d postgres-bank
+python3 -m scripts.check_web_deployment
+docker compose --profile web build banking-api web
+docker compose --profile web up -d postgres-bank redis banking-api web gateway notification-sender
+docker compose --profile web ps
 ```
 
-PostgreSQL chỉ tạo database theo `POSTGRES_DB` và các đối tượng hệ thống mặc định.
-Schema `banking`, `banking_api`, bảng, function và dữ liệu nghiệp vụ **không được tự tạo**.
-Bạn tự chạy SQL bằng công cụ quản trị database trước khi bật API/worker/batch.
-Các file của thư mục `sql/` vẫn có thể đọc trong container tại `/banking-sql`;
-chỉ mount thư mục này không thực thi SQL.
+Docker **không tự nạp schema hoặc dữ liệu nghiệp vụ** khi khởi động. Tài khoản đăng nhập dùng dữ liệu đã được cấp trong DB hoặc luồng đăng ký/kích hoạt của ứng dụng.
 
-Nếu muốn chủ động nạp toàn bộ schema và các file `z_*.sql` có sẵn trên database
-trống, có thể chạy thủ công script sau. Không chạy trên database đã có bảng:
+Web Docker truy cập qua gateway tại `http://localhost`, hoặc IP/domain đã cấu hình bằng `PUBLIC_HOST`. Cổng `3000` dành cho frontend chạy bằng npm; container web không public trực tiếp cổng này.
 
-```bash
-docker compose exec -T postgres-bank bash -s < docker/postgres-init.sh
-```
+### Phát triển frontend trên máy
 
-Sau khi đã tạo đầy đủ schema/function và cấp tài khoản runtime theo bước 2:
-
-```bash
-docker compose up -d --build
-docker compose ps -a
-```
-
-`demo-bootstrap` không chạy mặc định và API không phụ thuộc dịch vụ này. Chỉ khi
-muốn nạp dữ liệu demo sau khi tạo schema, chạy `docker compose --profile demo run --rm demo-bootstrap`.
-Compose vẫn khởi động các thành phần Batch và trigger `bootstrap_first_run` của DAG khi bật toàn bộ stack.
-
-Database và volume đã tồn tại được giữ lại. Tài khoản đăng nhập web nằm trong `customer_online_account` hoặc `system_user`; sử dụng tài khoản đã được cấp trong database của môi trường triển khai.
-
-Theo dõi quá trình khởi động:
-
-```bash
-docker compose logs -f banking-api airflow-scheduler
-```
-
-### 4. Chạy giao diện
-
-Tạo `web/.env.local` với địa chỉ API:
-
-```env
-NEXT_PUBLIC_API_URL=http://localhost:8000
-```
-
-Ở terminal riêng:
+Khi DB, Redis và API đã sẵn sàng:
 
 ```bash
 cd web
 npm ci
-npm run dev
+NEXT_PUBLIC_API_URL=http://localhost:8000 npm run dev
 ```
 
-Mở **http://localhost:3000**. Sau đăng nhập, hệ thống chuyển người dùng tới không gian làm việc tương ứng với vai trò.
+Mở `http://localhost:3000`; đặt `CORS_ORIGINS` của API tương ứng. Xem [hướng dẫn frontend local](running.md#5-chạy-local-để-phát-triển-giao-diện) nếu cần chuẩn bị backend.
 
-### 5. Bật Realtime
+### Cập nhật code trên EC2
+
+Chạy tại thư mục dự án sau khi code đã được push lên nhánh đang triển khai và DB/cấu hình hiện tại đã hoạt động:
 
 ```bash
-docker compose --profile realtime up -d --build
+git pull --ff-only
+docker compose --profile web build banking-api web &&
+docker compose --profile web up -d --no-deps banking-api web notification-sender
+
+docker compose --profile web ps
+docker compose logs --tail=100 banking-api web notification-sender
 ```
 
-Profile này khởi động cụm Kafka 3 broker, tạo topic, chạy outbox publisher, Bronze consumer và Kafka UI. Với cụm mới có thể tạo cluster ID bằng:
+Các thay đổi chỉ ở README hoặc `.gitignore` không cần rebuild. Cập nhật code không phải bước tạo lại DB: không chạy lại `create_table.sql` hoặc seed trên DB đang có dữ liệu. Nếu một bản cập nhật yêu cầu đổi SQL function, làm theo hướng dẫn riêng của bản đó trước khi triển khai.
 
-```bash
-docker run --rm confluentinc/cp-kafka:7.9.0 kafka-storage random-uuid
-```
+Các lệnh trên cập nhật nhóm web/API. Nếu sửa producer, consumer hoặc job ETL, cập nhật thêm đúng service tương ứng đang sử dụng.
 
-Đặt ID vào `KAFKA_CLUSTER_ID` trước khi khởi tạo cụm. Với cụm đã có dữ liệu, giữ nguyên ID đang sử dụng.
+### Bật Data Platform khi cần
 
-### 6. Chạy Batch theo yêu cầu
+Web/API có thể chạy độc lập với nhóm phân tích. Hướng dẫn bật từng nhóm nằm trong [running.md — Các nhóm tùy chọn](running.md#7-các-nhóm-tùy-chọn):
 
-Ngoài lịch hằng ngày, có thể tạo một lượt chạy mới:
+| Nhu cầu | Thành phần |
+| --- | --- |
+| Xem Gold đã có trên D4 Insights | MinIO, Hive Metastore, Trino và Gold release hợp lệ. |
+| Chạy Batch ETL | Nhóm trên cùng Spark và Airflow. |
+| Thu thập sự kiện liên tục | Kafka, Outbox Publisher, Bronze Consumer và MinIO. |
+
+Khi Airflow đã chạy, có thể yêu cầu một lượt Batch mới:
 
 ```bash
 docker compose exec airflow-webserver airflow dags trigger banking_bronze_silver_gold
 ```
 
-Xem lịch sử và log:
+## Địa chỉ truy cập và API
+
+Các cổng dưới đây là mặc định trên máy chạy Docker; chỉ truy cập được khi service tương ứng đã bật.
+
+| Dịch vụ | Địa chỉ mặc định |
+| --- | --- |
+| Web qua gateway | `http://localhost` hoặc domain đã cấu hình |
+| Frontend npm dev | `http://localhost:3000` |
+| Swagger | `http://127.0.0.1:8000/docs` |
+| API health | `http://127.0.0.1:8000/api/v1/health` |
+| Kafka UI | `http://localhost:8080` |
+| Airflow | `http://localhost:8081` |
+| Spark Master UI | `http://localhost:8082` |
+| Trino | `http://127.0.0.1:8084` |
+| MinIO Console | `http://localhost:9001` |
+| MinIO API | `http://localhost:9000` |
+| PostgreSQL | `127.0.0.1:5432` |
+
+Trên EC2, truy cập DB và dashboard nội bộ qua SSH tunnel. Web được phục vụ qua gateway HTTP/HTTPS; các cổng có thể thay đổi trong `.env`.
+
+API nghiệp vụ dùng prefix `/api/v1`. Các nhóm chính: `/auth`, `/me`, `/security/otp`, `/transactions`, `/management`, `/admin` và `/analytics`. Request đã đăng nhập gửi `Authorization: Bearer <access-token>`; Swagger mô tả từng endpoint.
+
+## Kiểm thử và nguyên tắc đóng góp
+
+Chạy từ thư mục gốc; các nhóm kiểm thử có thể chạy độc lập khi đã cài dependency tương ứng:
 
 ```bash
-docker compose exec airflow-webserver airflow dags list-runs -d banking_bronze_silver_gold
-docker compose logs -f airflow-scheduler spark-master spark-worker
+# Backend: typecheck, build và kiểm thử hợp đồng API/nghiệp vụ
+(cd backend && npm ci && npm run typecheck && npm run test:web)
+
+# Frontend: typecheck và kiểm thử dữ liệu/giao diện
+(cd web && npm ci && npm run typecheck && npm run test:web)
+
+# Python: các kiểm thử không yêu cầu hạ tầng được bật riêng
+python3 -m pip install -r requirements.txt
+python3 -m pytest -q
 ```
 
-### 7. Dừng và chạy lại
+Kiểm thử trình duyệt cần Playwright/Chromium và web thử nghiệm; xem [web/README.md](web/README.md). PostgreSQL integration tests cần **database thử riêng** và cờ `RUN_BANKING_INTEGRATION=1`. Script [e2e_test.py](scripts/e2e_test.py) có tạo giao dịch demo thật nên yêu cầu opt-in rõ ràng; xem hướng dẫn trước khi chạy.
 
-```bash
-docker compose --profile realtime stop
-docker compose --profile realtime up -d
-```
+Khi đóng góp, tạo nhánh `feature/*`, `fix/*` hoặc `data/*`, kiểm tra thay đổi và mở PR. Giữ các nguyên tắc:
 
-`stop` giữ lại dữ liệu và volume để tiếp tục sử dụng ở lần chạy sau.
-
-## API và các dịch vụ
-
-Các địa chỉ dưới đây dùng cổng mặc định trong Compose:
-
-| Dịch vụ | Địa chỉ |
-|---|---|
-| Web | http://localhost:3000 |
-| API Swagger | http://localhost:8000/docs |
-| API health | http://localhost:8000/api/v1/health |
-| Kafka UI | http://localhost:8080 |
-| Airflow | http://localhost:8081 |
-| Spark Master UI | http://localhost:8082 |
-| Trino HTTP | http://localhost:8084 |
-| MinIO API | http://localhost:9000 |
-| MinIO Console | http://localhost:9001 |
-| PostgreSQL | `localhost:5432` |
-
-API nghiệp vụ có prefix **`/api/v1`**. Các nhóm endpoint chính:
-
-| Nhóm | Ví dụ | Mục đích |
-|---|---|---|
-| Xác thực | `POST /auth/login` | Đăng nhập và nhận JWT |
-| Đăng ký khách hàng | `POST /auth/registration/otp`, `POST /auth/registration` | Gửi OTP email, xác minh và tạo tài khoản đăng nhập mới |
-| Khách hàng | `GET /me/accounts`, `GET /me/loans` | Tra cứu dữ liệu của người dùng |
-| OTP | `POST /security/otp/request`, `POST /security/otp/verify` | Xác minh giao dịch |
-| Chuyển tiền | `POST /transactions/transfers` | Chuyển khoản online |
-| Tại quầy | `POST /transactions/counter-transfers` | Chuyển khoản do nhân viên thực hiện |
-| Review | `POST /transactions/reviews/:id` | APPROVE hoặc REJECT giao dịch |
-| Quản lý | `/management/*` | Thao tác trên các đối tượng nghiệp vụ |
-| Dashboard | `/admin/*` | Tổng quan và tra cứu theo quyền |
-| Analytics | `GET /analytics/snapshot` | Dữ liệu Gold cho dashboard phân tích |
-
-Sau khi đăng nhập, gửi JWT trong header:
-
-```http
-Authorization: Bearer <access-token>
-```
-
-Luồng chuyển khoản online gồm ba request dùng cùng thông tin giao dịch: yêu cầu OTP → xác minh OTP → tạo transfer với `otpAuthorizationToken`. Swagger cung cấp mô tả API để tra cứu và thử request.
-
-## Kiểm thử
-
-### Python
-
-Từ thư mục gốc, dùng môi trường Python 3.11:
-
-```bash
-python -m pip install -r requirements.txt
-python -m pytest -q
-```
-
-Để chạy thêm worker inference thật, cài dependency đã pin:
-
-```bash
-python -m pip install -r docker/requirements-inference.txt
-```
-
-### Backend
-
-```bash
-cd backend
-npm ci
-npm run typecheck
-npm run test:web
-```
-
-### Frontend
-
-```bash
-cd web
-npm ci
-npm run typecheck
-npm run test:web
-npm run build
-```
-
-### Integration và end-to-end
-
-PostgreSQL integration tests dùng database thử riêng có tên bắt đầu bằng `d4_`, đã nạp schema và function. Sau khi cấu hình các biến kết nối tới database thử:
-
-```bash
-RUN_BANKING_INTEGRATION=1 python -m pytest -q tests/integration
-```
-
-Tests bao phủ risk boundary, idempotency, posting/rollback, review, snapshot và phân quyền runtime. Các bài kiểm tra cần Redis hoặc worker joblib được bật riêng bằng `RUN_REDIS_INTEGRATION=1` và `RUN_JOBLIB_INTEGRATION=1` trong môi trường test backend.
-
-Luồng review chỉ nhận quyết định mới khi hồ sơ còn `OPEN/IN_REVIEW`, giao dịch còn `Pending`, quyết định rủi ro mới nhất là `REVIEW` và chưa có bút toán. Retry cùng người xử lý, hành động và lý do trả về kết quả cũ, kể cả khi phê duyệt dẫn tới `Failed` do thiếu số dư. Giao dịch đã hoàn tất hoặc dữ liệu lệch trạng thái bị trả về HTTP 409; lỗi `IMMUTABLE` cũng trả về 409 thay vì 500. Các bản ghi cũ cần đối soát riêng, không tự động đổi trạng thái.
-
-Chạy riêng các test chống xử lý review lặp/đồng thời và rollback trên database thử đã nạp SQL mới:
-
-```bash
-RUN_BANKING_INTEGRATION=1 python -m pytest -q tests/integration/test_review_guards.py
-```
-
-Để kiểm chứng toàn tuyến API → PostgreSQL → Outbox → Kafka → Bronze → Batch → Trino, sử dụng [`scripts/e2e_test.py`](scripts/e2e_test.py). Script yêu cầu `E2E_ACCESS_TOKEN` của admin/nhân viên và `E2E_ALLOW_DEMO_TRANSFER=1`, vì bài kiểm tra tạo một giao dịch demo có commit thật.
-
-## Nguyên tắc thiết kế
-
-- **PostgreSQL là nguồn dữ liệu nghiệp vụ chuẩn.** ETL và ML sử dụng contract schema hiện có.
-- **ALLOW khác SUCCESS.** Chỉ kết quả xử lý tài chính mới quyết định trạng thái thành công.
-- **Debit/credit nguyên tử.** Posting, số dư, trạng thái và success outbox cùng nằm trong transaction.
-- **Sự kiện đi qua Transactional Outbox.** Kafka nhận sự kiện sau commit.
-- **Bronze giữ raw; Silver chuẩn hóa; Gold phục vụ phân tích.** Dữ liệu không hợp lệ đi vào Quarantine.
-- **Retry và replay có định danh.** Request key, event key và batch/release giúp kiểm soát duplicate và truy vết.
-- **Model artifact nằm ngoài PostgreSQL.** Database lưu danh tính phiên bản và kết quả đánh giá; API cache model để inference.
-
-Các quy tắc đóng góp và invariant của hệ thống được mô tả trong [`AGENTS.md`](AGENTS.md).
+- Không tự thay schema PostgreSQL; mọi thay đổi phải giữ contract dữ liệu hiện tại.
+- Chỉ `Success` sau khi hạch toán hợp lệ; giữ tính nguyên tử của posting, số dư, trạng thái và Outbox.
+- Phát sự kiện sau commit; retry phải giữ định danh và không nhân đôi thao tác tài chính.
+- Giữ raw ở Bronze, đưa record lỗi vào Quarantine và giữ Gold idempotent.
+- Không commit mật khẩu, token, OTP hoặc dữ liệu truy cập môi trường thật.
