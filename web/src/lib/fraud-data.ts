@@ -18,18 +18,24 @@ export const reviewLabels: Record<string, string> = {
 };
 
 export function presentFraudReview(row: ApiFraudReview) {
-  const pending = row.reviewstatus === "OPEN" || row.reviewstatus === "IN_REVIEW";
+  const hasReview = row.reviewcaseid != null && Number(row.reviewcaseid) > 0;
+  const blocked = row.decision === "BLOCK";
+  const pending = hasReview && (row.reviewstatus === "OPEN" || row.reviewstatus === "IN_REVIEW");
   const needsReconciliation = (pending && (row.status !== "Pending" || row.decision !== "REVIEW"))
-    || (row.reviewstatus === "REJECTED" && row.status === "Success");
-  const timestamp = row.reviewcreatedat || row.transactiondate;
+    || (row.reviewstatus === "REJECTED" && row.status === "Success")
+    || (blocked && row.status === "Success")
+    || (!hasReview && row.decision === "REVIEW");
+  const timestamp = row.reviewcreatedat || row.alert_at || row.transactiondate;
   const amount = formatCurrency(row.amount, row.currency || "VND");
   const probability =
     row.modelprobability == null
       ? "Chưa đánh giá"
       : `${(Number(row.modelprobability) * 100).toLocaleString("vi-VN", { maximumFractionDigits: 1 })}%`;
   return {
-    id: `RVW${row.reviewcaseid}`,
-    reviewId: row.reviewcaseid,
+    id: hasReview ? `RVW${row.reviewcaseid}` : `RSK${row.transactionid}`,
+    reviewId: hasReview ? row.reviewcaseid : null,
+    hasReview,
+    blocked,
     transaction: row.transactioncode,
     transactionStatus: row.status,
     time: formatDateTime(timestamp, "—"),
@@ -46,19 +52,21 @@ export function presentFraudReview(row: ApiFraudReview) {
     type: transactionTypes[row.typecode] || row.typename || row.typecode || "—",
     detail: `${row.transactioncode} · ${amount}${row.description ? ` · ${row.description}` : ""}`,
     risk: riskLabels[row.risklevel ?? ""] ?? "Chưa đánh giá",
-    status: reviewLabels[row.reviewstatus] ?? row.reviewstatus,
+    status: hasReview
+      ? (reviewLabels[row.reviewstatus ?? ""] ?? row.reviewstatus ?? "Chưa ghi nhận")
+      : blocked ? "Bị chặn (BLOCK)" : "Chưa có hồ sơ review",
     reviewStatus: row.reviewstatus,
     reviewReason: row.reviewreason?.trim() || null,
     reviewedAt: formatDateTime(row.reviewedat, "Chưa ghi nhận"),
     assignee:
-      row.revieweruserid == null
+      !hasReview ? "Không áp dụng" : row.revieweruserid == null
         ? "Chưa phân công"
         : `ID người xử lý: ${row.revieweruserid}`,
     ruleScore: row.rulescore == null ? "Chưa đánh giá" : String(row.rulescore),
     mlProbability: probability,
     decision: row.decision ?? "Chưa đánh giá",
     pending,
-    canResolve: pending && row.status === "Pending" && row.decision === "REVIEW",
+    canResolve: hasReview && pending && row.status === "Pending" && row.decision === "REVIEW",
     needsReconciliation,
     createdAt: timestamp,
   };
@@ -70,7 +78,6 @@ export async function loadFraudReviews(
     pageSize: number;
   }) => Promise<PageResult<ApiFraudReview>>,
 ) {
-  return (await loadAllPages(loadPage, (row) => row.reviewcaseid)).map(
-    presentFraudReview,
-  );
+  return (await loadAllPages(loadPage, (row) => row.reviewcaseid != null
+    ? `review:${row.reviewcaseid}` : `transaction:${row.transactionid}`)).map(presentFraudReview);
 }

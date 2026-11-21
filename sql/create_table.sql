@@ -476,30 +476,12 @@ CREATE TABLE bank_transaction (
     initiatedbycustomerid   BIGINT,
     cardid                  BIGINT,
     originaltransactionid   BIGINT,
-
-    CONSTRAINT fk_transaction_type
-        FOREIGN KEY (transactiontypeid)
-        REFERENCES transaction_type(transactiontypeid),
-
-    CONSTRAINT fk_transaction_employee
-        FOREIGN KEY (employeeid)
-        REFERENCES employee(employeeid),
-
-    CONSTRAINT fk_transaction_terminal
-        FOREIGN KEY (terminalid)
-        REFERENCES terminal(terminalid),
-
-    CONSTRAINT fk_transaction_customer
-        FOREIGN KEY (initiatedbycustomerid)
-        REFERENCES customer(customerid),
-
-    CONSTRAINT fk_transaction_card
-        FOREIGN KEY (cardid)
-        REFERENCES card(cardid),
-
-    CONSTRAINT fk_transaction_original
-        FOREIGN KEY (originaltransactionid)
-        REFERENCES bank_transaction(transactionid),
+    CONSTRAINT fk_transaction_type FOREIGN KEY (transactiontypeid) REFERENCES transaction_type(transactiontypeid),
+    CONSTRAINT fk_transaction_employee FOREIGN KEY (employeeid) REFERENCES employee(employeeid),
+    CONSTRAINT fk_transaction_terminal FOREIGN KEY (terminalid) REFERENCES terminal(terminalid),
+    CONSTRAINT fk_transaction_customer FOREIGN KEY (initiatedbycustomerid) REFERENCES customer(customerid),
+    CONSTRAINT fk_transaction_card FOREIGN KEY (cardid) REFERENCES card(cardid),
+    CONSTRAINT fk_transaction_original FOREIGN KEY (originaltransactionid) REFERENCES bank_transaction(transactionid),
 
     CONSTRAINT fk_transaction_device
         FOREIGN KEY (initiatedbycustomerid, deviceid)

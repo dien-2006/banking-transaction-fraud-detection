@@ -104,3 +104,29 @@ test("review actions require both an open case and a pending REVIEW transaction"
   assert.equal(presentFraudReview({ ...row, reviewstatus: "REJECTED" }).canResolve, false);
   assert.equal(presentFraudReview({ ...row, reviewstatus: "REJECTED", status: "Success" }).needsReconciliation, true);
 });
+
+test("BLOCK alerts without review cases remain visible and cannot be approved", async () => {
+  const blocked = {
+    transactionid: 42, transactioncode: "TX-42", transactiondate: "2026-11-21T08:25:18",
+    reviewcaseid: null, reviewstatus: null, reviewcreatedat: null,
+    decision: "BLOCK", status: "Cancelled", amount: "50000000", currency: "VND", typecode: "TRANSFER",
+  };
+  const view = presentFraudReview(blocked);
+  assert.equal(view.id, "RSK42");
+  assert.equal(view.reviewId, null);
+  assert.equal(view.hasReview, false);
+  assert.equal(view.blocked, true);
+  assert.equal(view.pending, false);
+  assert.equal(view.canResolve, false);
+  assert.equal(view.status, "Bị chặn (BLOCK)");
+  assert.equal(view.needsReconciliation, false);
+  assert.match(view.time, /08:25:18 21\/11\/2026/);
+  assert.equal(presentFraudReview({ ...blocked, decision: "REVIEW", status: "Pending" }).needsReconciliation, true);
+  assert.equal(presentFraudReview({ ...blocked, status: "Success" }).needsReconciliation, true);
+  const rows = [blocked, { ...blocked, transactionid: 43 }, { ...blocked, reviewcaseid: 42, reviewstatus: "OPEN", decision: "REVIEW", status: "Pending" }];
+  const items = await loadFraudReviews(async ({ page, pageSize }) => ({
+    page, pageSize, total: rows.length, items: rows,
+  }));
+  assert.deepEqual(items.map(row => row.id), ["RSK42", "RSK43", "RVW42"]);
+  assert.equal(items[2].canResolve, true);
+});

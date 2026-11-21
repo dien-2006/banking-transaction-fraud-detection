@@ -55,9 +55,17 @@ export const outcomePresentation = {
   { label: string; title: string; message: string }
 >;
 
-/** Risk explains a pending result, but never overrides the bank's final status. */
+/** Risk explains pending/blocked results without overriding the bank's final status. */
 export function transactionPresentation(status?: string, decision?: string, errorStatus?: number) {
   const outcome = transactionOutcome(status, errorStatus);
+  if (outcome === "cancelled" && decision === "BLOCK") {
+    return {
+      outcome,
+      label: "Bị chặn",
+      title: "Giao dịch bị chặn bởi kiểm soát rủi ro",
+      message: "Hệ thống đã chặn giao dịch theo kết quả đánh giá rủi ro. Giao dịch chưa được hạch toán; liên hệ ngân hàng để được kiểm tra.",
+    };
+  }
   if (outcome === "pending" && decision === "REVIEW") {
     return {
       outcome,

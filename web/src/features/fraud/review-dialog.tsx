@@ -24,8 +24,12 @@ export function ReviewDialog({
   } | null>(null);
   const client = useQueryClient();
   const mutation = useMutation({
-    mutationFn: (input: { action: "APPROVE" | "REJECT"; reason?: string }) =>
-      bankService.resolveReview(review.reviewId, input),
+    mutationFn: (input: { action: "APPROVE" | "REJECT"; reason?: string }) => {
+      if (!review.canResolve || review.reviewId == null) {
+        throw new Error("Cảnh báo này không có hồ sơ review được phép xử lý.");
+      }
+      return bankService.resolveReview(review.reviewId, input);
+    },
     onSuccess: () => {
       void client.invalidateQueries({
         predicate: (q) =>
@@ -93,7 +97,7 @@ export function ReviewDialog({
                 ["Mã khách hàng", review.customerCode],
                 ["Tài khoản", review.account],
                 ["Thời gian", review.time],
-                ["Trạng thái review", review.status],
+                ["Trạng thái cảnh báo", review.status],
                 ["Người xử lý", review.assignee],
               ].map(([label, value]) => (
                 <div
@@ -120,7 +124,13 @@ export function ReviewDialog({
                   <div key={label}><dt>{label}</dt><dd>{value}</dd></div>
                 ))}
               </dl>
-            {(!review.pending || review.reviewReason) && (
+            {!review.hasReview && <section className="review-resolution-summary" aria-label="Thông tin cảnh báo Risk">
+              <h4>{review.blocked ? "Giao dịch đã bị chặn bởi Risk" : "Chưa có hồ sơ review"}</h4>
+              <p>{review.blocked
+                ? "BLOCK không tạo hồ sơ chờ phê duyệt. Không được ghi nợ/ghi có giao dịch này; cảnh báo chỉ dùng để tra cứu và đối soát."
+                : "Giao dịch có quyết định REVIEW nhưng chưa có hồ sơ xử lý. Cần kiểm tra hoặc tạo hồ sơ thủ công khi giao dịch còn Pending."}</p>
+            </section>}
+            {review.hasReview && (!review.pending || review.reviewReason) && (
               <section className="review-resolution-summary" aria-label="Thông tin xử lý hồ sơ">
                 <h4>{review.reviewStatus === "REJECTED" ? "Lý do từ chối" : review.reviewStatus === "APPROVED" ? "Lý do phê duyệt" : "Ghi chú xử lý"}</h4>
                 <p>{review.reviewReason || "Không ghi nhận lý do xử lý."}</p>

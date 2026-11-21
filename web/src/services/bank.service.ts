@@ -31,8 +31,8 @@ export interface ApiTransaction {
   risklevel?: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
   modelprobability?: string;
   decision?: "ALLOW" | "REVIEW" | "BLOCK";
-  reviewcaseid?: number;
-  reviewstatus?: string;
+  reviewcaseid?: number | null;
+  reviewstatus?: string | null;
   cardid?: number;
 }
 
@@ -55,9 +55,11 @@ export interface ApiAccount {
 }
 
 export interface ApiFraudReview extends ApiTransaction {
-  reviewcaseid: number;
-  reviewstatus: "OPEN" | "IN_REVIEW" | "APPROVED" | "REJECTED" | "CLOSED";
-  reviewcreatedat: string;
+  reviewcaseid: number | null;
+  reviewstatus: "OPEN" | "IN_REVIEW" | "APPROVED" | "REJECTED" | "CLOSED" | null;
+  reviewcreatedat: string | null;
+  record_kind?: "REVIEW" | "RISK_ALERT";
+  alert_at?: string;
   reviewedat?: string | null;
   revieweruserid?: number | null;
   reviewreason?: string | null;

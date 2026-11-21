@@ -2,6 +2,7 @@ import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Pool, PoolClient } from 'pg';
 import { JoblibFraudModel } from './joblib-model';
+import { listFraudAlerts } from './fraud-alerts';
 import { attachAuditActors } from './audit-actors';
 import { attachLoanDisbursements } from './loan-disbursements';
 import { createAuthorizedMovement, presentBusinessAuthorization } from './business-authorization';
@@ -391,6 +392,7 @@ export class DatabaseService implements OnModuleDestroy {
     if (!/^banking_api\.[a-z0-9_]+$/.test(name)) throw new Error('Unsafe database function name');
     if (name === 'banking_api.create_transfer') context = { ...context, risk: true };
     return this.transaction(context, async (client) => {
+      if (name === 'banking_api.list_fraud_reviews') return listFraudAlerts(client, args) as Promise<T>;
       if (name === 'banking_api.list_transactions') return listVisibleTransactions(client,args) as Promise<T>;
       if (name === 'banking_api.pay_loan') return repayLoanWithoutRisk(client,args) as Promise<T>;
       if (name === 'banking_api.create_account_movement') {

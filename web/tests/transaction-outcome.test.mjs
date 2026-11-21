@@ -45,6 +45,17 @@ test("network/server errors cannot claim that money transfer failed or succeeded
     assert.equal(transactionOutcome(undefined, status), "rejected");
 });
 
+test("only an explicit BLOCK explains cancellation as a risk rejection", () => {
+  const blocked = transactionPresentation("Cancelled", "BLOCK");
+  assert.equal(blocked.outcome, "cancelled");
+  assert.equal(blocked.label, "Bị chặn");
+  assert.match(blocked.message, /chưa được hạch toán/);
+  assert.equal(transactionPresentation("Cancelled").label, "Đã hủy");
+  assert.equal(transactionPresentation("Cancelled", "REVIEW").label, "Đã hủy");
+  assert.equal(transactionPresentation(undefined, "BLOCK", 503).outcome, "unknown");
+  assert.equal(transactionPresentation("Success", "BLOCK").outcome, "success");
+});
+
 test("malformed or partial financial responses cannot become success screens", () => {
   const valid = {
     transactionid: 7,

@@ -126,7 +126,7 @@ export function FraudPage({ role = "admin" }: { role?: "admin" | "employee" }) {
               .includes(q.toLowerCase()))) &&
           (!risk || x.risk === risk) &&
           (!status ||
-            (status === "__pending" ? x.pending : x.reviewStatus === status)) &&
+            (status === "__pending" ? x.pending : status === '__blocked' ? x.blocked : x.reviewStatus === status)) &&
           (!type || x.type === type),
       ),
     [q, risk, status, type, alerts, tab, accountFilter, linkedReview],
@@ -151,13 +151,13 @@ export function FraudPage({ role = "admin" }: { role?: "admin" | "employee" }) {
   useEffect(() => pagination.setPage(1), [q, risk, status, type, tab, accountFilter]);
   const pendingCount = alerts.filter((x) => x.pending).length;
   const kpis: Array<[typeof AlertTriangle, string, string]> = [
-    [AlertTriangle, "Tổng hồ sơ review", String(alerts.length)],
+    [AlertTriangle, "Tổng cảnh báo", String(alerts.length)],
     [Clock3, "Review chưa hoàn tất", String(pendingCount)],
-    [CheckCircle2, "Đã xử lý", String(alerts.length - pendingCount)],
+    [CheckCircle2, "Review đã xử lý", String(alerts.filter(x=>x.hasReview && ['APPROVED','REJECTED','CLOSED'].includes(x.reviewStatus ?? '')).length)],
     [
       ShieldX,
-      "Đã từ chối",
-      String(alerts.filter((x) => x.reviewStatus === "REJECTED").length),
+      "Bị chặn (BLOCK)",
+      String(alerts.filter((x) => x.blocked).length),
     ],
   ];
   const percent = (count: number) =>
@@ -288,7 +288,7 @@ export function FraudPage({ role = "admin" }: { role?: "admin" | "employee" }) {
             {tab !== "Danh sách cảnh báo" && <p className="mb-2 text-xs text-slate-500">
               {accountView
                 ? "Các tài khoản nguồn có hồ sơ review chưa hoàn tất trong phạm vi được cấp quyền. Trạng thái review không đồng nghĩa tài khoản bị khóa."
-                : "Các giao dịch có quyết định REVIEW hoặc BLOCK trong danh sách hồ sơ cảnh báo được cấp quyền."}
+                : "Các giao dịch có quyết định REVIEW hoặc BLOCK trong phạm vi được cấp quyền, bao gồm giao dịch bị chặn không có hồ sơ review."}
             </p>}
             <div className="fraud-filters grid grid-cols-[1.45fr_.65fr_.65fr_.65fr_.28fr] gap-2">
               <label className="relative">
@@ -301,7 +301,7 @@ export function FraudPage({ role = "admin" }: { role?: "admin" | "employee" }) {
                   className="h-9 w-full rounded-lg border pl-9 text-[10px]"
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
-                  placeholder="Mã review, giao dịch, khách hàng…"
+                  placeholder="Mã cảnh báo, giao dịch, khách hàng…"
                 />
               </label>
               <select
@@ -333,6 +333,7 @@ export function FraudPage({ role = "admin" }: { role?: "admin" | "employee" }) {
                 aria-label="Trạng thái review"
               >
                 <option value="">Tất cả trạng thái</option>
+                {!accountView && <option value="__blocked">Bị chặn (BLOCK)</option>}
                 {/* Preserve the overview's pending shortcut without another menu choice. */}
                 {status === "__pending" && <option value="__pending" hidden>Hồ sơ chưa hoàn tất</option>}
                 {Object.entries(reviewLabels).filter(([code]) => !accountView || code === "OPEN" || code === "IN_REVIEW").map(([code, label]) => (
@@ -345,12 +346,12 @@ export function FraudPage({ role = "admin" }: { role?: "admin" | "employee" }) {
                 <thead className="bg-slate-50">
                   <tr>
                     {(accountView ? ["Tài khoản", "Khách hàng", "Hồ sơ chưa hoàn tất", "Thao tác"] : [
-                      "Mã review",
+                      "Mã cảnh báo",
                       "Thời gian",
                       "Khách hàng",
                       "Giao dịch",
                       "Rủi ro",
-                      "Trạng thái review",
+                      "Trạng thái cảnh báo",
                       "Trạng thái giao dịch",
                       "Thao tác",
                     ]).map((x) => (
@@ -432,7 +433,7 @@ export function FraudPage({ role = "admin" }: { role?: "admin" | "employee" }) {
                       </td>
                       <td className="p-1.5">
                         <span
-                          className={`inline-block rounded px-1 text-center ${statusTone[x.reviewStatus]}`}
+                          className={`inline-block rounded px-1 text-center ${statusTone[x.reviewStatus ?? ''] ?? (x.blocked ? 'bg-red-50 text-red-600' : 'bg-slate-100 text-slate-600')}`}
                         >
                           {x.status}
                         </span>
@@ -451,7 +452,7 @@ export function FraudPage({ role = "admin" }: { role?: "admin" | "employee" }) {
           <aside className="staff-secondary-panels fraud-sidebar grid min-h-0 grid-rows-[1.1fr_1fr_1.15fr] gap-3">
             <article className="card p-3">
               <h2 className="text-base font-black">
-                Review theo mức độ rủi ro
+                Cảnh báo theo mức độ rủi ro
               </h2>
               <DistributionChart
                 items={riskCounts.map((item, index) => ({
@@ -459,14 +460,14 @@ export function FraudPage({ role = "admin" }: { role?: "admin" | "employee" }) {
                   value: item.count,
                   color: riskColors[index],
                 }))}
-                label="review"
+                label="cảnh báo"
                 ready={reviewsQuery.isSuccess}
                 error={reviewsQuery.isError}
               />
             </article>
             <article className="card p-3">
               <h2 className="text-base font-black">
-                Review theo loại giao dịch
+                Cảnh báo theo loại giao dịch
               </h2>
               <div className="mt-2 space-y-1.5 text-[10px]">
                 {typePreview.map((item, index) => (
